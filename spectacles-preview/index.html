@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dance Coach Specs Preview</title>
+<style>
+  :root { --bg:#1B1B1A; --panel:rgba(24,24,23,.92); --ink:#ECECE8; --muted:#A3A29C; --line:#3A3A37; --hot:#7C97FF }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:14px system-ui, -apple-system, sans-serif; overflow:hidden }
+  canvas { display:block; touch-action:none }
+  #ui { position:fixed; left:16px; top:16px; width:min(340px, calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow:auto; box-sizing:border-box;
+        background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px; display:flex; flex-direction:column; gap:12px; z-index:2 }
+  h1 { margin:0; font-size:16px; font-weight:600 }
+  p { margin:0; color:var(--muted); font-size:12px; line-height:1.5 }
+  .row { display:flex; gap:6px; flex-wrap:wrap; align-items:center }
+  button { font:600 13px system-ui, sans-serif; min-height:36px; padding:0 12px; border-radius:10px; border:1px solid var(--line); background:transparent; color:var(--ink); cursor:pointer }
+  button[aria-pressed="true"] { background:var(--ink); color:var(--bg); border-color:var(--ink) }
+  button.primary { background:var(--hot); border-color:var(--hot); color:#0E1330; width:100% }
+  button:focus-visible { outline:2px solid var(--hot); outline-offset:2px }
+  label.sl { display:grid; grid-template-columns:78px 1fr 52px; gap:8px; align-items:center; font-size:12px; color:var(--muted) }
+  label.sl output { font:12px ui-monospace, monospace; color:var(--ink); text-align:right }
+  input[type=range] { width:100% }
+  #hide { position:fixed; right:16px; top:16px; z-index:2; background:var(--panel) }
+  #ui[hidden] { display:none }
+</style>
+</head>
+<body>
+<button id="hide" type="button">Hide panel</button>
+<div id="ui">
+  <h1>Dance Coach · Specs preview</h1>
+  <p id="xrmsg">Checking for WebXR…</p>
+  <button id="enter" class="primary" type="button" hidden>View in my room</button>
+  <div class="row" role="group" aria-label="Screen">
+    <button type="button" data-screen="B">B Playing</button>
+    <button type="button" data-screen="C">C Clip ended</button>
+  </div>
+  <div class="row" role="group" aria-label="Theme">
+    <button type="button" data-theme="light">Wireframe light</button>
+    <button type="button" data-theme="dark">Specs dark</button>
+  </div>
+  <label class="sl">Distance <input id="dist" type="range" min="0.6" max="3" step="0.05"><output id="distv"></output></label>
+  <label class="sl">To the right <input id="yaw" type="range" min="-60" max="60" step="1"><output id="yawv"></output></label>
+  <label class="sl">Below eyes <input id="drop" type="range" min="-0.5" max="0.8" step="0.01"><output id="dropv"></output></label>
+  <label class="sl">Size <input id="scale" type="range" min="0.5" max="3" step="0.05"><output id="scalev"></output></label>
+  <p>Drag to look around. Click the control bar and section tiles; they work like the prototype. In the headset, pinch to press, and use the small tweak bar below-left to adjust.</p>
+  <button id="reset" type="button">Reset layout</button>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+/* ------------------------------------------------------------------
+   LAYOUT — edit here to change the design.
+   Positions are in wireframe pixels from the 1280×800 "Spectacles view"
+   frames in the clickable prototype (screens B and C).
+   SIZE turns pixels into meters: 1.5 means 1 px = 1.5 mm in your room.
+------------------------------------------------------------------- */
+const LAYOUT = {
+  B: { video:    { x: 790, y: 40,  w: 340, h: 604 },
+       progress: { x: 790, y: 662, w: 340, h: 6 } },
+  C: { video:    { x: 790, y: 40,  w: 300, h: 533 },
+       sections: { x: 600, y: 589, w: 490, h: 40 },
+       controls: { x: 410, y: 645, w: 746, h: 84 } },
+};
+const ANCHOR = { x: 940, y: 306 };          // this wireframe point sits at the placement point
+const DEFAULTS = { dist: 1.5, yaw: 25, drop: 0.10, scale: 1.5, theme: 'light', screen: 'C' };
+const BPM = 100;                               // tempo used to animate counts in screen B
+
+const THEMES = {
+  light: { panel:'#FFFFFF', video:'#D6D6D2', ink:'#1F1F1E', stroke:'#2B2B2A', muted:'#5E5E5A', soft:'#9A9A96',
+           chip:'#FFFFFF', countBg:'rgba(255,255,255,0.88)', active:'#1F1F1E', activeInk:'#FFFFFF', on:'#E3E3DF', done:'#F4F4F1', track:'#D6D6D2' },
+  dark:  { panel:'#121212', video:'#262626', ink:'#F2F2EE', stroke:'#8E8E89', muted:'#B9B9B3', soft:'#5E5E5A',
+           chip:'#121212', countBg:'rgba(0,0,0,0.72)', active:'#F2F2EE', activeInk:'#111111', on:'#34342F', done:'#1A1A1A', track:'#2E2E2E' },
+};
+
+/* ------------------------------ state ------------------------------ */
+const S = { ...DEFAULTS, speed: 0.75, mirror: true, counts: true, section: 2, mode: 0, count: 1 };
+try { Object.assign(S, JSON.parse(localStorage.getItem('dc-specs-preview') || '{}')); } catch (e) {}
+const q = new URLSearchParams(location.search);
+for (const k of ['dist','yaw','drop','scale']) if (q.has(k)) S[k] = parseFloat(q.get(k));
+if (q.has('screen')) S.screen = q.get('screen');
+if (q.has('theme')) S.theme = q.get('theme');
+S.count = S.screen === 'C' ? 8 : 1;
+function save() { try { localStorage.setItem('dc-specs-preview', JSON.stringify({ dist:S.dist, yaw:S.yaw, drop:S.drop, scale:S.scale, theme:S.theme, speed:S.speed, mirror:S.mirror, counts:S.counts })); } catch (e) {} }
+const MODES = ['Playthrough', 'Pose', 'Lookback'];
+
+/* ------------------------------ three ------------------------------ */
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const desktopBg = new THREE.Color('#ECECE8');
+scene.background = desktopBg;
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.05, 50);
+
+// A stand-in room for desktop only (the headset shows your real room).
+const room = new THREE.Group();
+const grid = new THREE.GridHelper(12, 24, 0xB9B9B4, 0xD3D3CE); grid.position.y = -1.6; room.add(grid);
+const ring = new THREE.Mesh(new THREE.RingGeometry(0.98, 1.0, 64), new THREE.MeshBasicMaterial({ color: 0x9A9A96, side: THREE.DoubleSide }));
+ring.rotation.x = -Math.PI / 2; ring.scale.set(1, 0.55, 1); ring.position.set(-0.2, -1.59, -1.8); room.add(ring);
+scene.add(room);
+
+// rig = where you stood/faced at start; board = the UI plane placed relative to it.
+const rig = new THREE.Group(); scene.add(rig);
+const yawPivot = new THREE.Group(); rig.add(yawPivot);
+const board = new THREE.Group(); yawPivot.add(board);
+
+/* ---------------------------- panels ------------------------------ */
+const RES = 3; // canvas pixels per wireframe pixel
+const clickables = [];
+function makePanel(w, h, draw, onClick) {
+  const c = document.createElement('canvas'); c.width = w * RES; c.height = h * RES;
+  const ctx = c.getContext('2d');
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, transparent: true }));
+  const p = { w, h, ctx, tex, mesh, draw, onClick, rect: null, hits: [] };
+  p.redraw = () => { ctx.setTransform(RES, 0, 0, RES, 0, 0); ctx.clearRect(0, 0, w, h); p.hits = []; draw(ctx, p); tex.needsUpdate = true; };
+  mesh.userData.panel = p;
+  if (onClick) clickables.push(mesh);
+  board.add(mesh);
+  return p;
+}
+function place(p, r) { p.rect = r; }
+function layoutPanels() {
+  const k = S.scale / 1000;
+  for (const p of allPanels) {
+    if (!p.rect) continue;
+    p.mesh.scale.set(p.rect.w * k, p.rect.h * k, 1);
+    p.mesh.position.set((p.rect.x + p.rect.w / 2 - ANCHOR.x) * k, -(p.rect.y + p.rect.h / 2 - ANCHOR.y) * k, 0);
+  }
+  board.position.set(0, -S.drop, -S.dist);
+  yawPivot.rotation.y = -THREE.MathUtils.degToRad(S.yaw);
+}
+
+/* ---------------------------- drawing ----------------------------- */
+const T = () => THEMES[S.theme] || THEMES.light;
+const SANS = 'system-ui, -apple-system, "Segoe UI", sans-serif', MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+function rr(ctx, x, y, w, h, r, fill, stroke, lw = 1.5, dash) {
+  ctx.beginPath(); ctx.roundRect(x + lw / 2, y + lw / 2, w - lw, h - lw, r);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.setLineDash(dash || []); ctx.lineWidth = lw; ctx.strokeStyle = stroke; ctx.stroke(); ctx.setLineDash([]); }
+}
+function text(ctx, s, x, y, { size = 13, weight = 400, color = T().ink, font = SANS, align = 'left', base = 'middle' } = {}) {
+  ctx.font = `${weight} ${size}px ${font}`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = base; ctx.fillText(s, x, y);
+}
+function chip(ctx, s, x, y, { right = false, dark = false } = {}) {
+  ctx.font = `400 11px ${MONO}`; const w = ctx.measureText(s).width + 16;
+  const x0 = right ? x - w : x;
+  rr(ctx, x0, y, w, 20, 10, dark ? T().active : T().chip, null);
+  text(ctx, s, x0 + 8, y + 10.5, { size: 11, font: MONO, color: dark ? T().activeInk : T().ink });
+  return w;
+}
+function lock(ctx, x, y, color) {
+  ctx.strokeStyle = color; ctx.lineWidth = 1.2;
+  ctx.strokeRect(x + 2, y + 5, 8, 6);
+  ctx.beginPath(); ctx.moveTo(x + 4, y + 5); ctx.lineTo(x + 4, y + 3.5); ctx.arc(x + 6, y + 3.5, 2, Math.PI, 0); ctx.lineTo(x + 8, y + 5); ctx.stroke();
+}
+// Stick-figure poses, one per count, so the "video" visibly moves.
+const POSES = [
+  [[22,38],[80,72],[30,150],[72,148]], [[26,80],[74,80],[34,152],[66,152]], [[20,42],[78,30],[28,146],[70,152]], [[22,74],[78,36],[34,152],[68,150]],
+  [[30,30],[70,30],[32,150],[68,150]], [[18,55],[82,55],[26,148],[74,148]], [[24,36],[76,78],[36,152],[64,146]], [[26,80],[74,80],[34,152],[66,152]],
+];
+function figure(ctx, cx, cy, s, count) {
+  const pose = POSES[(count - 1) % 8];
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(S.mirror ? -s : s, s); ctx.translate(-50, -90);
+  ctx.strokeStyle = T().muted; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(50, 28, 12, 0, Math.PI * 2); ctx.stroke();
+  const L = (a, b, c, d) => { ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke(); };
+  L(50, 40, 50, 100); L(50, 55, ...pose[0]); L(50, 55, ...pose[1]); L(50, 100, ...pose[2]); L(50, 100, ...pose[3]);
+  ctx.restore();
+}
+function drawVideo(ctx, p) {
+  const { w, h } = p, t = T();
+  rr(ctx, 0, 0, w, h, 16, t.video, t.stroke);
+  figure(ctx, w / 2, h / 2, w > 320 ? 1.2 : 1.1, S.count);
+  if (S.counts) {
+    ctx.beginPath(); ctx.arc(14 + 42, 14 + 42, 42, 0, Math.PI * 2); ctx.fillStyle = t.countBg; ctx.fill();
+    text(ctx, String(S.count), 56, 58, { size: 44, weight: 600, align: 'center' });
+  }
+  if (S.screen === 'B') {
+    let x = w - 14;
+    if (S.mirror) x -= chip(ctx, 'MIRRORED', x, 14, { right: true }) + 6;
+    chip(ctx, `${S.speed}×`, x, 14, { right: true });
+    const label = `${MODES[S.mode].toUpperCase()} · SECTION ${S.section} · controls locked`;
+    ctx.font = `400 11px ${MONO}`; const tw = ctx.measureText(label).width + 34;
+    rr(ctx, 14, h - 14 - 22, tw, 22, 11, t.chip, null);
+    lock(ctx, 22, h - 14 - 22 + 5, t.ink);
+    text(ctx, label, 38, h - 14 - 10.5, { size: 11, font: MONO });
+  } else {
+    const label = `SECTION ${S.section} DONE · controls unlocked`;
+    ctx.font = `400 11px ${MONO}`; const tw = ctx.measureText(label).width + 20;
+    rr(ctx, 14, h - 14 - 22, tw, 22, 11, t.chip, null);
+    text(ctx, label, 24, h - 14 - 10.5, { size: 11, font: MONO });
+  }
+}
+function drawProgress(ctx, p) {
+  const t = T();
+  rr(ctx, 0, 0, p.w, p.h, 3, t.track, null);
+  rr(ctx, 0, 0, Math.max(6, p.w * (S.count / 8)), p.h, 3, t.muted, null);
+}
+function drawSections(ctx, p) {
+  const t = T(), labels = ['Full', '1', '2', '3', '4'], gap = 6, tw = (p.w - gap * 4) / 5;
+  labels.forEach((lab, i) => {
+    const x = i * (tw + gap), cur = String(S.section) === lab, done = i > 0 && Number(lab) < S.section;
+    rr(ctx, x, 0, tw, p.h, 10, cur ? t.active : done || i === 0 ? t.done : t.panel, cur ? t.active : t.soft);
+    text(ctx, done ? `${lab} ✓` : lab, x + tw / 2, p.h / 2 + 1, { weight: cur ? 600 : 400, color: cur ? t.activeInk : t.ink, align: 'center' });
+    p.hits.push({ x, y: 0, w: tw, h: p.h, id: 'sec:' + lab });
+  });
+}
+function drawControls(ctx, p) {
+  const t = T(); let x = 12; const y = 12, H = 60;
+  rr(ctx, 0, 0, p.w, p.h, 18, t.panel, t.stroke);
+  // Mode
+  rr(ctx, x, y, 170, H, 12, t.panel, t.ink);
+  text(ctx, '↻ ' + MODES[S.mode], x + 12, y + 20, { weight: 600 });
+  for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(x + 16 + i * 11, y + 41, 3.5, 0, Math.PI * 2); ctx.fillStyle = i === S.mode ? t.ink : t.panel; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = t.ink; ctx.stroke(); }
+  text(ctx, 'NEXT: ' + MODES[(S.mode + 1) % 3].toUpperCase(), x + 50, y + 41, { size: 10, font: MONO, color: t.muted });
+  p.hits.push({ x, y, w: 170, h: H, id: 'mode' }); x += 178;
+  // Replay
+  rr(ctx, x, y, 110, H, 12, t.active, t.active);
+  text(ctx, '↺', x + 55, y + 22, { size: 18, weight: 600, color: t.activeInk, align: 'center' });
+  text(ctx, 'Replay section', x + 55, y + 44, { size: 12, weight: 600, color: t.activeInk, align: 'center' });
+  p.hits.push({ x, y, w: 110, h: H, id: 'replay' }); x += 118;
+  // From the top
+  rr(ctx, x, y, 150, H, 12, t.panel, t.soft);
+  ctx.strokeStyle = t.ink; ctx.lineWidth = 2; ctx.beginPath();
+  ctx.moveTo(x + 53, y + 16); ctx.lineTo(x + 53, y + 28); ctx.moveTo(x + 53, y + 22); ctx.lineTo(x + 92, y + 22); ctx.moveTo(x + 86, y + 17); ctx.lineTo(x + 92, y + 22); ctx.lineTo(x + 86, y + 27); ctx.stroke();
+  text(ctx, 'From the top', x + 75, y + 44, { size: 12, weight: 600, align: 'center' });
+  p.hits.push({ x, y, w: 150, h: H, id: 'top' }); x += 158;
+  // Speed
+  rr(ctx, x, y, 132, H, 12, t.panel, t.soft);
+  [0.5, 0.75, 1].forEach((s, i) => {
+    const bx = x + i * 44, on = S.speed === s;
+    if (on) { ctx.save(); ctx.beginPath(); ctx.roundRect(x + 1.5, y + 1.5, 129, H - 3, 11); ctx.clip(); ctx.fillStyle = t.active; ctx.fillRect(bx, y, 44, H); ctx.restore(); }
+    text(ctx, `${s}×`, bx + 22, y + H / 2, { size: 12, weight: 600, font: MONO, color: on ? t.activeInk : t.ink, align: 'center' });
+    p.hits.push({ x: bx, y, w: 44, h: H, id: 'speed:' + s });
+  }); x += 140;
+  // Toggles
+  for (const [id, label] of [['mirror', 'Mirror'], ['counts', 'Counts']]) {
+    const on = S[id];
+    rr(ctx, x, y, 60, H, 12, on ? t.on : t.panel, on ? t.ink : t.soft);
+    text(ctx, label, x + 30, y + 23, { size: 11, weight: 600, align: 'center' });
+    text(ctx, on ? 'on' : 'off', x + 30, y + 39, { size: 11, weight: 600, align: 'center', color: on ? t.ink : t.muted });
+    p.hits.push({ x, y, w: 60, h: H, id }); x += 68;
+  }
+}
+
+/* --------------------------- the panels ---------------------------- */
+const video = makePanel(340, 604, drawVideo);
+const progress = makePanel(340, 6, drawProgress);
+const sections = makePanel(490, 40, drawSections, act);
+const controls = makePanel(746, 84, drawControls, act);
+const allPanels = [video, progress, sections, controls];
+
+function act(id) {
+  if (id === 'mode') S.mode = (S.mode + 1) % 3;
+  else if (id === 'replay' || id === 'top') return go('B');
+  else if (id.startsWith('speed:')) S.speed = parseFloat(id.slice(6));
+  else if (id === 'mirror' || id === 'counts') S[id] = !S[id];
+  else if (id.startsWith('sec:')) { const s = id.slice(4); S.section = s === 'Full' ? 'Full' : Number(s); return go('B'); }
+  save(); refresh();
+}
+
+/* ------------------------- in-headset tweak bar ------------------------- */
+const TB = [
+  [['‹ Screen', 'prev'], ['Screen ›', 'next'], ['Theme', 'theme'], ['Recenter', 'recenter'], ['Hide bar', 'hidebar']],
+  [['Closer', 'closer'], ['Farther', 'farther'], ['Smaller', 'smaller'], ['Bigger', 'bigger'], ['◀ Left', 'left'], ['Right ▶', 'right'], ['Up', 'up'], ['Down', 'down']],
+];
+const tweak = (() => {
+  const w = 560, h = 150;
+  const p = makePanel(w, h, (ctx, p) => {
+    const t = THEMES.dark;
+    rr(ctx, 0, 0, w, h, 16, 'rgba(18,18,18,0.92)', '#8E8E89');
+    text(ctx, `SCREEN ${S.screen} · ${S.dist.toFixed(2)} m · ${S.yaw}° right · size ${S.scale.toFixed(2)}`, 14, 16, { size: 11, font: MONO, color: t.muted });
+    TB.forEach((row, r) => {
+      const gap = 6, bw = (w - 28 - gap * (row.length - 1)) / row.length, y = 30 + r * 58;
+      row.forEach(([label, id], i) => {
+        const x = 14 + i * (bw + gap);
+        rr(ctx, x, y, bw, 50, 10, '#262626', '#8E8E89');
+        text(ctx, label, x + bw / 2, y + 26, { size: 12, weight: 600, color: '#F2F2EE', align: 'center' });
+        p.hits.push({ x, y, w: bw, h: 50, id });
+      });
+    });
+  }, tweakAct);
+  board.remove(p.mesh); rig.add(p.mesh);
+  p.mesh.visible = false;
+  return p;
+})();
+function placeTweak() {
+  const k = 0.00085;
+  tweak.mesh.scale.set(tweak.w * k, tweak.h * k, 1);
+  tweak.mesh.position.set(-0.12, -0.32, -0.55);
+  tweak.mesh.rotation.set(-0.55, 0.15, 0);
+}
+function tweakAct(id) {
+  const order = ['B', 'C'];
+  switch (id) {
+    case 'prev': case 'next': go(order[(order.indexOf(S.screen) + 1) % 2]); break;
+    case 'theme': S.theme = S.theme === 'light' ? 'dark' : 'light'; break;
+    case 'recenter': needRecenter = true; break;
+    case 'hidebar': tweak.mesh.visible = false; break;
+    case 'closer': S.dist = Math.max(0.5, +(S.dist - 0.1).toFixed(2)); break;
+    case 'farther': S.dist = Math.min(4, +(S.dist + 0.1).toFixed(2)); break;
+    case 'smaller': S.scale = Math.max(0.4, +(S.scale - 0.1).toFixed(2)); break;
+    case 'bigger': S.scale = Math.min(4, +(S.scale + 0.1).toFixed(2)); break;
+    case 'left': S.yaw -= 5; break;
+    case 'right': S.yaw += 5; break;
+    case 'up': S.drop = +(S.drop - 0.05).toFixed(2); break;
+    case 'down': S.drop = +(S.drop + 0.05).toFixed(2); break;
+  }
+  save(); refresh();
+}
+
+/* ------------------------------ screens ------------------------------ */
+let beatClock = 0;
+function go(screen) {
+  S.screen = screen;
+  S.count = screen === 'B' ? 1 : 8;
+  beatClock = 0;
+  refresh();
+}
+function refresh() {
+  const L = LAYOUT[S.screen];
+  place(video, L.video);
+  progress.mesh.visible = !!L.progress; if (L.progress) place(progress, L.progress);
+  sections.mesh.visible = !!L.sections; if (L.sections) place(sections, L.sections);
+  controls.mesh.visible = !!L.controls; if (L.controls) place(controls, L.controls);
+  // the video canvas is sized for the larger frame; re-create when the frame size changes
+  if (video.w !== L.video.w || video.h !== L.video.h) {
+    video.w = L.video.w; video.h = L.video.h;
+    video.ctx.canvas.width = video.w * RES; video.ctx.canvas.height = video.h * RES;
+    video.tex.dispose(); video.tex = new THREE.CanvasTexture(video.ctx.canvas); video.tex.colorSpace = THREE.SRGBColorSpace; video.tex.anisotropy = 8;
+    video.mesh.material.map = video.tex; video.mesh.material.needsUpdate = true;
+  }
+  for (const p of allPanels) if (p.mesh.visible) p.redraw();
+  tweak.redraw();
+  layoutPanels();
+  syncUI();
+}
+
+/* ------------------------------ input ------------------------------ */
+const raycaster = new THREE.Raycaster();
+const targets = () => [...clickables.filter(m => m.visible), ...(tweak.mesh.visible ? [tweak.mesh] : [])];
+function hitTest() {
+  const hit = raycaster.intersectObjects(targets(), false)[0];
+  if (!hit || !hit.uv) return null;
+  const p = hit.object.userData.panel, px = hit.uv.x * p.w, py = (1 - hit.uv.y) * p.h;
+  const h = p.hits.find(r => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h);
+  return { hit, p, h };
+}
+function press() { const r = hitTest(); if (r && r.h) { r.p.onClick(r.h.id); return true; } return false; }
+
+// Desktop: drag to look, click to press.
+let look = { yaw: THREE.MathUtils.degToRad(-14), pitch: -0.08 }, drag = null;
+const el = renderer.domElement;
+el.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; el.setPointerCapture(e.pointerId); });
+el.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.moved += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY;
+  look.yaw += dx * 0.004; look.pitch = THREE.MathUtils.clamp(look.pitch + dy * 0.004, -1.2, 1.2);
+});
+el.addEventListener('pointerup', e => {
+  if (drag && drag.moved < 6) {
+    const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera); press();
+  }
+  drag = null;
+});
+
+// Headset: pinch (select) from either hand.
+const tmp = new THREE.Matrix4();
+const cursor = new THREE.Mesh(new THREE.SphereGeometry(0.006, 12, 8), new THREE.MeshBasicMaterial({ color: 0x7C97FF }));
+cursor.visible = false; scene.add(cursor);
+const ctrls = [0, 1].map(i => {
+  const c = renderer.xr.getController(i);
+  c.addEventListener('select', () => { rayFrom(c); if (!press() && !tweak.mesh.visible) { tweak.mesh.visible = true; } });
+  scene.add(c); return c;
+});
+function rayFrom(obj) {
+  tmp.identity().extractRotation(obj.matrixWorld);
+  raycaster.ray.origin.setFromMatrixPosition(obj.matrixWorld);
+  raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tmp);
+}
+
+/* ------------------------------ XR session ------------------------------ */
+const enterBtn = document.getElementById('enter'), xrmsg = document.getElementById('xrmsg');
+let needRecenter = false;
+if (navigator.xr) {
+  navigator.xr.isSessionSupported('immersive-ar').then(ok => {
+    if (ok) { enterBtn.hidden = false; xrmsg.textContent = 'WebXR is available. Tap below, then look to your right.'; }
+    else xrmsg.textContent = 'No AR here. Open this page in the Spectacles browser to see it in your room. This desktop view is a stand-in.';
+  }).catch(() => { xrmsg.textContent = 'Could not check WebXR. Desktop view only.'; });
+} else xrmsg.textContent = 'No WebXR in this browser. Open this page in the Spectacles browser to see it in your room. This desktop view is a stand-in.';
+
+enterBtn.addEventListener('click', async () => {
+  try {
+    const session = await navigator.xr.requestSession('immersive-ar', { optionalFeatures: ['local-floor', 'hand-tracking'] });
+    renderer.xr.setReferenceSpaceType('local');
+    await renderer.xr.setSession(session);
+    scene.background = null; room.visible = false;
+    tweak.mesh.visible = true; needRecenter = true;
+    session.addEventListener('end', () => { scene.background = desktopBg; room.visible = true; tweak.mesh.visible = false; rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); });
+  } catch (err) { xrmsg.textContent = 'Could not start AR: ' + err.message; }
+});
+
+function recenter() {
+  const cam = renderer.xr.getCamera();
+  const pos = new THREE.Vector3(), quat = new THREE.Quaternion();
+  cam.getWorldPosition(pos); cam.getWorldQuaternion(quat);
+  const e = new THREE.Euler().setFromQuaternion(quat, 'YXZ');
+  rig.position.copy(pos); rig.rotation.set(0, e.y, 0);
+}
+
+/* ------------------------------ desktop UI ------------------------------ */
+const ui = document.getElementById('ui');
+document.getElementById('hide').addEventListener('click', e => { ui.hidden = !ui.hidden; e.target.textContent = ui.hidden ? 'Show panel' : 'Hide panel'; });
+document.querySelectorAll('[data-screen]').forEach(b => b.addEventListener('click', () => go(b.dataset.screen)));
+document.querySelectorAll('[data-theme]').forEach(b => b.addEventListener('click', () => { S.theme = b.dataset.theme; save(); refresh(); }));
+const fmt = { dist: v => v.toFixed(2) + ' m', yaw: v => v + '°', drop: v => v.toFixed(2) + ' m', scale: v => v.toFixed(2) + '×' };
+for (const k of Object.keys(fmt)) {
+  const inp = document.getElementById(k);
+  inp.addEventListener('input', () => { S[k] = parseFloat(inp.value); save(); layoutPanels(); tweak.redraw(); syncUI(); });
+}
+document.getElementById('reset').addEventListener('click', () => { Object.assign(S, { dist: DEFAULTS.dist, yaw: DEFAULTS.yaw, drop: DEFAULTS.drop, scale: DEFAULTS.scale }); save(); refresh(); });
+function syncUI() {
+  for (const k of Object.keys(fmt)) { document.getElementById(k).value = S[k]; document.getElementById(k + 'v').textContent = fmt[k](S[k]); }
+  document.querySelectorAll('[data-screen]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.screen === S.screen)));
+  document.querySelectorAll('[data-theme]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.theme === S.theme)));
+}
+
+/* ------------------------------ loop ------------------------------ */
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+const clock = new THREE.Clock();
+placeTweak();
+refresh();
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta();
+  if (renderer.xr.isPresenting) {
+    if (needRecenter) { recenter(); needRecenter = false; }
+    cursor.visible = false;
+    for (const c of ctrls) { rayFrom(c); const r = hitTest(); if (r) { cursor.position.copy(r.hit.point); cursor.visible = true; break; } }
+  } else {
+    camera.rotation.set(look.pitch, look.yaw, 0, 'YXZ');
+  }
+  // Screen B plays: counts advance with the beat at the chosen speed, then the clip ends (screen C).
+  if (S.screen === 'B') {
+    beatClock += dt;
+    const beat = 60 / BPM / S.speed;
+    if (beatClock >= beat) {
+      beatClock -= beat;
+      if (S.count >= 8) go('C');
+      else { S.count++; video.redraw(); progress.redraw(); }
+    }
+  }
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

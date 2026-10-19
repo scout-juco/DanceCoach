@@ -1,0 +1,27 @@
+# Spectacles preview
+
+A WebXR page that places the Playing (B) and Clip ended (C) wireframes in your room at real size, so you can check placement, scale and readability in Spectacles.
+
+## Open it on Spectacles
+
+WebXR needs an HTTPS address, so host this folder once:
+
+1. Push this repo to GitHub.
+2. In the repo on GitHub: Settings → Pages → Source: "Deploy from a branch", branch `main`, folder `/ (root)`.
+3. After a minute, the page is at `https://<your-username>.github.io/<repo-name>/spectacles-preview/`.
+4. On Spectacles, open the Browser, go to that address, and tap **View in my room**. The video window appears about 25° to your right.
+
+Every time you push a change, refresh the page in the Specs browser.
+
+## In the headset
+
+- Pinch the control bar and section tiles: they work like the prototype (Replay plays screen B, which counts 1–8 and returns to C).
+- The tweak bar below-left: switch screens, light/dark theme, move closer/farther, left/right, up/down, resize, recenter.
+- If you hide the tweak bar, pinch empty space to bring it back.
+- Write down the distance/angle/size the bar shows when it looks right.
+
+## Making changes
+
+- Layout, sizes and default placement: the `LAYOUT`, `ANCHOR` and `DEFAULTS` block at the top of the script in `index.html`. Positions are pixels from the 1280×800 prototype frames.
+- You can also open with settings in the URL: `?screen=B&dist=1.2&yaw=30&scale=1.8&theme=dark`.
+- On a laptop, the same page shows a desktop stand-in with sliders.
