@@ -38,6 +38,8 @@
   <div class="row screens" role="group" aria-label="Pose screens" data-group="1"></div>
   <h2>Lookback</h2>
   <div class="row screens" role="group" aria-label="Lookback screens" data-group="2"></div>
+  <h2>Finish</h2>
+  <div class="row screens" role="group" aria-label="Finish screens" data-group="3"></div>
   <div class="row" role="group" aria-label="Theme">
     <button type="button" data-theme="light">Wireframe light</button>
     <button type="button" data-theme="dark">Specs dark</button>
@@ -46,7 +48,8 @@
   <label class="sl">To the right <input id="yaw" type="range" min="-60" max="60" step="1"><output id="yawv"></output></label>
   <label class="sl">Below eyes <input id="drop" type="range" min="-0.5" max="0.8" step="0.01"><output id="dropv"></output></label>
   <label class="sl">Size <input id="scale" type="range" min="0.5" max="3" step="0.05"><output id="scalev"></output></label>
-  <p>Drag to look around. Everything on the panels works like the prototype: the mode button cycles Playthrough → Pose → Lookback. In the headset, pinch to press, and use the small tweak bar below-left to adjust.</p>
+  <label class="sl">Pop-ups at <input id="popDist" type="range" min="0.5" max="2" step="0.05"><output id="popDistv"></output></label>
+  <p>Drag to look around. Everything on the panels works like the prototype: the mode button cycles Playthrough → Pose → Lookback. Pop-ups (Record lookback?, Routine done, Record your dance) open in front of you, not on the video, and follow if you turn away. In the headset, pinch to press, and use the small tweak bar below-left to adjust.</p>
   <button id="reset" type="button">Reset layout</button>
 </div>
 
@@ -70,11 +73,18 @@ const SCREENS = {
   D: { group: 1, label: 'D Pose',        panels: { video: [790, 40, 340, 604], poseThin: [790, 660, 340, 28] } },
   E: { group: 1, label: 'E Pose open',   panels: { video: [790, 40, 300, 533], posePanel: [520, 590, 740, 128] } },
   I: { group: 2, label: 'I Lookback',    panels: { lookPanel: [470, 40, 300, 533], video: [790, 40, 300, 533], attempts: [470, 583, 620, 52], lookControls: [470, 645, null, 84] } },
-  J: { group: 2, label: 'J Record?',     panels: { ghostL: [470, 40, 300, 533], ghostV: [790, 40, 300, 533], dialog: [520, 130, 440, 330, 0.03] } },
+  J: { group: 2, label: 'J Record?',     dim: true, panels: { lookPanel: [470, 40, 300, 533], video: [790, 40, 300, 533], attempts: [470, 583, 620, 52], lookControls: [470, 645, null, 84] },
+       view: { dialog: [0, 0, 440, 330] } },
   K: { group: 2, label: 'K Recording',   panels: { countdown: [560, 200, 200, 200], video: [790, 40, 340, 604], progress: [790, 662, 340, 6] } },
   L: { group: 2, label: 'L Takes',       panels: { lookPanel: [470, 40, 300, 533], video: [790, 40, 300, 533], attempts: [470, 583, 620, 52], lookControls: [470, 645, null, 84] } },
   M: { group: 2, label: 'M Side by side', panels: { sbsL: [500, 40, 310, 555], sbsR: [830, 40, 310, 555], sbsBar: [500, 606, 640, 44], sbsControls: [380, 676, null, 80] } },
+  G: { group: 3, label: 'G Routine done', dim: true, panels: { video: [790, 40, 340, 604] }, view: { done: [0, 0, 640, 334] } },
+  H: { group: 3, label: 'H Record dance', dim: true, panels: { video: [790, 40, 340, 604] }, view: { recDance: [0, 0, 380, 380], phoneCam: [429, -14, 240, 448] } },
 };
+// Pop-ups ("view" panels above) are not on the video board. They open in front of
+// you, POPUP.dist meters away and POPUP.drop below eye level, and follow lazily
+// when you turn more than POPUP.followDeg away. Their x/y are relative to each other.
+const POPUP = { dist: 1.0, drop: 0.05, followDeg: 30 };
 // Buttons in each control bar, left to right.
 const BARS = {
   controls:     ['mode', 'replay', 'top', 'speed', 'mirror', 'counts'],
@@ -83,10 +93,10 @@ const BARS = {
 };
 const ORDER = Object.keys(SCREENS);
 const ANCHOR = { x: 940, y: 306 };          // this wireframe point sits at the placement point
-const DEFAULTS = { dist: 1.5, yaw: 25, drop: 0.10, scale: 1.5, theme: 'light', screen: 'C' };
+const DEFAULTS = { dist: 1.5, yaw: 25, drop: 0.10, scale: 1.5, popDist: POPUP.dist, theme: 'light', screen: 'C' };
 const BPM = 100;                               // tempo used to animate counts
 const MODES = ['Playthrough', 'Pose', 'Lookback'];
-const MODE_ENTRY = ['C', 'D', 'I'];            // where the mode button takes you
+const MODE_ENTRY = ['C', 'D', 'I', 'C'];            // where the mode button takes you
 
 const THEMES = {
   light: { panel:'#FFFFFF', video:'#D6D6D2', ink:'#1F1F1E', ink2:'#3D3D3A', stroke:'#2B2B2A', muted:'#5E5E5A', soft:'#9A9A96',
@@ -98,15 +108,15 @@ const THEMES = {
 };
 
 /* ------------------------------ state ------------------------------ */
-const S = { ...DEFAULTS, speed: 0.75, mirror: true, counts: true, section: 2, count: 1, pose: 9,
+const S = { ...DEFAULTS, hRec: false, speed: 0.75, mirror: true, counts: true, section: 2, count: 1, pose: 9,
             takes: [], sel: -1, kPhase: 'count', kCount: 3, sbsPlaying: false };
 try { Object.assign(S, JSON.parse(localStorage.getItem('dc-specs-preview') || '{}')); } catch (e) {}
 const q = new URLSearchParams(location.search);
-for (const k of ['dist', 'yaw', 'drop', 'scale']) if (q.has(k)) S[k] = parseFloat(q.get(k));
+for (const k of ['dist', 'yaw', 'drop', 'scale', 'popDist']) if (q.has(k)) S[k] = parseFloat(q.get(k));
 if (q.has('theme')) S.theme = q.get('theme');
 const startScreen = SCREENS[q.get('screen')] ? q.get('screen') : DEFAULTS.screen;
-function save() { try { localStorage.setItem('dc-specs-preview', JSON.stringify({ dist:S.dist, yaw:S.yaw, drop:S.drop, scale:S.scale, theme:S.theme, speed:S.speed, mirror:S.mirror, counts:S.counts })); } catch (e) {} }
-const modeOf = sc => SCREENS[sc].group;
+function save() { try { localStorage.setItem('dc-specs-preview', JSON.stringify({ dist:S.dist, popDist:S.popDist, yaw:S.yaw, drop:S.drop, scale:S.scale, theme:S.theme, speed:S.speed, mirror:S.mirror, counts:S.counts })); } catch (e) {} }
+const modeOf = sc => SCREENS[sc].group % 3;
 const poseLabel = () => `${Math.floor(S.pose / 2) + 1}${S.pose % 2 ? '&' : ''}`;
 
 /* ------------------------------ three ------------------------------ */
@@ -133,15 +143,19 @@ scene.add(room);
 const rig = new THREE.Group(); scene.add(rig);
 const yawPivot = new THREE.Group(); rig.add(yawPivot);
 const board = new THREE.Group(); yawPivot.add(board);
+// front = pop-ups, placed in front of your head rather than on the board.
+const front = new THREE.Group(); scene.add(front);
+const frontInner = new THREE.Group(); front.add(frontInner);
 
 /* ---------------------------- panels ------------------------------ */
 const RES = 3; // canvas pixels per wireframe pixel
 const measureCtx = document.createElement('canvas').getContext('2d');
 const PANELS = {};
 function makePanel(name, draw, clickable = true, parent = board) {
+  if (parent === 'view') parent = frontInner;
   const c = document.createElement('canvas'); c.width = c.height = RES;
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true }));
-  const p = { name, w: 1, h: 1, z: 0, canvas: c, ctx: c.getContext('2d'), tex: null, mesh, draw, clickable, hits: [], rect: null };
+  const p = { name, space: parent === frontInner ? 'view' : 'board', w: 1, h: 1, z: 0, canvas: c, ctx: c.getContext('2d'), tex: null, mesh, draw, clickable, hits: [], rect: null };
   mesh.userData.panel = p; mesh.visible = false;
   setTexture(p);
   p.redraw = () => { const ctx = p.ctx; ctx.setTransform(RES, 0, 0, RES, 0, 0); ctx.clearRect(0, 0, p.w, p.h); p.hits = []; draw(ctx, p); p.tex.needsUpdate = true; };
@@ -161,11 +175,17 @@ function setRect(p, [x, y, w, h, z = 0]) {
 }
 function layoutPanels() {
   const k = S.scale / 1000;
+  // pop-ups are centred on the middle of their own bounding box
+  const view = Object.values(SCREENS[S.screen].view || {});
+  const vb = view.length ? { x: Math.min(...view.map(r => r[0])), y: Math.min(...view.map(r => r[1])), r: Math.max(...view.map(r => r[0] + r[2])), b: Math.max(...view.map(r => r[1] + r[3])) } : null;
+  const vAnchor = vb ? { x: (vb.x + vb.r) / 2, y: (vb.y + vb.b) / 2 } : ANCHOR;
   for (const p of Object.values(PANELS)) {
     if (!p.rect || p === tweak) continue;
+    const a = p.space === 'view' ? vAnchor : ANCHOR;
     p.mesh.scale.set(p.rect.w * k, p.rect.h * k, 1);
-    p.mesh.position.set((p.rect.x + p.rect.w / 2 - ANCHOR.x) * k, -(p.rect.y + p.rect.h / 2 - ANCHOR.y) * k, p.z);
+    p.mesh.position.set((p.rect.x + p.rect.w / 2 - a.x) * k, -(p.rect.y + p.rect.h / 2 - a.y) * k, p.z);
   }
+  frontInner.position.set(0, -POPUP.drop, -S.popDist);
   board.position.set(0, -S.drop, -S.dist);
   yawPivot.rotation.y = -THREE.MathUtils.degToRad(S.yaw);
 }
@@ -317,6 +337,7 @@ function drawVideo(ctx, p) {
     I: ['LOOKBACK MODE · controls unlocked'],
     K: [S.kPhase === 'play' ? `LOOKBACK · ${sec} · controls locked` : `LOOKBACK · ${sec} · get ready`, { locked: true }],
     L: ['LOOKBACK SAVED · controls unlocked'],
+    G: ['ROUTINE DONE · last frame'], H: ['ROUTINE DONE · last frame'],
   }[sc];
   if (tags) tag(ctx, tags[0], 14, h - 14, tags[1]);
   if (sc === 'E') p.hits.push({ x: 0, y: 0, w, h, id: 'closePose' });
@@ -409,13 +430,6 @@ function drawAttempts(ctx, p) {
   text(ctx, '+', px + plusW / 2, h / 2 + 1, { size: 20, weight: 600, align: 'center' });
   p.hits.push({ x: px, y: 0, w: plusW, h, id: 'record' });
 }
-function drawGhost(label) {
-  return (ctx, p) => {
-    const t = T();
-    rr(ctx, 0, 0, p.w, p.h, 16, t.ghost, t.ghostLine);
-    text(ctx, label, p.w / 2, p.h / 2, { size: 12, font: MONO, color: t.muted, align: 'center' });
-  };
-}
 function drawDialog(ctx, p) {
   const t = T(), pad = 28, w = p.w;
   rr(ctx, 0, 0, w, p.h, 20, t.panel, t.stroke);
@@ -434,6 +448,50 @@ function drawDialog(ctx, p) {
   rr(ctx, pad + bw + 10, by, bw, 56, 14, t.panel, t.ink);
   text(ctx, 'Not now', pad + bw * 1.5 + 10, by + 28, { size: 16, weight: 600, align: 'center' });
   p.hits.push({ x: pad + bw + 10, y: by, w: bw, h: 56, id: 'no' });
+}
+function btn(ctx, p, x, y, w, h, id, label, { sub, primary = false, quiet = false, size = 14 } = {}) {
+  const t = T();
+  rr(ctx, x, y, w, h, primary ? 16 : 14, primary ? t.active : t.panel, primary ? null : quiet ? t.soft : t.ink);
+  const ink = primary ? t.activeInk : t.ink;
+  if (sub) {
+    text(ctx, label, x + 20, y + h / 2 - 10, { size: 18, weight: 600, color: ink });
+    text(ctx, sub, x + 20, y + h / 2 + 13, { size: 13, color: primary ? (S.theme === 'dark' ? '#3D3D3A' : '#D6D6D2') : t.muted });
+  } else text(ctx, label, x + w / 2, y + h / 2, { size, weight: 600, color: ink, align: 'center' });
+  p.hits.push({ x, y, w, h, id });
+}
+function drawDone(ctx, p) {
+  const t = T(), pad = 28, w = p.w, iw = w - pad * 2;
+  rr(ctx, 0, 0, w, p.h, 20, t.panel, t.stroke);
+  text(ctx, `FROM THE TOP · SECTION 1 → SECTION 4 · ${S.speed}×`, pad, pad + 8, { size: 12, font: MONO, color: t.ink2 });
+  text(ctx, "That's the whole routine.", pad, pad + 46, { size: 30, weight: 600 });
+  const tw = (iw - 18) / 4;
+  for (let i = 0; i < 4; i++) { rr(ctx, pad + i * (tw + 6), pad + 80, tw, 30, 8, t.active, null); text(ctx, `${i + 1} ✓`, pad + i * (tw + 6) + tw / 2, pad + 95, { size: 12, color: t.activeInk, align: 'center' }); }
+  btn(ctx, p, pad, pad + 126, iw, 72, 'recDance', 'Record your dance', { sub: 'Prop up your phone. You start and stop it from here.', primary: true });
+  const bw = (iw - 20) / 3, by = pad + 214;
+  btn(ctx, p, pad, by, bw, 56, 'again', 'Run it again from the top');
+  btn(ctx, p, pad + bw + 10, by, bw, 56, 'practice', 'Keep practicing a section');
+  btn(ctx, p, pad + (bw + 10) * 2, by, bw, 56, 'dances', 'Back to dances', { quiet: true });
+}
+function drawRecDance(ctx, p) {
+  const t = T(), pad = 24, w = p.w, iw = w - pad * 2;
+  rr(ctx, 0, 0, w, p.h, 20, t.panel, t.stroke);
+  text(ctx, S.hRec ? 'Recording your dance' : 'Record your dance', pad, pad + 14, { size: 24, weight: 600 });
+  const rows = [['Phone camera', 'CONNECTED ✓'], ["You're in frame", '✓'], ['Music', 'from [ORIGINAL VIDEO SOURCE]'], ['Speed', '1× · full routine']];
+  rows.forEach(([a, b], i) => { const y = pad + 50 + i * 24; text(ctx, a, pad, y, { size: 14 }); text(ctx, b, w - pad, y, { size: 12, font: MONO, align: 'right' }); });
+  const by = pad + 150;
+  if (S.hRec) btn(ctx, p, pad, by, iw, 72, 'recToggle', 'Stop recording', { sub: 'Or say "stop"', primary: true });
+  else btn(ctx, p, pad, by, iw, 72, 'recToggle', 'Start recording', { sub: '3-second countdown, then the music starts', primary: true });
+  wrap(ctx, 'Controls lock while recording. Say "stop" to end early.', pad, by + 86, iw, 17, { size: 13, color: t.muted });
+  btn(ctx, p, pad, p.h - pad - 44, iw, 44, 'cancel', 'Cancel', { quiet: true, size: 13 });
+}
+function drawPhoneCam(ctx, p) {
+  const t = T(), vh = p.h - 22;
+  text(ctx, 'PHONE CAMERA · LIVE', 0, 7, { size: 11, font: MONO, color: t.ink2 });
+  rr(ctx, 0, 22, p.w, vh, 14, S.theme === 'dark' ? '#3A3A36' : '#7A7A76', t.stroke);
+  const keep = S.mirror; S.mirror = false;
+  figure(ctx, p.w / 2, 22 + vh / 2, 0.9, 2, '#ECECE8');
+  S.mirror = keep;
+  chip(ctx, S.hRec ? '● REC' : 'READY', 10, 32, S.hRec);
 }
 function drawCountdown(ctx, p) {
   const t = T(), r = p.w / 2;
@@ -473,9 +531,10 @@ makePanel('posePanel', drawPosePanel);
 makePanel('lookPanel', drawLookPanel);
 makePanel('attempts', drawAttempts);
 makePanel('lookControls', drawBar);
-makePanel('ghostL', drawGhost('LOOKBACK PANEL'), false);
-makePanel('ghostV', drawGhost('VIDEO'), false);
-makePanel('dialog', drawDialog);
+makePanel('dialog', drawDialog, true, 'view');
+makePanel('done', drawDone, true, 'view');
+makePanel('recDance', drawRecDance, true, 'view');
+makePanel('phoneCam', drawPhoneCam, false, 'view');
 makePanel('countdown', drawCountdown, false);
 makePanel('sbsL', drawSbs(false), false);
 makePanel('sbsR', drawSbs(true), false);
@@ -503,19 +562,24 @@ function act(id, px) {
   else if (id.startsWith('take:')) { S.sel = Number(id.slice(5)); return go('L'); }
   else if (id === 'takes') return go('L');
   else if (id === 'sbsPlay') { if (!S.sbsPlaying && S.count >= 8) S.count = 1; S.sbsPlaying = !S.sbsPlaying; beatClock = 0; }
+  else if (id === 'recDance') return go('H');
+  else if (id === 'again') { S.section = 4; return go('B'); }
+  else if (id === 'practice' || id === 'dances') { S.section = 1; return go('C'); }
+  else if (id === 'recToggle') S.hRec = !S.hRec;
+  else if (id === 'cancel') return go('G');
   else if (id === 'sbsScrub') { S.count = THREE.MathUtils.clamp(Math.floor(((px - 56) / (PANELS.sbsBar.w - 56)) * 8) + 1, 1, 8); }
   save(); refresh();
 }
 
 /* ------------------------- in-headset tweak bar ------------------------- */
 const TB = [
-  [['‹ Screen', 'prev'], ['Screen ›', 'next'], ['Theme', 'theme'], ['Recenter', 'recenter'], ['Hide bar', 'hidebar']],
+  [['‹ Screen', 'prev'], ['Screen ›', 'next'], ['Theme', 'theme'], ['Recenter', 'recenter'], ['Pop-up nearer', 'popnear'], ['Pop-up farther', 'popfar'], ['Hide bar', 'hidebar']],
   [['Closer', 'closer'], ['Farther', 'farther'], ['Smaller', 'smaller'], ['Bigger', 'bigger'], ['◀ Left', 'left'], ['Right ▶', 'right'], ['Up', 'up'], ['Down', 'down']],
 ];
 const tweak = makePanel('tweak', (ctx, p) => {
   const { w, h } = p;
   rr(ctx, 0, 0, w, h, 16, 'rgba(18,18,18,0.92)', '#8E8E89');
-  text(ctx, `${SCREENS[S.screen].label.toUpperCase()} · ${S.dist.toFixed(2)} m · ${S.yaw}° right · size ${S.scale.toFixed(2)}`, 14, 16, { size: 11, font: MONO, color: '#B9B9B3' });
+  text(ctx, `${SCREENS[S.screen].label.toUpperCase()} · ${S.dist.toFixed(2)} m · ${S.yaw}° right · size ${S.scale.toFixed(2)} · pop-ups ${S.popDist.toFixed(2)} m`, 14, 16, { size: 11, font: MONO, color: '#B9B9B3' });
   TB.forEach((row, r) => {
     const gap = 6, bw = (w - 28 - gap * (row.length - 1)) / row.length, y = 30 + r * 58;
     row.forEach(([label, id], i) => {
@@ -526,8 +590,8 @@ const tweak = makePanel('tweak', (ctx, p) => {
     });
   });
 }, true, rig);
-setRect(tweak, [0, 0, 560, 150]);
-tweak.mesh.scale.set(560 * 0.00085, 150 * 0.00085, 1);
+setRect(tweak, [0, 0, 700, 150]);
+tweak.mesh.scale.set(700 * 0.00085, 150 * 0.00085, 1);
 tweak.mesh.position.set(-0.12, -0.32, -0.55);
 tweak.mesh.rotation.set(-0.55, 0.15, 0);
 function tweakAct(id) {
@@ -538,6 +602,8 @@ function tweakAct(id) {
     case 'theme': S.theme = S.theme === 'light' ? 'dark' : 'light'; break;
     case 'recenter': needRecenter = true; break;
     case 'hidebar': tweak.mesh.visible = false; break;
+    case 'popnear': S.popDist = Math.max(0.4, +(S.popDist - 0.1).toFixed(2)); break;
+    case 'popfar': S.popDist = Math.min(2.5, +(S.popDist + 0.1).toFixed(2)); break;
     case 'closer': S.dist = Math.max(0.5, +(S.dist - 0.1).toFixed(2)); break;
     case 'farther': S.dist = Math.min(4, +(S.dist + 0.1).toFixed(2)); break;
     case 'smaller': S.scale = Math.max(0.4, +(S.scale - 0.1).toFixed(2)); break;
@@ -553,7 +619,9 @@ function tweakAct(id) {
 /* ------------------------------ screens ------------------------------ */
 let beatClock = 0;
 function go(screen) {
-  S.screen = screen; beatClock = 0; S.sbsPlaying = false;
+  const hadView = !!SCREENS[S.screen]?.view;
+  S.screen = screen; beatClock = 0; S.sbsPlaying = false; S.hRec = false;
+  if (SCREENS[screen].view && !hadView) needPlaceFront = true;
   if (screen === 'B') S.count = 1;
   if (screen === 'C' || screen === 'L') S.count = 8;
   if (screen === 'I') S.count = 1;
@@ -564,12 +632,16 @@ function go(screen) {
   refresh();
 }
 function refresh() {
-  const want = SCREENS[S.screen].panels;
+  const sc = SCREENS[S.screen], want = { ...sc.panels, ...(sc.view || {}) };
   for (const [name, p] of Object.entries(PANELS)) {
     if (p === tweak) continue;
     const r = want[name];
     p.mesh.visible = !!r && !(name === 'countdown' && S.kPhase === 'play');
     if (r) setRect(p, r);
+    // board panels behind a pop-up are dimmed and can't be pressed
+    const dim = sc.dim && p.space === 'board';
+    p.mesh.material.opacity = dim ? 0.3 : 1;
+    p.dimmed = dim;
   }
   for (const p of Object.values(PANELS)) if (p.mesh.visible || p === tweak) p.redraw();
   layoutPanels();
@@ -578,7 +650,7 @@ function refresh() {
 
 /* ------------------------------ input ------------------------------ */
 const raycaster = new THREE.Raycaster();
-const targets = () => Object.values(PANELS).filter(p => p.clickable && p.mesh.visible).map(p => p.mesh);
+const targets = () => Object.values(PANELS).filter(p => p.clickable && p.mesh.visible && !p.dimmed).map(p => p.mesh);
 function hitTest() {
   const hits = raycaster.intersectObjects(targets(), false);
   for (const hit of hits) {
@@ -644,11 +716,33 @@ enterBtn.addEventListener('click', async () => {
     renderer.xr.setReferenceSpaceType('local');
     await renderer.xr.setSession(session);
     scene.background = null; room.visible = false;
-    tweak.mesh.visible = true; needRecenter = true;
+    tweak.mesh.visible = true; needRecenter = true; needPlaceFront = true;
     session.addEventListener('end', () => { scene.background = desktopBg; room.visible = true; tweak.mesh.visible = false; rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); });
   } catch (err) { xrmsg.textContent = 'Could not start AR: ' + err.message; }
 });
 
+// Pop-ups: placed in front of where you're looking, then follow lazily.
+let needPlaceFront = true, frontFollowing = false;
+const headPos = new THREE.Vector3(), headQuat = new THREE.Quaternion();
+function headPose() {
+  const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  cam.getWorldPosition(headPos); cam.getWorldQuaternion(headQuat);
+  return new THREE.Euler().setFromQuaternion(headQuat, 'YXZ').y;
+}
+function angleDiff(a, b) { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
+function updateFront(dt) {
+  if (!SCREENS[S.screen].view) return;
+  const yaw = headPose();
+  if (needPlaceFront) { front.position.copy(headPos); front.rotation.set(0, yaw, 0); needPlaceFront = false; frontFollowing = false; return; }
+  const d = angleDiff(yaw, front.rotation.y);
+  if (Math.abs(d) > THREE.MathUtils.degToRad(POPUP.followDeg)) frontFollowing = true;
+  if (frontFollowing) {
+    const a = Math.min(1, dt * 4);
+    front.rotation.y += d * a;
+    front.position.lerp(headPos, a);
+    if (Math.abs(d) < THREE.MathUtils.degToRad(2)) frontFollowing = false;
+  }
+}
 function recenter() {
   const cam = renderer.xr.getCamera();
   const pos = new THREE.Vector3(), quat = new THREE.Quaternion();
@@ -666,12 +760,12 @@ for (const [key, s] of Object.entries(SCREENS)) {
 }
 document.getElementById('hide').addEventListener('click', e => { ui.hidden = !ui.hidden; e.target.textContent = ui.hidden ? 'Show panel' : 'Hide panel'; });
 document.querySelectorAll('[data-theme]').forEach(b => b.addEventListener('click', () => { S.theme = b.dataset.theme; save(); refresh(); }));
-const fmt = { dist: v => v.toFixed(2) + ' m', yaw: v => v + '°', drop: v => v.toFixed(2) + ' m', scale: v => v.toFixed(2) + '×' };
+const fmt = { popDist: v => v.toFixed(2) + ' m', dist: v => v.toFixed(2) + ' m', yaw: v => v + '°', drop: v => v.toFixed(2) + ' m', scale: v => v.toFixed(2) + '×' };
 for (const k of Object.keys(fmt)) {
   const inp = document.getElementById(k);
   inp.addEventListener('input', () => { S[k] = parseFloat(inp.value); save(); layoutPanels(); tweak.redraw(); syncUI(); });
 }
-document.getElementById('reset').addEventListener('click', () => { Object.assign(S, { dist: DEFAULTS.dist, yaw: DEFAULTS.yaw, drop: DEFAULTS.drop, scale: DEFAULTS.scale }); save(); refresh(); });
+document.getElementById('reset').addEventListener('click', () => { Object.assign(S, { popDist: DEFAULTS.popDist, dist: DEFAULTS.dist, yaw: DEFAULTS.yaw, drop: DEFAULTS.drop, scale: DEFAULTS.scale }); save(); refresh(); });
 function syncUI() {
   for (const k of Object.keys(fmt)) { document.getElementById(k).value = S[k]; document.getElementById(k + 'v').textContent = fmt[k](S[k]); }
   document.querySelectorAll('[data-screen]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.screen === S.screen)));
@@ -685,18 +779,19 @@ go(startScreen);
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   if (renderer.xr.isPresenting) {
-    if (needRecenter) { recenter(); needRecenter = false; }
+    if (needRecenter) { recenter(); needRecenter = false; needPlaceFront = true; }
     cursor.visible = false;
     for (const c of ctrls) { rayFrom(c); const r = hitTest(); if (r) { cursor.position.copy(r.hit.point); cursor.visible = true; break; } }
   } else {
     camera.rotation.set(look.pitch, look.yaw, 0, 'YXZ');
   }
+  updateFront(dt);
   const beat = 60 / BPM / S.speed;
   beatClock += dt;
   if (S.screen === 'B' && beatClock >= beat) {
     // Playthrough: counts advance with the beat, then the clip ends (screen C).
     beatClock -= beat;
-    if (S.count >= 8) go('C'); else { S.count++; PANELS.video.redraw(); PANELS.progress.redraw(); }
+    if (S.count >= 8) go(S.section === 4 || S.section === 'Full' ? 'G' : 'C'); else { S.count++; PANELS.video.redraw(); PANELS.progress.redraw(); }
   } else if (S.screen === 'K') {
     // Lookback: 3, 2, 1 beside the video, then the section plays with REC while the phone films.
     if (S.kPhase === 'count' && beatClock >= 1) {
