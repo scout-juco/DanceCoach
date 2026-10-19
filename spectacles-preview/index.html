@@ -8,12 +8,14 @@
   :root { --bg:#1B1B1A; --panel:rgba(24,24,23,.92); --ink:#ECECE8; --muted:#A3A29C; --line:#3A3A37; --hot:#7C97FF }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:14px system-ui, -apple-system, sans-serif; overflow:hidden }
   canvas { display:block; touch-action:none }
-  #ui { position:fixed; left:16px; top:16px; width:min(340px, calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow:auto; box-sizing:border-box;
+  #ui { position:fixed; left:16px; top:16px; width:min(360px, calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow:auto; box-sizing:border-box;
         background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px; display:flex; flex-direction:column; gap:12px; z-index:2 }
   h1 { margin:0; font-size:16px; font-weight:600 }
+  h2 { margin:0; font:600 11px ui-monospace, monospace; letter-spacing:.06em; text-transform:uppercase; color:var(--muted) }
   p { margin:0; color:var(--muted); font-size:12px; line-height:1.5 }
   .row { display:flex; gap:6px; flex-wrap:wrap; align-items:center }
   button { font:600 13px system-ui, sans-serif; min-height:36px; padding:0 12px; border-radius:10px; border:1px solid var(--line); background:transparent; color:var(--ink); cursor:pointer }
+  .row.screens button { font-size:12px; min-height:32px; padding:0 10px }
   button[aria-pressed="true"] { background:var(--ink); color:var(--bg); border-color:var(--ink) }
   button.primary { background:var(--hot); border-color:var(--hot); color:#0E1330; width:100% }
   button:focus-visible { outline:2px solid var(--hot); outline-offset:2px }
@@ -30,10 +32,12 @@
   <h1>Dance Coach · Specs preview</h1>
   <p id="xrmsg">Checking for WebXR…</p>
   <button id="enter" class="primary" type="button" hidden>View in my room</button>
-  <div class="row" role="group" aria-label="Screen">
-    <button type="button" data-screen="B">B Playing</button>
-    <button type="button" data-screen="C">C Clip ended</button>
-  </div>
+  <h2>Playthrough</h2>
+  <div class="row screens" role="group" aria-label="Playthrough screens" data-group="0"></div>
+  <h2>Pose</h2>
+  <div class="row screens" role="group" aria-label="Pose screens" data-group="1"></div>
+  <h2>Lookback</h2>
+  <div class="row screens" role="group" aria-label="Lookback screens" data-group="2"></div>
   <div class="row" role="group" aria-label="Theme">
     <button type="button" data-theme="light">Wireframe light</button>
     <button type="button" data-theme="dark">Specs dark</button>
@@ -42,7 +46,7 @@
   <label class="sl">To the right <input id="yaw" type="range" min="-60" max="60" step="1"><output id="yawv"></output></label>
   <label class="sl">Below eyes <input id="drop" type="range" min="-0.5" max="0.8" step="0.01"><output id="dropv"></output></label>
   <label class="sl">Size <input id="scale" type="range" min="0.5" max="3" step="0.05"><output id="scalev"></output></label>
-  <p>Drag to look around. Click the control bar and section tiles; they work like the prototype. In the headset, pinch to press, and use the small tweak bar below-left to adjust.</p>
+  <p>Drag to look around. Everything on the panels works like the prototype: the mode button cycles Playthrough → Pose → Lookback. In the headset, pinch to press, and use the small tweak bar below-left to adjust.</p>
   <button id="reset" type="button">Reset layout</button>
 </div>
 
@@ -54,38 +58,56 @@ import * as THREE from 'three';
 
 /* ------------------------------------------------------------------
    LAYOUT — edit here to change the design.
-   Positions are in wireframe pixels from the 1280×800 "Spectacles view"
-   frames in the clickable prototype (screens B and C).
+   Each screen lists its panels as [x, y, width, height, (z)] in wireframe
+   pixels, taken from the 1280×800 "Spectacles view" frames in the
+   clickable prototype. A width of null means "as wide as its buttons".
+   z (optional, meters) lifts a panel toward you, e.g. a dialog.
    SIZE turns pixels into meters: 1.5 means 1 px = 1.5 mm in your room.
 ------------------------------------------------------------------- */
-const LAYOUT = {
-  B: { video:    { x: 790, y: 40,  w: 340, h: 604 },
-       progress: { x: 790, y: 662, w: 340, h: 6 } },
-  C: { video:    { x: 790, y: 40,  w: 300, h: 533 },
-       sections: { x: 600, y: 589, w: 490, h: 40 },
-       controls: { x: 410, y: 645, w: 746, h: 84 } },
+const SCREENS = {
+  B: { group: 0, label: 'B Playing',     panels: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6] } },
+  C: { group: 0, label: 'C Clip ended',  panels: { video: [790, 40, 300, 533], sections: [600, 589, 490, 40], controls: [410, 645, null, 84] } },
+  D: { group: 1, label: 'D Pose',        panels: { video: [790, 40, 340, 604], poseThin: [790, 660, 340, 28] } },
+  E: { group: 1, label: 'E Pose open',   panels: { video: [790, 40, 300, 533], posePanel: [520, 590, 740, 128] } },
+  I: { group: 2, label: 'I Lookback',    panels: { lookPanel: [470, 40, 300, 533], video: [790, 40, 300, 533], attempts: [470, 583, 620, 52], lookControls: [470, 645, null, 84] } },
+  J: { group: 2, label: 'J Record?',     panels: { ghostL: [470, 40, 300, 533], ghostV: [790, 40, 300, 533], dialog: [520, 130, 440, 330, 0.03] } },
+  K: { group: 2, label: 'K Recording',   panels: { countdown: [560, 200, 200, 200], video: [790, 40, 340, 604], progress: [790, 662, 340, 6] } },
+  L: { group: 2, label: 'L Takes',       panels: { lookPanel: [470, 40, 300, 533], video: [790, 40, 300, 533], attempts: [470, 583, 620, 52], lookControls: [470, 645, null, 84] } },
+  M: { group: 2, label: 'M Side by side', panels: { sbsL: [500, 40, 310, 555], sbsR: [830, 40, 310, 555], sbsBar: [500, 606, 640, 44], sbsControls: [380, 676, null, 80] } },
 };
+// Buttons in each control bar, left to right.
+const BARS = {
+  controls:     ['mode', 'replay', 'top', 'speed', 'mirror', 'counts'],
+  lookControls: ['mode', 'speed', 'mirror', 'counts'],
+  sbsControls:  ['mode', 'speedCycle', 'mirror', 'counts', ['Record again', 'record'], ['Back to takes', 'takes']],
+};
+const ORDER = Object.keys(SCREENS);
 const ANCHOR = { x: 940, y: 306 };          // this wireframe point sits at the placement point
 const DEFAULTS = { dist: 1.5, yaw: 25, drop: 0.10, scale: 1.5, theme: 'light', screen: 'C' };
-const BPM = 100;                               // tempo used to animate counts in screen B
+const BPM = 100;                               // tempo used to animate counts
+const MODES = ['Playthrough', 'Pose', 'Lookback'];
+const MODE_ENTRY = ['C', 'D', 'I'];            // where the mode button takes you
 
 const THEMES = {
-  light: { panel:'#FFFFFF', video:'#D6D6D2', ink:'#1F1F1E', stroke:'#2B2B2A', muted:'#5E5E5A', soft:'#9A9A96',
-           chip:'#FFFFFF', countBg:'rgba(255,255,255,0.88)', active:'#1F1F1E', activeInk:'#FFFFFF', on:'#E3E3DF', done:'#F4F4F1', track:'#D6D6D2' },
-  dark:  { panel:'#121212', video:'#262626', ink:'#F2F2EE', stroke:'#8E8E89', muted:'#B9B9B3', soft:'#5E5E5A',
-           chip:'#121212', countBg:'rgba(0,0,0,0.72)', active:'#F2F2EE', activeInk:'#111111', on:'#34342F', done:'#1A1A1A', track:'#2E2E2E' },
+  light: { panel:'#FFFFFF', video:'#D6D6D2', ink:'#1F1F1E', ink2:'#3D3D3A', stroke:'#2B2B2A', muted:'#5E5E5A', soft:'#9A9A96',
+           chip:'#FFFFFF', countBg:'rgba(255,255,255,0.88)', active:'#1F1F1E', activeInk:'#FFFFFF', on:'#E3E3DF', done:'#F4F4F1',
+           track:'#D6D6D2', take:'#B9B9B4', ghost:'#F4F4F1', ghostLine:'#B9B9B4', you:'#1F1F1E' },
+  dark:  { panel:'#121212', video:'#262626', ink:'#F2F2EE', ink2:'#D0D0CA', stroke:'#8E8E89', muted:'#B9B9B3', soft:'#5E5E5A',
+           chip:'#121212', countBg:'rgba(0,0,0,0.72)', active:'#F2F2EE', activeInk:'#111111', on:'#34342F', done:'#1A1A1A',
+           track:'#2E2E2E', take:'#3A3A36', ghost:'#161616', ghostLine:'#3A3A36', you:'#F2F2EE' },
 };
 
 /* ------------------------------ state ------------------------------ */
-const S = { ...DEFAULTS, speed: 0.75, mirror: true, counts: true, section: 2, mode: 0, count: 1 };
+const S = { ...DEFAULTS, speed: 0.75, mirror: true, counts: true, section: 2, count: 1, pose: 9,
+            takes: [], sel: -1, kPhase: 'count', kCount: 3, sbsPlaying: false };
 try { Object.assign(S, JSON.parse(localStorage.getItem('dc-specs-preview') || '{}')); } catch (e) {}
 const q = new URLSearchParams(location.search);
-for (const k of ['dist','yaw','drop','scale']) if (q.has(k)) S[k] = parseFloat(q.get(k));
-if (q.has('screen')) S.screen = q.get('screen');
+for (const k of ['dist', 'yaw', 'drop', 'scale']) if (q.has(k)) S[k] = parseFloat(q.get(k));
 if (q.has('theme')) S.theme = q.get('theme');
-S.count = S.screen === 'C' ? 8 : 1;
+const startScreen = SCREENS[q.get('screen')] ? q.get('screen') : DEFAULTS.screen;
 function save() { try { localStorage.setItem('dc-specs-preview', JSON.stringify({ dist:S.dist, yaw:S.yaw, drop:S.drop, scale:S.scale, theme:S.theme, speed:S.speed, mirror:S.mirror, counts:S.counts })); } catch (e) {} }
-const MODES = ['Playthrough', 'Pose', 'Lookback'];
+const modeOf = sc => SCREENS[sc].group;
+const poseLabel = () => `${Math.floor(S.pose / 2) + 1}${S.pose % 2 ? '&' : ''}`;
 
 /* ------------------------------ three ------------------------------ */
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -114,32 +136,41 @@ const board = new THREE.Group(); yawPivot.add(board);
 
 /* ---------------------------- panels ------------------------------ */
 const RES = 3; // canvas pixels per wireframe pixel
-const clickables = [];
-function makePanel(w, h, draw, onClick) {
-  const c = document.createElement('canvas'); c.width = w * RES; c.height = h * RES;
-  const ctx = c.getContext('2d');
-  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, transparent: true }));
-  const p = { w, h, ctx, tex, mesh, draw, onClick, rect: null, hits: [] };
-  p.redraw = () => { ctx.setTransform(RES, 0, 0, RES, 0, 0); ctx.clearRect(0, 0, w, h); p.hits = []; draw(ctx, p); tex.needsUpdate = true; };
-  mesh.userData.panel = p;
-  if (onClick) clickables.push(mesh);
-  board.add(mesh);
+const measureCtx = document.createElement('canvas').getContext('2d');
+const PANELS = {};
+function makePanel(name, draw, clickable = true, parent = board) {
+  const c = document.createElement('canvas'); c.width = c.height = RES;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true }));
+  const p = { name, w: 1, h: 1, z: 0, canvas: c, ctx: c.getContext('2d'), tex: null, mesh, draw, clickable, hits: [], rect: null };
+  mesh.userData.panel = p; mesh.visible = false;
+  setTexture(p);
+  p.redraw = () => { const ctx = p.ctx; ctx.setTransform(RES, 0, 0, RES, 0, 0); ctx.clearRect(0, 0, p.w, p.h); p.hits = []; draw(ctx, p); p.tex.needsUpdate = true; };
+  parent.add(mesh);
+  PANELS[name] = p;
   return p;
 }
-function place(p, r) { p.rect = r; }
+function setTexture(p) {
+  if (p.tex) p.tex.dispose();
+  p.tex = new THREE.CanvasTexture(p.canvas); p.tex.colorSpace = THREE.SRGBColorSpace; p.tex.anisotropy = 8;
+  p.mesh.material.map = p.tex; p.mesh.material.needsUpdate = true;
+}
+function setRect(p, [x, y, w, h, z = 0]) {
+  if (w == null) w = barWidth(BARS[p.name], h - 24);
+  p.rect = { x, y, w, h }; p.z = z;
+  if (p.w !== w || p.h !== h) { p.w = w; p.h = h; p.canvas.width = Math.round(w * RES); p.canvas.height = Math.round(h * RES); setTexture(p); }
+}
 function layoutPanels() {
   const k = S.scale / 1000;
-  for (const p of allPanels) {
-    if (!p.rect) continue;
+  for (const p of Object.values(PANELS)) {
+    if (!p.rect || p === tweak) continue;
     p.mesh.scale.set(p.rect.w * k, p.rect.h * k, 1);
-    p.mesh.position.set((p.rect.x + p.rect.w / 2 - ANCHOR.x) * k, -(p.rect.y + p.rect.h / 2 - ANCHOR.y) * k, 0);
+    p.mesh.position.set((p.rect.x + p.rect.w / 2 - ANCHOR.x) * k, -(p.rect.y + p.rect.h / 2 - ANCHOR.y) * k, p.z);
   }
   board.position.set(0, -S.drop, -S.dist);
   yawPivot.rotation.y = -THREE.MathUtils.degToRad(S.yaw);
 }
 
-/* ---------------------------- drawing ----------------------------- */
+/* ---------------------------- drawing helpers ----------------------------- */
 const T = () => THEMES[S.theme] || THEMES.light;
 const SANS = 'system-ui, -apple-system, "Segoe UI", sans-serif', MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 function rr(ctx, x, y, w, h, r, fill, stroke, lw = 1.5, dash) {
@@ -150,60 +181,150 @@ function rr(ctx, x, y, w, h, r, fill, stroke, lw = 1.5, dash) {
 function text(ctx, s, x, y, { size = 13, weight = 400, color = T().ink, font = SANS, align = 'left', base = 'middle' } = {}) {
   ctx.font = `${weight} ${size}px ${font}`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = base; ctx.fillText(s, x, y);
 }
-function chip(ctx, s, x, y, { right = false, dark = false } = {}) {
-  ctx.font = `400 11px ${MONO}`; const w = ctx.measureText(s).width + 16;
-  const x0 = right ? x - w : x;
-  rr(ctx, x0, y, w, 20, 10, dark ? T().active : T().chip, null);
-  text(ctx, s, x0 + 8, y + 10.5, { size: 11, font: MONO, color: dark ? T().activeInk : T().ink });
+function wrap(ctx, s, x, y, maxW, lh, opts = {}) {
+  const { size = 11, weight = 400, font = SANS } = opts;
+  ctx.font = `${weight} ${size}px ${font}`;
+  let line = '', yy = y;
+  for (const word of s.split(' ')) {
+    const t = line ? line + ' ' + word : word;
+    if (ctx.measureText(t).width > maxW && line) { text(ctx, line, x, yy, { ...opts, base: 'top' }); line = word; yy += lh; }
+    else line = t;
+  }
+  if (line) text(ctx, line, x, yy, { ...opts, base: 'top' });
+}
+function chipW(s) { measureCtx.font = `400 11px ${MONO}`; return measureCtx.measureText(s).width + 16; }
+function chip(ctx, s, x, y, dark = false) {
+  const w = chipW(s);
+  rr(ctx, x, y, w, 20, 10, dark ? T().active : T().chip, null);
+  text(ctx, s, x + 8, y + 10.5, { size: 11, font: MONO, color: dark ? T().activeInk : T().ink });
   return w;
 }
+function chipsRight(ctx, list, right, y) { let x = right; for (let i = list.length - 1; i >= 0; i--) { const [s, dark] = list[i]; x -= chipW(s); chip(ctx, s, x, y, dark); x -= 6; } }
 function lock(ctx, x, y, color) {
   ctx.strokeStyle = color; ctx.lineWidth = 1.2;
   ctx.strokeRect(x + 2, y + 5, 8, 6);
   ctx.beginPath(); ctx.moveTo(x + 4, y + 5); ctx.lineTo(x + 4, y + 3.5); ctx.arc(x + 6, y + 3.5, 2, Math.PI, 0); ctx.lineTo(x + 8, y + 5); ctx.stroke();
+}
+function tag(ctx, s, x, yBottom, { locked = false, dark = false } = {}) {
+  measureCtx.font = `400 11px ${MONO}`; const tw = measureCtx.measureText(s).width + (locked ? 34 : 20);
+  const t = T();
+  rr(ctx, x, yBottom - 22, tw, 22, 11, dark ? t.active : t.chip, null);
+  if (locked) lock(ctx, x + 8, yBottom - 17, dark ? t.activeInk : t.ink);
+  text(ctx, s, x + (locked ? 24 : 10), yBottom - 10.5, { size: 11, font: MONO, color: dark ? t.activeInk : t.ink });
+}
+function countBadge(ctx, x, y, d, label, size) {
+  ctx.beginPath(); ctx.arc(x + d / 2, y + d / 2, d / 2, 0, Math.PI * 2); ctx.fillStyle = T().countBg; ctx.fill();
+  text(ctx, label, x + d / 2, y + d / 2 + 2, { size, weight: 600, align: 'center' });
 }
 // Stick-figure poses, one per count, so the "video" visibly moves.
 const POSES = [
   [[22,38],[80,72],[30,150],[72,148]], [[26,80],[74,80],[34,152],[66,152]], [[20,42],[78,30],[28,146],[70,152]], [[22,74],[78,36],[34,152],[68,150]],
   [[30,30],[70,30],[32,150],[68,150]], [[18,55],[82,55],[26,148],[74,148]], [[24,36],[76,78],[36,152],[64,146]], [[26,80],[74,80],[34,152],[66,152]],
 ];
-function figure(ctx, cx, cy, s, count) {
-  const pose = POSES[(count - 1) % 8];
+function figure(ctx, cx, cy, s, count, color = T().muted, wobble = 0) {
+  const pose = POSES[(Math.max(1, count) - 1) % 8].map(([a, b], i) => [a + (i < 2 ? wobble * (i ? -1 : 1) : 0), b + (i < 2 ? wobble : 0)]);
   ctx.save(); ctx.translate(cx, cy); ctx.scale(S.mirror ? -s : s, s); ctx.translate(-50, -90);
-  ctx.strokeStyle = T().muted; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.arc(50, 28, 12, 0, Math.PI * 2); ctx.stroke();
   const L = (a, b, c, d) => { ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke(); };
   L(50, 40, 50, 100); L(50, 55, ...pose[0]); L(50, 55, ...pose[1]); L(50, 100, ...pose[2]); L(50, 100, ...pose[3]);
   ctx.restore();
 }
-function drawVideo(ctx, p) {
-  const { w, h } = p, t = T();
-  rr(ctx, 0, 0, w, h, 16, t.video, t.stroke);
-  figure(ctx, w / 2, h / 2, w > 320 ? 1.2 : 1.1, S.count);
-  if (S.counts) {
-    ctx.beginPath(); ctx.arc(14 + 42, 14 + 42, 42, 0, Math.PI * 2); ctx.fillStyle = t.countBg; ctx.fill();
-    text(ctx, String(S.count), 56, 58, { size: 44, weight: 600, align: 'center' });
-  }
-  if (S.screen === 'B') {
-    let x = w - 14;
-    if (S.mirror) x -= chip(ctx, 'MIRRORED', x, 14, { right: true }) + 6;
-    chip(ctx, `${S.speed}×`, x, 14, { right: true });
-    const label = `${MODES[S.mode].toUpperCase()} · SECTION ${S.section} · controls locked`;
-    ctx.font = `400 11px ${MONO}`; const tw = ctx.measureText(label).width + 34;
-    rr(ctx, 14, h - 14 - 22, tw, 22, 11, t.chip, null);
-    lock(ctx, 22, h - 14 - 22 + 5, t.ink);
-    text(ctx, label, 38, h - 14 - 10.5, { size: 11, font: MONO });
-  } else {
-    const label = `SECTION ${S.section} DONE · controls unlocked`;
-    ctx.font = `400 11px ${MONO}`; const tw = ctx.measureText(label).width + 20;
-    rr(ctx, 14, h - 14 - 22, tw, 22, 11, t.chip, null);
-    text(ctx, label, 24, h - 14 - 10.5, { size: 11, font: MONO });
+function playIcon(ctx, cx, cy, r, color) { ctx.beginPath(); ctx.moveTo(cx - r * 0.45, cy - r * 0.6); ctx.lineTo(cx + r * 0.65, cy); ctx.lineTo(cx - r * 0.45, cy + r * 0.6); ctx.closePath(); ctx.fillStyle = color; ctx.fill(); }
+function pauseIcon(ctx, cx, cy, r, color) { ctx.fillStyle = color; ctx.fillRect(cx - r * 0.5, cy - r * 0.55, r * 0.35, r * 1.1); ctx.fillRect(cx + r * 0.15, cy - r * 0.55, r * 0.35, r * 1.1); }
+
+/* ---------------------------- control bars ----------------------------- */
+const GAP = 8;
+function itemW(it, H) {
+  if (Array.isArray(it)) { measureCtx.font = `600 12px ${SANS}`; return Math.ceil(measureCtx.measureText(it[0]).width) + 28; }
+  return { mode: 170, replay: 110, top: 150, speed: 132, mirror: H, counts: H, speedCycle: 64, divider: 9 }[it];
+}
+function barWidth(items, H) { return 24 + items.reduce((s, it) => s + itemW(it, H), 0) + GAP * (items.length - 1); }
+function drawItems(ctx, p, items, x, y, H) {
+  const t = T();
+  for (const it of items) {
+    const w = itemW(it, H);
+    if (Array.isArray(it)) {
+      const [label, id, opts = {}] = it;
+      const on = opts.on;
+      rr(ctx, x, y, w, H, 12, on ? t.on : t.panel, on ? t.ink : t.soft);
+      text(ctx, label, x + w / 2, y + H / 2, { size: 12, weight: 600, align: 'center' });
+      p.hits.push({ x, y, w, h: H, id });
+    } else if (it === 'divider') {
+      ctx.fillStyle = t.track; ctx.fillRect(x + 4, y + (H - 36) / 2, 1, 36);
+    } else if (it === 'mode') {
+      const m = modeOf(S.screen);
+      rr(ctx, x, y, w, H, 12, t.panel, t.ink);
+      text(ctx, '↻ ' + MODES[m], x + 12, y + H / 2 - 9, { weight: 600 });
+      for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(x + 16 + i * 11, y + H / 2 + 11, 3.5, 0, Math.PI * 2); ctx.fillStyle = i === m ? t.ink : t.panel; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = t.ink; ctx.stroke(); }
+      text(ctx, 'NEXT: ' + MODES[(m + 1) % 3].toUpperCase(), x + 50, y + H / 2 + 11, { size: 10, font: MONO, color: t.muted });
+      p.hits.push({ x, y, w, h: H, id: 'mode' });
+    } else if (it === 'replay') {
+      rr(ctx, x, y, w, H, 12, t.active, t.active);
+      text(ctx, '↺', x + w / 2, y + H / 2 - 8, { size: 18, weight: 600, color: t.activeInk, align: 'center' });
+      text(ctx, 'Replay section', x + w / 2, y + H / 2 + 14, { size: 12, weight: 600, color: t.activeInk, align: 'center' });
+      p.hits.push({ x, y, w, h: H, id: 'replay' });
+    } else if (it === 'top') {
+      rr(ctx, x, y, w, H, 12, t.panel, t.soft);
+      const my = y + H / 2 - 8;
+      ctx.strokeStyle = t.ink; ctx.lineWidth = 2; ctx.beginPath();
+      ctx.moveTo(x + 53, my - 6); ctx.lineTo(x + 53, my + 6); ctx.moveTo(x + 53, my); ctx.lineTo(x + 92, my); ctx.moveTo(x + 86, my - 5); ctx.lineTo(x + 92, my); ctx.lineTo(x + 86, my + 5); ctx.stroke();
+      text(ctx, 'From the top', x + w / 2, y + H / 2 + 14, { size: 12, weight: 600, align: 'center' });
+      p.hits.push({ x, y, w, h: H, id: 'top' });
+    } else if (it === 'speed') {
+      rr(ctx, x, y, w, H, 12, t.panel, t.soft);
+      [0.5, 0.75, 1].forEach((s, i) => {
+        const bx = x + i * 44, on = S.speed === s;
+        if (on) { ctx.save(); ctx.beginPath(); ctx.roundRect(x + 1.5, y + 1.5, w - 3, H - 3, 11); ctx.clip(); ctx.fillStyle = t.active; ctx.fillRect(bx, y, 44, H); ctx.restore(); }
+        text(ctx, `${s}×`, bx + 22, y + H / 2, { size: 12, weight: 600, font: MONO, color: on ? t.activeInk : t.ink, align: 'center' });
+        p.hits.push({ x: bx, y, w: 44, h: H, id: 'speed:' + s });
+      });
+    } else if (it === 'speedCycle') {
+      rr(ctx, x, y, w, H, 12, t.panel, t.soft);
+      text(ctx, `${S.speed}×`, x + w / 2, y + H / 2, { size: 12, weight: 600, font: MONO, align: 'center' });
+      p.hits.push({ x, y, w, h: H, id: 'speedCycle' });
+    } else if (it === 'mirror' || it === 'counts') {
+      const on = S[it];
+      rr(ctx, x, y, w, H, 12, on ? t.on : t.panel, on ? t.ink : t.soft);
+      text(ctx, it === 'mirror' ? 'Mirror' : 'Counts', x + w / 2, y + H / 2 - 8, { size: 11, weight: 600, align: 'center' });
+      text(ctx, on ? 'on' : 'off', x + w / 2, y + H / 2 + 8, { size: 11, weight: 600, align: 'center', color: on ? t.ink : t.muted });
+      p.hits.push({ x, y, w, h: H, id: it });
+    }
+    x += w + GAP;
   }
 }
+function drawBar(ctx, p) {
+  rr(ctx, 0, 0, p.w, p.h, 18, T().panel, T().stroke);
+  drawItems(ctx, p, BARS[p.name], 12, 12, p.h - 24);
+}
+
+/* ---------------------------- panel drawings ----------------------------- */
+function drawVideo(ctx, p) {
+  const t = T(), sc = S.screen, { w, h } = p, pose = sc === 'D' || sc === 'E';
+  rr(ctx, 0, 0, w, h, 16, t.video, pose ? t.ink : t.stroke, pose ? 2.5 : 1.5);
+  figure(ctx, w / 2, h / 2, w > 320 ? 1.2 : 1.1, pose ? Math.floor(S.pose / 2) + 1 : S.count, pose ? t.ink2 : t.muted);
+  if (S.counts) pose ? countBadge(ctx, 14, 14, 84, poseLabel(), 40) : countBadge(ctx, 14, 14, 84, String(S.count), 44);
+  const chips = [];
+  if (sc === 'K' && S.kPhase === 'play') chips.push(['● REC', true]);
+  if (sc === 'B' || sc === 'K') chips.push([`${S.speed}×`]);
+  if ((sc === 'B' || sc === 'K' || pose) && S.mirror) chips.push(['MIRRORED']);
+  chipsRight(ctx, chips, w - 14, 14);
+  const sec = `SECTION ${S.section}`;
+  const tags = {
+    B: [`PLAYTHROUGH · ${sec} · controls locked`, { locked: true }],
+    C: [`${sec} DONE · controls unlocked`],
+    D: ['POSE · FROZEN', { dark: true }], E: ['POSE · FROZEN', { dark: true }],
+    I: ['LOOKBACK MODE · controls unlocked'],
+    K: [S.kPhase === 'play' ? `LOOKBACK · ${sec} · controls locked` : `LOOKBACK · ${sec} · get ready`, { locked: true }],
+    L: ['LOOKBACK SAVED · controls unlocked'],
+  }[sc];
+  if (tags) tag(ctx, tags[0], 14, h - 14, tags[1]);
+  if (sc === 'E') p.hits.push({ x: 0, y: 0, w, h, id: 'closePose' });
+}
 function drawProgress(ctx, p) {
-  const t = T();
+  const t = T(), frac = S.screen === 'K' && S.kPhase !== 'play' ? 0 : S.count / 8;
   rr(ctx, 0, 0, p.w, p.h, 3, t.track, null);
-  rr(ctx, 0, 0, Math.max(6, p.w * (S.count / 8)), p.h, 3, t.muted, null);
+  if (frac > 0) rr(ctx, 0, 0, Math.max(6, p.w * frac), p.h, 3, t.muted, null);
 }
 function drawSections(ctx, p) {
   const t = T(), labels = ['Full', '1', '2', '3', '4'], gap = 6, tw = (p.w - gap * 4) / 5;
@@ -214,57 +335,175 @@ function drawSections(ctx, p) {
     p.hits.push({ x, y: 0, w: tw, h: p.h, id: 'sec:' + lab });
   });
 }
-function drawControls(ctx, p) {
-  const t = T(); let x = 12; const y = 12, H = 60;
+function drawPoseThin(ctx, p) {
+  const t = T(), frac = (S.pose + 1) / 16;
+  rr(ctx, 0, 4, p.w, 8, 4, t.track, null);
+  rr(ctx, 0, 4, p.w * frac, 8, 4, t.muted, null);
+  ctx.fillStyle = t.ink; ctx.beginPath(); ctx.roundRect(p.w * frac - 2, -1, 4, 18, 2); ctx.fill();
+  text(ctx, `SECTION ${S.section} · COUNT ${poseLabel()}`, 0, 23, { size: 11, font: MONO, color: t.ink2 });
+  text(ctx, 'reach here for controls', p.w, 23, { size: 11, font: MONO, color: t.ink2, align: 'right' });
+  p.hits.push({ x: 0, y: 0, w: p.w, h: p.h, id: 'openPose' });
+}
+function drawPosePanel(ctx, p) {
+  const t = T(), sx = 14, sw = p.w - 28, frac = (S.pose + 0.5) / 16;
   rr(ctx, 0, 0, p.w, p.h, 18, t.panel, t.stroke);
-  // Mode
-  rr(ctx, x, y, 170, H, 12, t.panel, t.ink);
-  text(ctx, '↻ ' + MODES[S.mode], x + 12, y + 20, { weight: 600 });
-  for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(x + 16 + i * 11, y + 41, 3.5, 0, Math.PI * 2); ctx.fillStyle = i === S.mode ? t.ink : t.panel; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = t.ink; ctx.stroke(); }
-  text(ctx, 'NEXT: ' + MODES[(S.mode + 1) % 3].toUpperCase(), x + 50, y + 41, { size: 10, font: MONO, color: t.muted });
-  p.hits.push({ x, y, w: 170, h: H, id: 'mode' }); x += 178;
-  // Replay
-  rr(ctx, x, y, 110, H, 12, t.active, t.active);
-  text(ctx, '↺', x + 55, y + 22, { size: 18, weight: 600, color: t.activeInk, align: 'center' });
-  text(ctx, 'Replay section', x + 55, y + 44, { size: 12, weight: 600, color: t.activeInk, align: 'center' });
-  p.hits.push({ x, y, w: 110, h: H, id: 'replay' }); x += 118;
-  // From the top
-  rr(ctx, x, y, 150, H, 12, t.panel, t.soft);
-  ctx.strokeStyle = t.ink; ctx.lineWidth = 2; ctx.beginPath();
-  ctx.moveTo(x + 53, y + 16); ctx.lineTo(x + 53, y + 28); ctx.moveTo(x + 53, y + 22); ctx.lineTo(x + 92, y + 22); ctx.moveTo(x + 86, y + 17); ctx.lineTo(x + 92, y + 22); ctx.lineTo(x + 86, y + 27); ctx.stroke();
-  text(ctx, 'From the top', x + 75, y + 44, { size: 12, weight: 600, align: 'center' });
-  p.hits.push({ x, y, w: 150, h: H, id: 'top' }); x += 158;
-  // Speed
-  rr(ctx, x, y, 132, H, 12, t.panel, t.soft);
-  [0.5, 0.75, 1].forEach((s, i) => {
-    const bx = x + i * 44, on = S.speed === s;
-    if (on) { ctx.save(); ctx.beginPath(); ctx.roundRect(x + 1.5, y + 1.5, 129, H - 3, 11); ctx.clip(); ctx.fillStyle = t.active; ctx.fillRect(bx, y, 44, H); ctx.restore(); }
-    text(ctx, `${s}×`, bx + 22, y + H / 2, { size: 12, weight: 600, font: MONO, color: on ? t.activeInk : t.ink, align: 'center' });
-    p.hits.push({ x: bx, y, w: 44, h: H, id: 'speed:' + s });
-  }); x += 140;
-  // Toggles
-  for (const [id, label] of [['mirror', 'Mirror'], ['counts', 'Counts']]) {
-    const on = S[id];
-    rr(ctx, x, y, 60, H, 12, on ? t.on : t.panel, on ? t.ink : t.soft);
-    text(ctx, label, x + 30, y + 23, { size: 11, weight: 600, align: 'center' });
-    text(ctx, on ? 'on' : 'off', x + 30, y + 39, { size: 11, weight: 600, align: 'center', color: on ? t.ink : t.muted });
-    p.hits.push({ x, y, w: 60, h: H, id }); x += 68;
+  rr(ctx, sx, 16, sw, 12, 6, t.on, null);
+  rr(ctx, sx, 16, sw * frac, 12, 6, t.muted, null);
+  ctx.fillStyle = t.ink; ctx.beginPath(); ctx.roundRect(sx + sw * frac - 11, 8, 22, 28, 6); ctx.fill();
+  for (let i = 0; i < 16; i++) {
+    const lab = i % 2 ? '&' : String(i / 2 + 1), cur = i === S.pose;
+    text(ctx, lab, sx + (i + 0.5) * (sw / 16), 48, { size: 11, font: MONO, weight: cur ? 600 : 400, color: cur ? t.ink : t.ink2, align: 'center' });
+  }
+  p.hits.push({ x: sx, y: 0, w: sw, h: 58, id: 'scrub' });
+  drawItems(ctx, p, ['mode', ['Mirror ' + (S.mirror ? 'on' : 'off'), 'mirror', { on: S.mirror }], ['Counts ' + (S.counts ? 'on' : 'off'), 'counts', { on: S.counts }], 'divider', ['‹ 1', 'back1'], ['1 ›', 'fwd1']], 14, 62, 52);
+}
+function drawLookPanel(ctx, p) {
+  const t = T(), { w, h } = p, n = S.takes.length;
+  rr(ctx, 0, 0, w, h, 16, t.panel, t.stroke);
+  text(ctx, `LOOKBACK · SECTION ${S.section}`, 12, 20, { size: 11, font: MONO, color: t.ink2 });
+  text(ctx, `${n} TAKE${n === 1 ? '' : 'S'}`, w - 12, 20, { size: 11, font: MONO, color: t.muted, align: 'right' });
+  const bx = 12, by = 36, bw = w - 24, bh = h - 36 - 56;
+  if (!n) {
+    rr(ctx, bx, by, bw, bh, 10, t.video, null);
+    const cy = by + bh / 2 - 30;
+    ctx.beginPath(); ctx.arc(w / 2, cy, 26, 0, Math.PI * 2); ctx.lineWidth = 1.5; ctx.strokeStyle = t.ink; ctx.stroke();
+    text(ctx, '+', w / 2, cy + 1, { size: 26, align: 'center' });
+    text(ctx, 'Record lookback', w / 2, cy + 50, { size: 15, weight: 600, align: 'center' });
+    text(ctx, 'No recordings for this section yet', w / 2, cy + 72, { size: 12, color: t.ink2, align: 'center' });
+    p.hits.push({ x: bx, y: by, w: bw, h: bh, id: 'record' });
+    wrap(ctx, 'Locked to the section you were on. Your phone films you.', 12, h - 44, w - 24, 15, { color: t.muted });
+  } else {
+    const take = S.takes[S.sel], isNew = S.sel === n - 1;
+    rr(ctx, bx, by, bw, bh, 10, t.take, t.ink, 2);
+    if (isNew) chip(ctx, 'NEW', bx + 8, by + 8);
+    text(ctx, `TAKE ${S.sel + 1} · ${take.speed}×`, bx + 8, by + bh - 14, { size: 11, font: MONO });
+    const cy = by + bh / 2;
+    ctx.beginPath(); ctx.arc(w / 2, cy, 38, 0, Math.PI * 2); ctx.fillStyle = S.theme === 'dark' ? 'rgba(18,18,18,0.92)' : 'rgba(255,255,255,0.92)'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = t.ink; ctx.stroke();
+    playIcon(ctx, w / 2 + 2, cy, 16, t.ink);
+    text(ctx, 'Play side by side', w / 2, cy + 56, { size: 12, weight: 600, align: 'center' });
+    p.hits.push({ x: bx, y: by, w: bw, h: bh, id: 'sbs' });
+    wrap(ctx, `Plays side by side with the original by default. Locked to Section ${S.section}. Delete takes on your phone.`, 12, h - 48, w - 24, 15, { color: t.muted });
   }
 }
+function drawAttempts(ctx, p) {
+  const t = T(), { w, h } = p, n = S.takes.length;
+  text(ctx, 'ATTEMPTS', 0, h / 2 - 8, { size: 10, font: MONO, color: t.ink2 });
+  text(ctx, `SECTION ${S.section} · LOCKED`, 0, h / 2 + 8, { size: 10, font: MONO, weight: 600 });
+  const x0 = 124;
+  if (!n) {
+    rr(ctx, x0, 0, w - x0, h, 8, null, t.ink, 1.5, [6, 4]);
+    text(ctx, '+', x0 + (w - x0) / 2, h / 2 + 1, { size: 20, weight: 600, align: 'center' });
+    p.hits.push({ x: x0, y: 0, w: w - x0, h, id: 'record' });
+    return;
+  }
+  const shown = S.takes.map((tk, i) => i).slice(-4), plusW = 52, gap = 6;
+  const tw = (w - x0 - plusW - gap * shown.length) / shown.length;
+  shown.forEach((i, j) => {
+    const x = x0 + j * (tw + gap), sel = i === S.sel, isNew = i === n - 1;
+    rr(ctx, x, 0, tw, h, 8, sel ? t.take : t.video, sel ? t.ink : t.soft, sel ? 2 : 1);
+    text(ctx, `TAKE ${i + 1} · ${S.takes[i].speed}×${isNew ? ' · NEW' : ''}`, x + tw / 2, h / 2, { size: 10, font: MONO, weight: sel ? 600 : 400, align: 'center' });
+    p.hits.push({ x, y: 0, w: tw, h, id: 'take:' + i });
+  });
+  const px = w - plusW;
+  rr(ctx, px, 0, plusW, h, 8, null, t.ink, 1.5, [6, 4]);
+  text(ctx, '+', px + plusW / 2, h / 2 + 1, { size: 20, weight: 600, align: 'center' });
+  p.hits.push({ x: px, y: 0, w: plusW, h, id: 'record' });
+}
+function drawGhost(label) {
+  return (ctx, p) => {
+    const t = T();
+    rr(ctx, 0, 0, p.w, p.h, 16, t.ghost, t.ghostLine);
+    text(ctx, label, p.w / 2, p.h / 2, { size: 12, font: MONO, color: t.muted, align: 'center' });
+  };
+}
+function drawDialog(ctx, p) {
+  const t = T(), pad = 28, w = p.w;
+  rr(ctx, 0, 0, w, p.h, 20, t.panel, t.stroke);
+  text(ctx, 'Record lookback?', pad, pad + 14, { size: 26, weight: 600 });
+  wrap(ctx, 'Your recording will use the same settings as your current section. Would you like to continue?', pad, pad + 44, w - pad * 2, 21, { size: 14, color: t.ink2 });
+  const rows = [['Section', String(S.section)], ['Speed · mirror', `${S.speed}× · ${S.mirror ? 'ON' : 'OFF'}`], ['Phone camera', 'CONNECTED ✓'], ["You're in frame", '✓']];
+  rows.forEach(([a, b], i) => {
+    const y = pad + 110 + i * 22;
+    text(ctx, a, pad, y, { size: 13 });
+    text(ctx, b, w - pad, y, { size: 12, font: MONO, align: 'right' });
+  });
+  const by = p.h - pad - 56, bw = (w - pad * 2 - 10) / 2;
+  rr(ctx, pad, by, bw, 56, 14, t.active, null);
+  text(ctx, 'Yes, record', pad + bw / 2, by + 28, { size: 16, weight: 600, color: t.activeInk, align: 'center' });
+  p.hits.push({ x: pad, y: by, w: bw, h: 56, id: 'yes' });
+  rr(ctx, pad + bw + 10, by, bw, 56, 14, t.panel, t.ink);
+  text(ctx, 'Not now', pad + bw * 1.5 + 10, by + 28, { size: 16, weight: 600, align: 'center' });
+  p.hits.push({ x: pad + bw + 10, y: by, w: bw, h: 56, id: 'no' });
+}
+function drawCountdown(ctx, p) {
+  const t = T(), r = p.w / 2;
+  ctx.beginPath(); ctx.arc(r, r, r, 0, Math.PI * 2); ctx.fillStyle = t.active; ctx.fill();
+  text(ctx, String(S.kCount), r, r - 8, { size: 110, weight: 600, color: t.activeInk, align: 'center' });
+  text(ctx, 'GET IN POSITION', r, r + 58, { size: 11, font: MONO, color: t.activeInk, align: 'center' });
+}
+function drawSbs(you) {
+  return (ctx, p) => {
+    const t = T(), vh = p.h - 22;
+    text(ctx, you ? 'YOU · LOOKBACK FROM PHONE' : `ORIGINAL${S.mirror ? ' · MIRRORED' : ''}`, 0, 7, { size: 11, font: MONO, color: t.ink2 });
+    rr(ctx, 0, 22, p.w, vh, 16, you ? t.take : t.video, you ? t.ink : t.stroke, you ? 2.5 : 1.5);
+    figure(ctx, p.w / 2, 22 + vh / 2, 1.1, S.count, you ? t.you : t.muted, you ? 6 : 0);
+    if (S.counts) countBadge(ctx, 12, 34, 64, String(S.count), 32);
+    if (you && S.sel >= 0) tag(ctx, `TAKE ${S.sel + 1} · ${S.takes[S.sel].speed}×`, 12, p.h - 12);
+  };
+}
+function drawSbsBar(ctx, p) {
+  const t = T(), H = p.h, r = 22;
+  ctx.beginPath(); ctx.arc(r, H / 2, r, 0, Math.PI * 2); ctx.fillStyle = t.active; ctx.fill();
+  S.sbsPlaying ? pauseIcon(ctx, r, H / 2, 12, t.activeInk) : playIcon(ctx, r + 1, H / 2, 12, t.activeInk);
+  p.hits.push({ x: 0, y: 0, w: 44, h: H, id: 'sbsPlay' });
+  const tx = 56, tw = p.w - tx, frac = (S.count - 0.5) / 8;
+  rr(ctx, tx, 8, tw, 8, 4, t.track, null);
+  rr(ctx, tx, 8, tw * frac, 8, 4, t.muted, null);
+  ctx.fillStyle = t.ink; ctx.beginPath(); ctx.roundRect(tx + tw * frac - 2, 3, 4, 18, 2); ctx.fill();
+  for (let i = 1; i <= 8; i++) text(ctx, String(i), tx + (i - 0.5) * tw / 8, 34, { size: 11, font: MONO, weight: i === S.count ? 600 : 400, color: i === S.count ? t.ink : t.ink2, align: 'center' });
+  p.hits.push({ x: tx, y: 0, w: tw, h: H, id: 'sbsScrub' });
+}
 
-/* --------------------------- the panels ---------------------------- */
-const video = makePanel(340, 604, drawVideo);
-const progress = makePanel(340, 6, drawProgress);
-const sections = makePanel(490, 40, drawSections, act);
-const controls = makePanel(746, 84, drawControls, act);
-const allPanels = [video, progress, sections, controls];
+makePanel('video', drawVideo);
+makePanel('progress', drawProgress, false);
+makePanel('sections', drawSections);
+makePanel('controls', drawBar);
+makePanel('poseThin', drawPoseThin);
+makePanel('posePanel', drawPosePanel);
+makePanel('lookPanel', drawLookPanel);
+makePanel('attempts', drawAttempts);
+makePanel('lookControls', drawBar);
+makePanel('ghostL', drawGhost('LOOKBACK PANEL'), false);
+makePanel('ghostV', drawGhost('VIDEO'), false);
+makePanel('dialog', drawDialog);
+makePanel('countdown', drawCountdown, false);
+makePanel('sbsL', drawSbs(false), false);
+makePanel('sbsR', drawSbs(true), false);
+makePanel('sbsBar', drawSbsBar);
+makePanel('sbsControls', drawBar);
 
-function act(id) {
-  if (id === 'mode') S.mode = (S.mode + 1) % 3;
-  else if (id === 'replay' || id === 'top') return go('B');
-  else if (id.startsWith('speed:')) S.speed = parseFloat(id.slice(6));
+/* ------------------------------ actions ------------------------------ */
+function act(id, px) {
+  const sc = S.screen;
+  if (id === 'mode') return go(MODE_ENTRY[(modeOf(sc) + 1) % 3]);
+  if (id === 'replay' || id === 'top') return go('B');
+  if (id.startsWith('sec:')) { const s = id.slice(4); S.section = s === 'Full' ? 'Full' : Number(s); return go('B'); }
+  if (id.startsWith('speed:')) S.speed = parseFloat(id.slice(6));
+  else if (id === 'speedCycle') S.speed = { 0.5: 0.75, 0.75: 1, 1: 0.5 }[S.speed];
   else if (id === 'mirror' || id === 'counts') S[id] = !S[id];
-  else if (id.startsWith('sec:')) { const s = id.slice(4); S.section = s === 'Full' ? 'Full' : Number(s); return go('B'); }
+  else if (id === 'openPose') return go('E');
+  else if (id === 'closePose') return go('D');
+  else if (id === 'back1') S.pose = Math.max(0, S.pose - 2);
+  else if (id === 'fwd1') S.pose = Math.min(15, S.pose + 2);
+  else if (id === 'scrub') S.pose = THREE.MathUtils.clamp(Math.floor(((px - 14) / (PANELS.posePanel.w - 28)) * 16), 0, 15);
+  else if (id === 'record') return go('J');
+  else if (id === 'yes') return go('K');
+  else if (id === 'no') return go(S.takes.length ? 'L' : 'I');
+  else if (id === 'sbs') return go('M');
+  else if (id.startsWith('take:')) { S.sel = Number(id.slice(5)); return go('L'); }
+  else if (id === 'takes') return go('L');
+  else if (id === 'sbsPlay') { if (!S.sbsPlaying && S.count >= 8) S.count = 1; S.sbsPlaying = !S.sbsPlaying; beatClock = 0; }
+  else if (id === 'sbsScrub') { S.count = THREE.MathUtils.clamp(Math.floor(((px - 56) / (PANELS.sbsBar.w - 56)) * 8) + 1, 1, 8); }
   save(); refresh();
 }
 
@@ -273,36 +512,29 @@ const TB = [
   [['‹ Screen', 'prev'], ['Screen ›', 'next'], ['Theme', 'theme'], ['Recenter', 'recenter'], ['Hide bar', 'hidebar']],
   [['Closer', 'closer'], ['Farther', 'farther'], ['Smaller', 'smaller'], ['Bigger', 'bigger'], ['◀ Left', 'left'], ['Right ▶', 'right'], ['Up', 'up'], ['Down', 'down']],
 ];
-const tweak = (() => {
-  const w = 560, h = 150;
-  const p = makePanel(w, h, (ctx, p) => {
-    const t = THEMES.dark;
-    rr(ctx, 0, 0, w, h, 16, 'rgba(18,18,18,0.92)', '#8E8E89');
-    text(ctx, `SCREEN ${S.screen} · ${S.dist.toFixed(2)} m · ${S.yaw}° right · size ${S.scale.toFixed(2)}`, 14, 16, { size: 11, font: MONO, color: t.muted });
-    TB.forEach((row, r) => {
-      const gap = 6, bw = (w - 28 - gap * (row.length - 1)) / row.length, y = 30 + r * 58;
-      row.forEach(([label, id], i) => {
-        const x = 14 + i * (bw + gap);
-        rr(ctx, x, y, bw, 50, 10, '#262626', '#8E8E89');
-        text(ctx, label, x + bw / 2, y + 26, { size: 12, weight: 600, color: '#F2F2EE', align: 'center' });
-        p.hits.push({ x, y, w: bw, h: 50, id });
-      });
+const tweak = makePanel('tweak', (ctx, p) => {
+  const { w, h } = p;
+  rr(ctx, 0, 0, w, h, 16, 'rgba(18,18,18,0.92)', '#8E8E89');
+  text(ctx, `${SCREENS[S.screen].label.toUpperCase()} · ${S.dist.toFixed(2)} m · ${S.yaw}° right · size ${S.scale.toFixed(2)}`, 14, 16, { size: 11, font: MONO, color: '#B9B9B3' });
+  TB.forEach((row, r) => {
+    const gap = 6, bw = (w - 28 - gap * (row.length - 1)) / row.length, y = 30 + r * 58;
+    row.forEach(([label, id], i) => {
+      const x = 14 + i * (bw + gap);
+      rr(ctx, x, y, bw, 50, 10, '#262626', '#8E8E89');
+      text(ctx, label, x + bw / 2, y + 26, { size: 12, weight: 600, color: '#F2F2EE', align: 'center' });
+      p.hits.push({ x, y, w: bw, h: 50, id });
     });
-  }, tweakAct);
-  board.remove(p.mesh); rig.add(p.mesh);
-  p.mesh.visible = false;
-  return p;
-})();
-function placeTweak() {
-  const k = 0.00085;
-  tweak.mesh.scale.set(tweak.w * k, tweak.h * k, 1);
-  tweak.mesh.position.set(-0.12, -0.32, -0.55);
-  tweak.mesh.rotation.set(-0.55, 0.15, 0);
-}
+  });
+}, true, rig);
+setRect(tweak, [0, 0, 560, 150]);
+tweak.mesh.scale.set(560 * 0.00085, 150 * 0.00085, 1);
+tweak.mesh.position.set(-0.12, -0.32, -0.55);
+tweak.mesh.rotation.set(-0.55, 0.15, 0);
 function tweakAct(id) {
-  const order = ['B', 'C'];
+  const i = ORDER.indexOf(S.screen);
   switch (id) {
-    case 'prev': case 'next': go(order[(order.indexOf(S.screen) + 1) % 2]); break;
+    case 'prev': return go(ORDER[(i + ORDER.length - 1) % ORDER.length]);
+    case 'next': return go(ORDER[(i + 1) % ORDER.length]);
     case 'theme': S.theme = S.theme === 'light' ? 'dark' : 'light'; break;
     case 'recenter': needRecenter = true; break;
     case 'hidebar': tweak.mesh.visible = false; break;
@@ -321,41 +553,48 @@ function tweakAct(id) {
 /* ------------------------------ screens ------------------------------ */
 let beatClock = 0;
 function go(screen) {
-  S.screen = screen;
-  S.count = screen === 'B' ? 1 : 8;
-  beatClock = 0;
+  S.screen = screen; beatClock = 0; S.sbsPlaying = false;
+  if (screen === 'B') S.count = 1;
+  if (screen === 'C' || screen === 'L') S.count = 8;
+  if (screen === 'I') S.count = 1;
+  if (screen === 'K') { S.kPhase = 'count'; S.kCount = 3; S.count = 1; }
+  if (screen === 'L' && S.sel < 0 && S.takes.length) S.sel = S.takes.length - 1;
+  if (screen === 'M') { S.count = 1; if (!S.takes.length) { S.takes.push({ speed: S.speed }); S.sel = 0; } if (S.sel < 0) S.sel = S.takes.length - 1; }
+  if (screen === 'L' && !S.takes.length) { S.takes.push({ speed: S.speed }); S.sel = 0; }
   refresh();
 }
 function refresh() {
-  const L = LAYOUT[S.screen];
-  place(video, L.video);
-  progress.mesh.visible = !!L.progress; if (L.progress) place(progress, L.progress);
-  sections.mesh.visible = !!L.sections; if (L.sections) place(sections, L.sections);
-  controls.mesh.visible = !!L.controls; if (L.controls) place(controls, L.controls);
-  // the video canvas is sized for the larger frame; re-create when the frame size changes
-  if (video.w !== L.video.w || video.h !== L.video.h) {
-    video.w = L.video.w; video.h = L.video.h;
-    video.ctx.canvas.width = video.w * RES; video.ctx.canvas.height = video.h * RES;
-    video.tex.dispose(); video.tex = new THREE.CanvasTexture(video.ctx.canvas); video.tex.colorSpace = THREE.SRGBColorSpace; video.tex.anisotropy = 8;
-    video.mesh.material.map = video.tex; video.mesh.material.needsUpdate = true;
+  const want = SCREENS[S.screen].panels;
+  for (const [name, p] of Object.entries(PANELS)) {
+    if (p === tweak) continue;
+    const r = want[name];
+    p.mesh.visible = !!r && !(name === 'countdown' && S.kPhase === 'play');
+    if (r) setRect(p, r);
   }
-  for (const p of allPanels) if (p.mesh.visible) p.redraw();
-  tweak.redraw();
+  for (const p of Object.values(PANELS)) if (p.mesh.visible || p === tweak) p.redraw();
   layoutPanels();
   syncUI();
 }
 
 /* ------------------------------ input ------------------------------ */
 const raycaster = new THREE.Raycaster();
-const targets = () => [...clickables.filter(m => m.visible), ...(tweak.mesh.visible ? [tweak.mesh] : [])];
+const targets = () => Object.values(PANELS).filter(p => p.clickable && p.mesh.visible).map(p => p.mesh);
 function hitTest() {
-  const hit = raycaster.intersectObjects(targets(), false)[0];
-  if (!hit || !hit.uv) return null;
-  const p = hit.object.userData.panel, px = hit.uv.x * p.w, py = (1 - hit.uv.y) * p.h;
-  const h = p.hits.find(r => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h);
-  return { hit, p, h };
+  const hits = raycaster.intersectObjects(targets(), false);
+  for (const hit of hits) {
+    if (!hit.uv) continue;
+    const p = hit.object.userData.panel, px = hit.uv.x * p.w, py = (1 - hit.uv.y) * p.h;
+    const h = p.hits.find(r => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h);
+    return { hit, p, h, px };
+  }
+  return null;
 }
-function press() { const r = hitTest(); if (r && r.h) { r.p.onClick(r.h.id); return true; } return false; }
+function press() {
+  const r = hitTest();
+  if (!r || !r.h) return false;
+  r.p === tweak ? tweakAct(r.h.id) : act(r.h.id, r.px);
+  return true;
+}
 
 // Desktop: drag to look, click to press.
 let look = { yaw: THREE.MathUtils.degToRad(-14), pitch: -0.08 }, drag = null;
@@ -380,7 +619,7 @@ const cursor = new THREE.Mesh(new THREE.SphereGeometry(0.006, 12, 8), new THREE.
 cursor.visible = false; scene.add(cursor);
 const ctrls = [0, 1].map(i => {
   const c = renderer.xr.getController(i);
-  c.addEventListener('select', () => { rayFrom(c); if (!press() && !tweak.mesh.visible) { tweak.mesh.visible = true; } });
+  c.addEventListener('select', () => { rayFrom(c); if (!press() && !tweak.mesh.visible) tweak.mesh.visible = true; });
   scene.add(c); return c;
 });
 function rayFrom(obj) {
@@ -420,8 +659,12 @@ function recenter() {
 
 /* ------------------------------ desktop UI ------------------------------ */
 const ui = document.getElementById('ui');
+for (const [key, s] of Object.entries(SCREENS)) {
+  const b = document.createElement('button'); b.type = 'button'; b.dataset.screen = key; b.textContent = s.label;
+  b.addEventListener('click', () => go(key));
+  document.querySelector(`[data-group="${s.group}"]`).appendChild(b);
+}
 document.getElementById('hide').addEventListener('click', e => { ui.hidden = !ui.hidden; e.target.textContent = ui.hidden ? 'Show panel' : 'Hide panel'; });
-document.querySelectorAll('[data-screen]').forEach(b => b.addEventListener('click', () => go(b.dataset.screen)));
 document.querySelectorAll('[data-theme]').forEach(b => b.addEventListener('click', () => { S.theme = b.dataset.theme; save(); refresh(); }));
 const fmt = { dist: v => v.toFixed(2) + ' m', yaw: v => v + '°', drop: v => v.toFixed(2) + ' m', scale: v => v.toFixed(2) + '×' };
 for (const k of Object.keys(fmt)) {
@@ -438,8 +681,7 @@ function syncUI() {
 /* ------------------------------ loop ------------------------------ */
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 const clock = new THREE.Clock();
-placeTweak();
-refresh();
+go(startScreen);
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   if (renderer.xr.isPresenting) {
@@ -449,16 +691,28 @@ renderer.setAnimationLoop(() => {
   } else {
     camera.rotation.set(look.pitch, look.yaw, 0, 'YXZ');
   }
-  // Screen B plays: counts advance with the beat at the chosen speed, then the clip ends (screen C).
-  if (S.screen === 'B') {
-    beatClock += dt;
-    const beat = 60 / BPM / S.speed;
-    if (beatClock >= beat) {
+  const beat = 60 / BPM / S.speed;
+  beatClock += dt;
+  if (S.screen === 'B' && beatClock >= beat) {
+    // Playthrough: counts advance with the beat, then the clip ends (screen C).
+    beatClock -= beat;
+    if (S.count >= 8) go('C'); else { S.count++; PANELS.video.redraw(); PANELS.progress.redraw(); }
+  } else if (S.screen === 'K') {
+    // Lookback: 3, 2, 1 beside the video, then the section plays with REC while the phone films.
+    if (S.kPhase === 'count' && beatClock >= 1) {
+      beatClock -= 1;
+      if (S.kCount > 1) { S.kCount--; PANELS.countdown.redraw(); }
+      else { S.kPhase = 'play'; refresh(); }
+    } else if (S.kPhase === 'play' && beatClock >= beat) {
       beatClock -= beat;
-      if (S.count >= 8) go('C');
-      else { S.count++; video.redraw(); progress.redraw(); }
+      if (S.count >= 8) { S.takes.push({ speed: S.speed }); S.sel = S.takes.length - 1; go('L'); }
+      else { S.count++; PANELS.video.redraw(); PANELS.progress.redraw(); }
     }
-  }
+  } else if (S.screen === 'M' && S.sbsPlaying && beatClock >= beat) {
+    beatClock -= beat;
+    if (S.count >= 8) S.sbsPlaying = false; else S.count++;
+    PANELS.sbsL.redraw(); PANELS.sbsR.redraw(); PANELS.sbsBar.redraw();
+  } else if (!['B', 'K', 'M'].includes(S.screen)) beatClock = 0;
   renderer.render(scene, camera);
 });
 </script>
