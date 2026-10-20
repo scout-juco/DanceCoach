@@ -32,6 +32,7 @@
   <h1>Dance Coach · Specs preview</h1>
   <p id="xrmsg">Checking for WebXR…</p>
   <button id="enter" class="primary" type="button" hidden>View in my room</button>
+  <button id="skip" type="button">Skip ahead ›</button>
   <h2>Playthrough</h2>
   <div class="row screens" role="group" aria-label="Playthrough screens" data-group="0"></div>
   <h2>Pose</h2>
@@ -49,7 +50,7 @@
   <label class="sl">Below eyes <input id="drop" type="range" min="-0.5" max="0.8" step="0.01"><output id="dropv"></output></label>
   <label class="sl">Size <input id="scale" type="range" min="0.5" max="3" step="0.05"><output id="scalev"></output></label>
   <label class="sl">Pop-ups at <input id="popDist" type="range" min="0.5" max="2" step="0.05"><output id="popDistv"></output></label>
-  <p>Drag to look around. Everything on the panels works like the prototype: the mode button cycles Playthrough → Pose → Lookback. Pop-ups (Record lookback?, Routine done, Record your dance) open in front of you, not on the video, and follow if you turn away. In the headset, pinch to press, and use the small tweak bar below-left to adjust.</p>
+  <p>Drag to look around. Everything on the panels works like the prototype: the mode button cycles Playthrough → Pose → Lookback. Every run starts with a 5, 6, 7, 8 count-in. Finish routine unlocks once Section 4 is done. Pop-ups open in front of you, not on the video, and follow if you turn away. Skip ahead jumps past count-ins and long runs. In the headset, pinch to press, and use the small tweak bar below-left to adjust.</p>
   <button id="reset" type="button">Reset layout</button>
 </div>
 
@@ -68,8 +69,12 @@ import * as THREE from 'three';
    SIZE turns pixels into meters: 1.5 means 1 px = 1.5 mm in your room.
 ------------------------------------------------------------------- */
 const SCREENS = {
-  B: { group: 0, label: 'B Playing',     panels: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6] } },
-  C: { group: 0, label: 'C Clip ended',  panels: { video: [790, 40, 300, 533], sections: [600, 589, 490, 40], controls: [410, 645, null, 84] } },
+  BI: { group: 0, label: 'B0 Starting pose', panels: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6], progLabel: [790, 674, 340, 16], ciHead: [540, 150, 220, 20], countIn: [540, 200, 220, 236] } },
+  B0: { group: 0, label: 'B0 Lead-in',   panels: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6], progLabel: [790, 674, 340, 16], countIn: [540, 200, 220, 236] } },
+  // A full-routine run uses the same segmented bar as From the top.
+  B: { group: 0, label: 'B Playing',     panels: () => S.run.kind === 'full' ? { video: [790, 40, 340, 604], segBar: [790, 660, 340, 26] } : { video: [790, 40, 340, 604], progress: [790, 662, 340, 6] } },
+  F: { group: 0, label: 'F From the top', panels: { banner: [790, 20, 340, 40], video: [790, 72, 340, 572], segBar: [790, 660, 340, 26] } },
+  C: { group: 0, label: 'C Clip ended',  panels: { video: [790, 40, 300, 533], sections: [600, 589, 490, 40], controls: [360, 645, null, 84] } },
   D: { group: 1, label: 'D Pose',        panels: { video: [790, 40, 340, 604], poseThin: [790, 660, 340, 28] } },
   E: { group: 1, label: 'E Pose open',   panels: { video: [790, 40, 300, 533], posePanel: [520, 590, 740, 128] } },
   I: { group: 2, label: 'I Lookback',    panels: { lookPanel: [470, 40, 300, 533], video: [790, 40, 300, 533], attempts: [470, 583, 620, 52], lookControls: [470, 645, null, 84] } },
@@ -80,18 +85,23 @@ const SCREENS = {
   M: { group: 2, label: 'M Side by side', panels: { sbsL: [500, 40, 310, 555], sbsR: [830, 40, 310, 555], sbsBar: [500, 606, 640, 44], sbsControls: [380, 676, null, 80] } },
   G: { group: 3, label: 'G Routine done', dim: true, panels: { video: [790, 40, 340, 604] }, view: { done: [0, 0, 640, 334] } },
   H: { group: 3, label: 'H Record dance', dim: true, panels: { video: [790, 40, 340, 604] }, view: { recDance: [0, 0, 380, 380], phoneCam: [429, -14, 240, 448] } },
+  // Recording your dance: no pop-up, just the REC banner, the video and a small phone-camera view.
+  HR: { group: 3, label: 'H2 Recording', panels: { banner: [790, 20, 340, 40], video: [790, 72, 340, 572], segBar: [790, 660, 340, 26], camThumb: [1146, 72, 116, 228] } },
 };
+const panelsOf = sc => { const p = SCREENS[sc].panels; return typeof p === 'function' ? p() : p; };
 // Pop-ups ("view" panels above) are not on the video board. They open in front of
 // you, POPUP.dist meters away and POPUP.drop below eye level, and follow lazily
 // when you turn more than POPUP.followDeg away. Their x/y are relative to each other.
 const POPUP = { dist: 1.0, drop: 0.05, followDeg: 30 };
 // Buttons in each control bar, left to right.
 const BARS = {
-  controls:     ['mode', 'replay', 'top', 'speed', 'mirror', 'counts'],
+  controls:     ['mode', 'replay', 'top', 'speed', 'mirror', 'counts', 'finish'],
   lookControls: ['mode', 'speed', 'mirror', 'counts'],
   sbsControls:  ['mode', 'speedCycle', 'mirror', 'counts', ['Record again', 'record'], ['Back to takes', 'takes']],
 };
 const ORDER = Object.keys(SCREENS);
+// the screen list also has C2: Clip ended after the last section, with Finish routine unlocked
+const JUMPS = [...ORDER.slice(0, ORDER.indexOf('C') + 1), 'C2', ...ORDER.slice(ORDER.indexOf('C') + 1)];
 const ANCHOR = { x: 940, y: 306 };          // this wireframe point sits at the placement point
 const DEFAULTS = { dist: 1.5, yaw: 25, drop: 0.10, scale: 1.5, popDist: POPUP.dist, theme: 'light', screen: 'C' };
 const BPM = 100;                               // tempo used to animate counts
@@ -108,7 +118,7 @@ const THEMES = {
 };
 
 /* ------------------------------ state ------------------------------ */
-const S = { ...DEFAULTS, hRec: false, speed: 0.75, mirror: true, counts: true, section: 2, count: 1, pose: 9,
+const S = { ...DEFAULTS, run: { kind: 'section', stop: 4 }, runSec: 2, ci: 0, done: [1], finishReady: false, toast: null, hrPhase: 'count', hrCount: 3, hrTime: 0, speed: 0.75, mirror: true, counts: true, section: 2, count: 1, pose: 9,
             takes: [], sel: -1, kPhase: 'count', kCount: 3, sbsPlaying: false };
 try { Object.assign(S, JSON.parse(localStorage.getItem('dc-specs-preview') || '{}')); } catch (e) {}
 const q = new URLSearchParams(location.search);
@@ -176,7 +186,7 @@ function setRect(p, [x, y, w, h, z = 0]) {
 function layoutPanels() {
   const k = S.scale / 1000;
   // pop-ups are centred on the middle of their own bounding box
-  const view = Object.values(SCREENS[S.screen].view || {});
+  const view = Object.values(viewOf(S.screen));
   const vb = view.length ? { x: Math.min(...view.map(r => r[0])), y: Math.min(...view.map(r => r[1])), r: Math.max(...view.map(r => r[0] + r[2])), b: Math.max(...view.map(r => r[1] + r[3])) } : null;
   const vAnchor = vb ? { x: (vb.x + vb.r) / 2, y: (vb.y + vb.b) / 2 } : ANCHOR;
   for (const p of Object.values(PANELS)) {
@@ -232,17 +242,19 @@ function tag(ctx, s, x, yBottom, { locked = false, dark = false } = {}) {
   if (locked) lock(ctx, x + 8, yBottom - 17, dark ? t.activeInk : t.ink);
   text(ctx, s, x + (locked ? 24 : 10), yBottom - 10.5, { size: 11, font: MONO, color: dark ? t.activeInk : t.ink });
 }
-function countBadge(ctx, x, y, d, label, size) {
+function countBadge(ctx, x, y, d, label, size, sub) {
   ctx.beginPath(); ctx.arc(x + d / 2, y + d / 2, d / 2, 0, Math.PI * 2); ctx.fillStyle = T().countBg; ctx.fill();
-  text(ctx, label, x + d / 2, y + d / 2 + 2, { size, weight: 600, align: 'center' });
+  text(ctx, label, x + d / 2, y + d / 2 + (sub ? -5 : 2), { size, weight: 600, align: 'center' });
+  if (sub) text(ctx, sub, x + d / 2, y + d / 2 + 24, { size: 10, font: MONO, color: T().ink2, align: 'center' });
 }
 // Stick-figure poses, one per count, so the "video" visibly moves.
 const POSES = [
   [[22,38],[80,72],[30,150],[72,148]], [[26,80],[74,80],[34,152],[66,152]], [[20,42],[78,30],[28,146],[70,152]], [[22,74],[78,36],[34,152],[68,150]],
   [[30,30],[70,30],[32,150],[68,150]], [[18,55],[82,55],[26,148],[74,148]], [[24,36],[76,78],[36,152],[64,146]], [[26,80],[74,80],[34,152],[66,152]],
 ];
+const START_POSE = [[34,92],[66,92],[40,152],[60,152]];
 function figure(ctx, cx, cy, s, count, color = T().muted, wobble = 0) {
-  const pose = POSES[(Math.max(1, count) - 1) % 8].map(([a, b], i) => [a + (i < 2 ? wobble * (i ? -1 : 1) : 0), b + (i < 2 ? wobble : 0)]);
+  const pose = (count === 0 ? START_POSE : POSES[(count - 1) % 8]).map(([a, b], i) => [a + (i < 2 ? wobble * (i ? -1 : 1) : 0), b + (i < 2 ? wobble : 0)]);
   ctx.save(); ctx.translate(cx, cy); ctx.scale(S.mirror ? -s : s, s); ctx.translate(-50, -90);
   ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.arc(50, 28, 12, 0, Math.PI * 2); ctx.stroke();
@@ -257,7 +269,7 @@ function pauseIcon(ctx, cx, cy, r, color) { ctx.fillStyle = color; ctx.fillRect(
 const GAP = 8;
 function itemW(it, H) {
   if (Array.isArray(it)) { measureCtx.font = `600 12px ${SANS}`; return Math.ceil(measureCtx.measureText(it[0]).width) + 28; }
-  return { mode: 170, replay: 110, top: 150, speed: 132, mirror: H, counts: H, speedCycle: 64, divider: 9 }[it];
+  return { mode: 170, replay: 110, top: 150, speed: 132, mirror: H, counts: H, speedCycle: 64, divider: 9, finish: 92 }[it];
 }
 function barWidth(items, H) { return 24 + items.reduce((s, it) => s + itemW(it, H), 0) + GAP * (items.length - 1); }
 function drawItems(ctx, p, items, x, y, H) {
@@ -280,9 +292,10 @@ function drawItems(ctx, p, items, x, y, H) {
       text(ctx, 'NEXT: ' + MODES[(m + 1) % 3].toUpperCase(), x + 50, y + H / 2 + 11, { size: 10, font: MONO, color: t.muted });
       p.hits.push({ x, y, w, h: H, id: 'mode' });
     } else if (it === 'replay') {
-      rr(ctx, x, y, w, H, 12, t.active, t.active);
-      text(ctx, '↺', x + w / 2, y + H / 2 - 8, { size: 18, weight: 600, color: t.activeInk, align: 'center' });
-      text(ctx, 'Replay section', x + w / 2, y + H / 2 + 14, { size: 12, weight: 600, color: t.activeInk, align: 'center' });
+      const primary = !S.finishReady, ink = primary ? t.activeInk : t.ink;
+      rr(ctx, x, y, w, H, 12, primary ? t.active : t.panel, primary ? t.active : t.ink);
+      text(ctx, '↺', x + w / 2, y + H / 2 - 8, { size: 18, weight: 600, color: ink, align: 'center' });
+      text(ctx, 'Replay section', x + w / 2, y + H / 2 + 14, { size: 12, weight: 600, color: ink, align: 'center' });
       p.hits.push({ x, y, w, h: H, id: 'replay' });
     } else if (it === 'top') {
       rr(ctx, x, y, w, H, 12, t.panel, t.soft);
@@ -299,6 +312,12 @@ function drawItems(ctx, p, items, x, y, H) {
         text(ctx, `${s}×`, bx + 22, y + H / 2, { size: 12, weight: 600, font: MONO, color: on ? t.activeInk : t.ink, align: 'center' });
         p.hits.push({ x: bx, y, w: 44, h: H, id: 'speed:' + s });
       });
+    } else if (it === 'finish') {
+      const ready = S.finishReady;
+      if (ready) rr(ctx, x, y, w, H, 12, t.active, t.active); else rr(ctx, x, y, w, H, 12, t.panel, t.ghostLine, 1.5, [5, 4]);
+      text(ctx, 'Finish routine', x + w / 2, y + H / 2 - 7, { size: 12, weight: 600, color: ready ? t.activeInk : t.soft, align: 'center' });
+      text(ctx, ready ? '✓ ALL SECTIONS' : 'AFTER SEC 4', x + w / 2, y + H / 2 + 11, { size: 9, font: MONO, color: ready ? t.activeInk : t.soft, align: 'center' });
+      p.hits.push({ x, y, w, h: H, id: 'finish' });
     } else if (it === 'speedCycle') {
       rr(ctx, x, y, w, H, 12, t.panel, t.soft);
       text(ctx, `${S.speed}×`, x + w / 2, y + H / 2, { size: 12, weight: 600, font: MONO, align: 'center' });
@@ -319,20 +338,34 @@ function drawBar(ctx, p) {
 }
 
 /* ---------------------------- panel drawings ----------------------------- */
+const runLabel = () => S.run.kind === 'full' ? 'FULL ROUTINE' : `SECTION ${S.run.kind === 'top' ? 1 : S.section}`;
+const multi = () => S.screen === 'F' || S.screen === 'HR' || (S.screen === 'B' && S.run.kind === 'full');
 function drawVideo(ctx, p) {
-  const t = T(), sc = S.screen, { w, h } = p, pose = sc === 'D' || sc === 'E';
-  rr(ctx, 0, 0, w, h, 16, t.video, pose ? t.ink : t.stroke, pose ? 2.5 : 1.5);
-  figure(ctx, w / 2, h / 2, w > 320 ? 1.2 : 1.1, pose ? Math.floor(S.pose / 2) + 1 : S.count, pose ? t.ink2 : t.muted);
-  if (S.counts) pose ? countBadge(ctx, 14, 14, 84, poseLabel(), 40) : countBadge(ctx, 14, 14, 84, String(S.count), 44);
+  const t = T(), sc = S.screen, { w, h } = p, pose = sc === 'D' || sc === 'E', frozen = pose || sc === 'BI';
+  rr(ctx, 0, 0, w, h, 16, t.video, frozen ? t.ink : t.stroke, frozen ? 2.5 : 1.5);
+  let cnt = S.count, label = String(S.count), sub = null, size = 44;
+  if (pose) { cnt = Math.floor(S.pose / 2) + 1; label = poseLabel(); size = 40; }
+  else if (sc === 'BI') { cnt = 0; label = String(5 + S.ci); sub = 'COUNT-IN'; }
+  else if (sc === 'B0') { cnt = 5 + S.ci; label = String(5 + S.ci); sub = `SEC ${S.section - 1}`; }
+  else if (multi()) sub = `SEC ${S.runSec}`;
+  ctx.save(); if (sc === 'B0') ctx.globalAlpha = 0.55;   // lead-in: the end of the previous section, dimmed
+  figure(ctx, w / 2, h / 2, w > 320 ? 1.2 : 1.1, cnt, frozen ? t.ink2 : t.muted);
+  ctx.restore();
+  if (S.counts || sc === 'BI' || sc === 'B0') countBadge(ctx, 14, 14, 84, label, size, sub);
   const chips = [];
   if (sc === 'K' && S.kPhase === 'play') chips.push(['● REC', true]);
-  if (sc === 'B' || sc === 'K') chips.push([`${S.speed}×`]);
-  if ((sc === 'B' || sc === 'K' || pose) && S.mirror) chips.push(['MIRRORED']);
+  if (['B', 'B0', 'BI', 'K', 'F'].includes(sc)) chips.push([`${S.speed}×`]);
+  if (sc === 'HR') chips.push(['1×']);
+  if ((['B', 'B0', 'BI', 'K', 'HR'].includes(sc) || pose) && S.mirror) chips.push(['MIRRORED']);
   chipsRight(ctx, chips, w - 14, 14);
   const sec = `SECTION ${S.section}`;
   const tags = {
-    B: [`PLAYTHROUGH · ${sec} · controls locked`, { locked: true }],
-    C: [`${sec} DONE · controls unlocked`],
+    BI: [`${runLabel()} · STARTING POSE · controls locked`, { locked: true }],
+    B0: ['LEAD-IN · controls locked', { locked: true }],
+    B: [`PLAYTHROUGH · ${runLabel()} · controls locked`, { locked: true }],
+    F: ['controls locked until it ends', { locked: true }],
+    HR: ['FULL ROUTINE · controls locked', { locked: true }],
+    C: [S.section === 'Full' ? 'FULL ROUTINE DONE · controls unlocked' : `${sec} DONE · controls unlocked`],
     D: ['POSE · FROZEN', { dark: true }], E: ['POSE · FROZEN', { dark: true }],
     I: ['LOOKBACK MODE · controls unlocked'],
     K: [S.kPhase === 'play' ? `LOOKBACK · ${sec} · controls locked` : `LOOKBACK · ${sec} · get ready`, { locked: true }],
@@ -343,14 +376,78 @@ function drawVideo(ctx, p) {
   if (sc === 'E') p.hits.push({ x: 0, y: 0, w, h, id: 'closePose' });
 }
 function drawProgress(ctx, p) {
-  const t = T(), frac = S.screen === 'K' && S.kPhase !== 'play' ? 0 : S.count / 8;
+  const t = T(), sc = S.screen;
   rr(ctx, 0, 0, p.w, p.h, 3, t.track, null);
+  if (sc === 'BI' || sc === 'B0') {
+    const lead = sc === 'B0' ? p.w * 0.18 : 0;
+    ctx.fillStyle = t.soft; for (let x = 0; x < lead; x += 7) ctx.fillRect(x, 0, Math.min(4, lead - x), p.h);
+    ctx.fillStyle = t.ink; ctx.fillRect(lead, -4, 2, p.h + 8);
+    return;
+  }
+  const frac = sc === 'K' && S.kPhase !== 'play' ? 0 : S.count / 8;
   if (frac > 0) rr(ctx, 0, 0, Math.max(6, p.w * frac), p.h, 3, t.muted, null);
+}
+function drawProgLabel(ctx, p) {
+  const t = T();
+  if (S.screen === 'BI') { text(ctx, `↑ ${runLabel()} STARTS ON 1 · 0:00`, 0, 8, { size: 11, font: MONO, weight: 600 }); return; }
+  text(ctx, 'LEAD-IN', 0, 8, { size: 11, font: MONO, color: t.ink2 });
+  text(ctx, `↑ SECTION ${S.section} STARTS ON 1`, p.w * 0.18 - 4, 8, { size: 11, font: MONO, weight: 600 });
+}
+function drawCiHead(ctx, p) { text(ctx, 'GET IN YOUR STARTING POSE', p.w / 2, p.h / 2, { size: 13, font: MONO, weight: 600, align: 'center' }); }
+function drawCountIn(ctx, p) {
+  const t = T(), cx = p.w / 2;
+  ctx.beginPath(); ctx.arc(cx, 100, 100, 0, Math.PI * 2); ctx.fillStyle = t.active; ctx.fill();
+  text(ctx, String(5 + S.ci), cx, 92, { size: 110, weight: 600, color: t.activeInk, align: 'center' });
+  text(ctx, `${S.screen === 'B0' ? 'SECTION ' + S.section : runLabel()} IN`, cx, 160, { size: 11, font: MONO, color: t.activeInk, align: 'center' });
+  [5, 6, 7, 8].forEach((n, i) => text(ctx, String(n), cx + (i - 1.5) * 26, 226, { size: 20, font: MONO, weight: 600, color: i === S.ci ? t.ink : t.soft, align: 'center' }));
+}
+function drawSegBar(ctx, p) {
+  const t = T(), gap = 4, sw = (p.w - gap * 3) / 4, top = S.run.kind === 'top', stop = top ? S.run.stop : 4;
+  for (let i = 1; i <= 4; i++) {
+    const x = (i - 1) * (sw + gap), cur = i === S.runSec;
+    if (i > stop) rr(ctx, x, 0, sw, 8, 4, null, t.ghostLine, 1, [3, 2]);
+    else if (i < S.runSec) rr(ctx, x, 0, sw, 8, 4, t.stroke, null);
+    else {
+      rr(ctx, x, 0, sw, 8, 4, t.soft, null);
+      if (cur) { ctx.save(); ctx.beginPath(); ctx.roundRect(x, 0, sw, 8, 4); ctx.clip(); ctx.fillStyle = t.stroke; ctx.fillRect(x, 0, sw * S.count / 8, 8); ctx.restore(); }
+    }
+    const label = cur ? `${i} ▸${top && i === stop ? ' · STOP' : ''}` : top && i === stop ? `${i} · STOP` : String(i);
+    text(ctx, label, x, 20, { size: 11, font: MONO, weight: cur ? 600 : 400, color: cur ? t.ink : i > stop ? t.muted : t.ink2 });
+  }
+}
+function drawBanner(ctx, p) {
+  const t = T(), cy = p.h / 2;
+  rr(ctx, 0, 0, p.w, p.h, 12, t.active, null);
+  let label;
+  if (S.screen === 'F') {
+    label = `From the top · Section 1 → end of Section ${S.run.stop}`;
+    ctx.strokeStyle = t.activeInk; ctx.lineWidth = 2; ctx.beginPath();
+    const ix = 22; ctx.moveTo(ix, cy - 6); ctx.lineTo(ix, cy + 6); ctx.moveTo(ix, cy); ctx.lineTo(ix + 26, cy); ctx.moveTo(ix + 21, cy - 5); ctx.lineTo(ix + 26, cy); ctx.lineTo(ix + 21, cy + 5); ctx.stroke();
+    text(ctx, label, ix + 36, cy, { size: 13, weight: 600, color: t.activeInk });
+  } else {
+    const sec = Math.floor(S.hrTime);
+    label = S.hrPhase === 'count' ? `Starting in ${S.hrCount} · get in position` : `REC · 0:${String(sec).padStart(2, '0')} · stops when the song ends`;
+    ctx.beginPath(); ctx.arc(26, cy, 5, 0, Math.PI * 2); ctx.fillStyle = t.activeInk; ctx.fill();
+    text(ctx, label, 42, cy, { size: 13, weight: 600, color: t.activeInk });
+  }
+}
+function drawCamThumb(ctx, p) {
+  const t = T(), vh = p.h - 22;
+  text(ctx, 'PHONE CAMERA', 0, 6, { size: 10, font: MONO, color: t.ink2 });
+  rr(ctx, 0, 22, p.w, vh, 10, S.theme === 'dark' ? '#3A3A36' : '#7A7A76', t.stroke);
+  const keep = S.mirror; S.mirror = false; figure(ctx, p.w / 2, 22 + vh / 2, 0.45, S.count, '#ECECE8'); S.mirror = keep;
+  if (S.hrPhase === 'play') { rr(ctx, 6, 28, 46, 16, 8, t.active, null); text(ctx, '● REC', 12, 36.5, { size: 9, font: MONO, weight: 600, color: t.activeInk }); }
+  else { rr(ctx, 6, 28, 52, 16, 8, t.chip, null); text(ctx, 'READY', 12, 36.5, { size: 9, font: MONO, weight: 600 }); }
+}
+function drawToast(ctx, p) {
+  const t = T();
+  rr(ctx, 0, 0, p.w, p.h, p.h / 2, t.active, null);
+  text(ctx, S.toast ? S.toast.text : '', p.w / 2, p.h / 2, { size: 14, weight: 600, color: t.activeInk, align: 'center' });
 }
 function drawSections(ctx, p) {
   const t = T(), labels = ['Full', '1', '2', '3', '4'], gap = 6, tw = (p.w - gap * 4) / 5;
   labels.forEach((lab, i) => {
-    const x = i * (tw + gap), cur = String(S.section) === lab, done = i > 0 && Number(lab) < S.section;
+    const x = i * (tw + gap), cur = String(S.section) === lab, done = i > 0 && !cur && S.done.includes(Number(lab));
     rr(ctx, x, 0, tw, p.h, 10, cur ? t.active : done || i === 0 ? t.done : t.panel, cur ? t.active : t.soft);
     text(ctx, done ? `${lab} ✓` : lab, x + tw / 2, p.h / 2 + 1, { weight: cur ? 600 : 400, color: cur ? t.activeInk : t.ink, align: 'center' });
     p.hits.push({ x, y: 0, w: tw, h: p.h, id: 'sec:' + lab });
@@ -475,12 +572,11 @@ function drawDone(ctx, p) {
 function drawRecDance(ctx, p) {
   const t = T(), pad = 24, w = p.w, iw = w - pad * 2;
   rr(ctx, 0, 0, w, p.h, 20, t.panel, t.stroke);
-  text(ctx, S.hRec ? 'Recording your dance' : 'Record your dance', pad, pad + 14, { size: 24, weight: 600 });
+  text(ctx, 'Record your dance', pad, pad + 14, { size: 24, weight: 600 });
   const rows = [['Phone camera', 'CONNECTED ✓'], ["You're in frame", '✓'], ['Music', 'from [ORIGINAL VIDEO SOURCE]'], ['Speed', '1× · full routine']];
   rows.forEach(([a, b], i) => { const y = pad + 50 + i * 24; text(ctx, a, pad, y, { size: 14 }); text(ctx, b, w - pad, y, { size: 12, font: MONO, align: 'right' }); });
   const by = pad + 150;
-  if (S.hRec) btn(ctx, p, pad, by, iw, 72, 'recToggle', 'Stop recording', { sub: 'Or say "stop"', primary: true });
-  else btn(ctx, p, pad, by, iw, 72, 'recToggle', 'Start recording', { sub: '3-second countdown, then the music starts', primary: true });
+  btn(ctx, p, pad, by, iw, 72, 'startRec', 'Start recording', { sub: '3-second countdown, then the music starts', primary: true });
   wrap(ctx, 'Controls lock while recording. Say "stop" to end early.', pad, by + 86, iw, 17, { size: 13, color: t.muted });
   btn(ctx, p, pad, p.h - pad - 44, iw, 44, 'cancel', 'Cancel', { quiet: true, size: 13 });
 }
@@ -491,7 +587,7 @@ function drawPhoneCam(ctx, p) {
   const keep = S.mirror; S.mirror = false;
   figure(ctx, p.w / 2, 22 + vh / 2, 0.9, 2, '#ECECE8');
   S.mirror = keep;
-  chip(ctx, S.hRec ? '● REC' : 'READY', 10, 32, S.hRec);
+  chip(ctx, 'READY', 10, 32);
 }
 function drawCountdown(ctx, p) {
   const t = T(), r = p.w / 2;
@@ -531,6 +627,13 @@ makePanel('posePanel', drawPosePanel);
 makePanel('lookPanel', drawLookPanel);
 makePanel('attempts', drawAttempts);
 makePanel('lookControls', drawBar);
+makePanel('progLabel', drawProgLabel, false);
+makePanel('ciHead', drawCiHead, false);
+makePanel('countIn', drawCountIn, false);
+makePanel('segBar', drawSegBar, false);
+makePanel('banner', drawBanner, false);
+makePanel('camThumb', drawCamThumb, false);
+makePanel('toast', drawToast, false, 'view');
 makePanel('dialog', drawDialog, true, 'view');
 makePanel('done', drawDone, true, 'view');
 makePanel('recDance', drawRecDance, true, 'view');
@@ -545,8 +648,10 @@ makePanel('sbsControls', drawBar);
 function act(id, px) {
   const sc = S.screen;
   if (id === 'mode') return go(MODE_ENTRY[(modeOf(sc) + 1) % 3]);
-  if (id === 'replay' || id === 'top') return go('B');
-  if (id.startsWith('sec:')) { const s = id.slice(4); S.section = s === 'Full' ? 'Full' : Number(s); return go('B'); }
+  if (id === 'replay') return startRun(S.section === 'Full' ? 'full' : 'section');
+  if (id === 'top') return startRun('top', S.section === 'Full' ? 4 : S.section);
+  if (id.startsWith('sec:')) { const s = id.slice(4); S.section = s === 'Full' ? 'Full' : Number(s); return startRun(s === 'Full' ? 'full' : 'section'); }
+  if (id === 'finish') { if (S.finishReady) return go('G'); return toast('Finish routine unlocks after you finish Section 4'); }
   if (id.startsWith('speed:')) S.speed = parseFloat(id.slice(6));
   else if (id === 'speedCycle') S.speed = { 0.5: 0.75, 0.75: 1, 1: 0.5 }[S.speed];
   else if (id === 'mirror' || id === 'counts') S[id] = !S[id];
@@ -563,9 +668,10 @@ function act(id, px) {
   else if (id === 'takes') return go('L');
   else if (id === 'sbsPlay') { if (!S.sbsPlaying && S.count >= 8) S.count = 1; S.sbsPlaying = !S.sbsPlaying; beatClock = 0; }
   else if (id === 'recDance') return go('H');
-  else if (id === 'again') { S.section = 4; return go('B'); }
-  else if (id === 'practice' || id === 'dances') { S.section = 1; return go('C'); }
-  else if (id === 'recToggle') S.hRec = !S.hRec;
+  else if (id === 'again') return startRun('top', 4);
+  else if (id === 'practice') return go('C');
+  else if (id === 'dances') { go('C'); return toast("The dance picker isn't in this preview"); }
+  else if (id === 'startRec') return go('HR');
   else if (id === 'cancel') return go('G');
   else if (id === 'sbsScrub') { S.count = THREE.MathUtils.clamp(Math.floor(((px - 56) / (PANELS.sbsBar.w - 56)) * 8) + 1, 1, 8); }
   save(); refresh();
@@ -573,13 +679,13 @@ function act(id, px) {
 
 /* ------------------------- in-headset tweak bar ------------------------- */
 const TB = [
-  [['‹ Screen', 'prev'], ['Screen ›', 'next'], ['Theme', 'theme'], ['Recenter', 'recenter'], ['Pop-up nearer', 'popnear'], ['Pop-up farther', 'popfar'], ['Hide bar', 'hidebar']],
+  [['‹ Screen', 'prev'], ['Screen ›', 'next'], ['Skip ›', 'skip'], ['Theme', 'theme'], ['Recenter', 'recenter'], ['Pop-up nearer', 'popnear'], ['Pop-up farther', 'popfar'], ['Hide bar', 'hidebar']],
   [['Closer', 'closer'], ['Farther', 'farther'], ['Smaller', 'smaller'], ['Bigger', 'bigger'], ['◀ Left', 'left'], ['Right ▶', 'right'], ['Up', 'up'], ['Down', 'down']],
 ];
 const tweak = makePanel('tweak', (ctx, p) => {
   const { w, h } = p;
   rr(ctx, 0, 0, w, h, 16, 'rgba(18,18,18,0.92)', '#8E8E89');
-  text(ctx, `${SCREENS[S.screen].label.toUpperCase()} · ${S.dist.toFixed(2)} m · ${S.yaw}° right · size ${S.scale.toFixed(2)} · pop-ups ${S.popDist.toFixed(2)} m`, 14, 16, { size: 11, font: MONO, color: '#B9B9B3' });
+  text(ctx, `${(currentJump() === 'C2' ? 'C2 Last section done' : SCREENS[S.screen].label).toUpperCase()} · ${S.dist.toFixed(2)} m · ${S.yaw}° right · size ${S.scale.toFixed(2)} · pop-ups ${S.popDist.toFixed(2)} m`, 14, 16, { size: 11, font: MONO, color: '#B9B9B3' });
   TB.forEach((row, r) => {
     const gap = 6, bw = (w - 28 - gap * (row.length - 1)) / row.length, y = 30 + r * 58;
     row.forEach(([label, id], i) => {
@@ -590,15 +696,16 @@ const tweak = makePanel('tweak', (ctx, p) => {
     });
   });
 }, true, rig);
-setRect(tweak, [0, 0, 700, 150]);
-tweak.mesh.scale.set(700 * 0.00085, 150 * 0.00085, 1);
+setRect(tweak, [0, 0, 780, 150]);
+tweak.mesh.scale.set(780 * 0.00085, 150 * 0.00085, 1);
 tweak.mesh.position.set(-0.12, -0.32, -0.55);
 tweak.mesh.rotation.set(-0.55, 0.15, 0);
 function tweakAct(id) {
-  const i = ORDER.indexOf(S.screen);
+  const i = JUMPS.indexOf(currentJump());
   switch (id) {
-    case 'prev': return go(ORDER[(i + ORDER.length - 1) % ORDER.length]);
-    case 'next': return go(ORDER[(i + 1) % ORDER.length]);
+    case 'prev': return jump(JUMPS[(i + JUMPS.length - 1) % JUMPS.length]);
+    case 'next': return jump(JUMPS[(i + 1) % JUMPS.length]);
+    case 'skip': return skip();
     case 'theme': S.theme = S.theme === 'light' ? 'dark' : 'light'; break;
     case 'recenter': needRecenter = true; break;
     case 'hidebar': tweak.mesh.visible = false; break;
@@ -618,10 +725,51 @@ function tweakAct(id) {
 
 /* ------------------------------ screens ------------------------------ */
 let beatClock = 0;
+function startRun(kind, stop = 4) {
+  // every run starts with a count-in: the starting pose for Section 1, Full and From the top,
+  // otherwise a lead-in from the end of the previous section
+  S.run = { kind, stop };
+  if (kind === 'full') S.section = 'Full';
+  S.runSec = kind === 'section' ? S.section : 1;
+  go(kind === 'section' && S.section > 1 ? 'B0' : 'BI');
+}
+function afterCount() { go(S.run.kind === 'top' ? 'F' : 'B'); }
+function endRun() {
+  if (S.screen === 'HR') { go('G'); return toast('Song ended · recording saved to your phone'); }
+  const { kind, stop } = S.run;
+  if (kind === 'section') { if (!S.done.includes(S.section)) S.done.push(S.section); if (S.section === 4) S.finishReady = true; }
+  if (kind === 'top') { S.section = stop; if (stop === 4) S.finishReady = true; }
+  go('C');   // no pop-up when the last section ends: Finish routine unlocks instead
+}
+function skip() {
+  const sc = S.screen;
+  if (sc === 'BI' || sc === 'B0') afterCount();
+  else if (sc === 'B' || sc === 'F' || sc === 'HR') endRun();
+  else if (sc === 'K') { S.takes.push({ speed: S.speed }); S.sel = S.takes.length - 1; go('L'); }
+}
+function toast(text) {
+  if (!Object.keys(SCREENS[S.screen].view || {}).length) needPlaceFront = true;
+  S.toast = { text, until: performance.now() + 2600 };
+  refresh();
+}
+// desktop list and tweak bar: land on a screen with sensible state
+function currentJump() { return S.screen === 'C' && S.finishReady && S.section === 4 ? 'C2' : S.screen; }
+function jump(key) {
+  if (key === 'BI') { S.section = 1; return startRun('section'); }
+  if (key === 'B0') { if (!(S.section > 1)) S.section = 2; return startRun('section'); }
+  if (key === 'B') { if (!(S.section >= 1)) S.section = 2; S.run = { kind: 'section', stop: 4 }; S.runSec = S.section; return go('B'); }
+  if (key === 'F') { if (!(S.section >= 1)) S.section = 2; S.run = { kind: 'top', stop: S.section }; S.runSec = 1; return go('F'); }
+  if (key === 'C2') { S.section = 4; S.done = [1, 2, 3, 4]; S.finishReady = true; return go('C'); }
+  if (key === 'C' && S.section === 4 && S.finishReady) S.finishReady = false;
+  go(key);
+}
 function go(screen) {
   const hadView = !!SCREENS[S.screen]?.view;
-  S.screen = screen; beatClock = 0; S.sbsPlaying = false; S.hRec = false;
+  S.screen = screen; beatClock = 0; S.sbsPlaying = false;
   if (SCREENS[screen].view && !hadView) needPlaceFront = true;
+  if (screen === 'BI' || screen === 'B0') { S.ci = 0; S.count = 1; }
+  if (screen === 'B' || screen === 'F') S.count = 1;
+  if (screen === 'HR') { S.run = { kind: 'full', stop: 4 }; S.runSec = 1; S.count = 1; S.hrPhase = 'count'; S.hrCount = 3; S.hrTime = 0; }
   if (screen === 'B') S.count = 1;
   if (screen === 'C' || screen === 'L') S.count = 8;
   if (screen === 'I') S.count = 1;
@@ -632,7 +780,7 @@ function go(screen) {
   refresh();
 }
 function refresh() {
-  const sc = SCREENS[S.screen], want = { ...sc.panels, ...(sc.view || {}) };
+  const sc = SCREENS[S.screen], want = { ...panelsOf(S.screen), ...viewOf(S.screen) };
   for (const [name, p] of Object.entries(PANELS)) {
     if (p === tweak) continue;
     const r = want[name];
@@ -721,6 +869,17 @@ enterBtn.addEventListener('click', async () => {
   } catch (err) { xrmsg.textContent = 'Could not start AR: ' + err.message; }
 });
 
+// pop-up panels for a screen, plus the toast above them when one is showing
+function viewOf(screen) {
+  const base = SCREENS[screen].view || {}, v = { ...base };
+  if (S.toast) {
+    const rs = Object.values(base);
+    const minX = rs.length ? Math.min(...rs.map(r => r[0])) : 0, maxX = rs.length ? Math.max(...rs.map(r => r[0] + r[2])) : 0;
+    const minY = rs.length ? Math.min(...rs.map(r => r[1])) : 0;
+    v.toast = [(minX + maxX) / 2 - 210, rs.length ? minY - 70 : 0, 420, 48];
+  }
+  return v;
+}
 // Pop-ups: placed in front of where you're looking, then follow lazily.
 let needPlaceFront = true, frontFollowing = false;
 const headPos = new THREE.Vector3(), headQuat = new THREE.Quaternion();
@@ -731,7 +890,7 @@ function headPose() {
 }
 function angleDiff(a, b) { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
 function updateFront(dt) {
-  if (!SCREENS[S.screen].view) return;
+  if (!Object.keys(viewOf(S.screen)).length) return;
   const yaw = headPose();
   if (needPlaceFront) { front.position.copy(headPos); front.rotation.set(0, yaw, 0); needPlaceFront = false; frontFollowing = false; return; }
   const d = angleDiff(yaw, front.rotation.y);
@@ -753,11 +912,13 @@ function recenter() {
 
 /* ------------------------------ desktop UI ------------------------------ */
 const ui = document.getElementById('ui');
-for (const [key, s] of Object.entries(SCREENS)) {
+for (const key of JUMPS) {
+  const s = key === 'C2' ? { group: 0, label: 'C2 Last section done' } : SCREENS[key];
   const b = document.createElement('button'); b.type = 'button'; b.dataset.screen = key; b.textContent = s.label;
-  b.addEventListener('click', () => go(key));
+  b.addEventListener('click', () => jump(key));
   document.querySelector(`[data-group="${s.group}"]`).appendChild(b);
 }
+document.getElementById('skip').addEventListener('click', () => skip());
 document.getElementById('hide').addEventListener('click', e => { ui.hidden = !ui.hidden; e.target.textContent = ui.hidden ? 'Show panel' : 'Hide panel'; });
 document.querySelectorAll('[data-theme]').forEach(b => b.addEventListener('click', () => { S.theme = b.dataset.theme; save(); refresh(); }));
 const fmt = { popDist: v => v.toFixed(2) + ' m', dist: v => v.toFixed(2) + ' m', yaw: v => v + '°', drop: v => v.toFixed(2) + ' m', scale: v => v.toFixed(2) + '×' };
@@ -768,7 +929,7 @@ for (const k of Object.keys(fmt)) {
 document.getElementById('reset').addEventListener('click', () => { Object.assign(S, { popDist: DEFAULTS.popDist, dist: DEFAULTS.dist, yaw: DEFAULTS.yaw, drop: DEFAULTS.drop, scale: DEFAULTS.scale }); save(); refresh(); });
 function syncUI() {
   for (const k of Object.keys(fmt)) { document.getElementById(k).value = S[k]; document.getElementById(k + 'v').textContent = fmt[k](S[k]); }
-  document.querySelectorAll('[data-screen]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.screen === S.screen)));
+  document.querySelectorAll('[data-screen]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.screen === currentJump())));
   document.querySelectorAll('[data-theme]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.theme === S.theme)));
 }
 
@@ -786,12 +947,25 @@ renderer.setAnimationLoop(() => {
     camera.rotation.set(look.pitch, look.yaw, 0, 'YXZ');
   }
   updateFront(dt);
-  const beat = 60 / BPM / S.speed;
+  const beat = 60 / BPM / (S.screen === 'HR' ? 1 : S.speed);
   beatClock += dt;
-  if (S.screen === 'B' && beatClock >= beat) {
-    // Playthrough: counts advance with the beat, then the clip ends (screen C).
+  if (S.toast && performance.now() > S.toast.until) { S.toast = null; refresh(); }
+  const redrawRun = () => { for (const n of ['video', 'progress', 'segBar', 'banner', 'camThumb', 'countIn']) if (PANELS[n].mesh.visible) PANELS[n].redraw(); };
+  if ((S.screen === 'BI' || S.screen === 'B0') && beatClock >= beat) {
+    // count-in: 5, 6, 7, 8 beside the video, then the run plays
     beatClock -= beat;
-    if (S.count >= 8) go(S.section === 4 || S.section === 'Full' ? 'G' : 'C'); else { S.count++; PANELS.video.redraw(); PANELS.progress.redraw(); }
+    if (S.ci >= 3) afterCount(); else { S.ci++; redrawRun(); }
+  } else if (S.screen === 'HR' && S.hrPhase === 'count') {
+    if (beatClock >= 1) { beatClock -= 1; if (S.hrCount > 1) { S.hrCount--; redrawRun(); } else { S.hrPhase = 'play'; beatClock = 0; redrawRun(); } }
+  } else if ((S.screen === 'B' || S.screen === 'F' || S.screen === 'HR') && (beatClock >= beat || S.screen === 'HR')) {
+    // Playthrough: counts advance with the beat; multi-section runs go section by section
+    if (S.screen === 'HR') { const before = Math.floor(S.hrTime); S.hrTime += dt; if (Math.floor(S.hrTime) !== before) PANELS.banner.redraw(); }
+    if (beatClock >= beat) {
+      beatClock -= beat;
+      if (S.count < 8) { S.count++; redrawRun(); }
+      else if (S.run.kind !== 'section' && S.runSec < S.run.stop) { S.runSec++; S.count = 1; redrawRun(); }
+      else endRun();
+    }
   } else if (S.screen === 'K') {
     // Lookback: 3, 2, 1 beside the video, then the section plays with REC while the phone films.
     if (S.kPhase === 'count' && beatClock >= 1) {
@@ -807,7 +981,7 @@ renderer.setAnimationLoop(() => {
     beatClock -= beat;
     if (S.count >= 8) S.sbsPlaying = false; else S.count++;
     PANELS.sbsL.redraw(); PANELS.sbsR.redraw(); PANELS.sbsBar.redraw();
-  } else if (!['B', 'K', 'M'].includes(S.screen)) beatClock = 0;
+  } else if (!['B', 'F', 'BI', 'B0', 'HR', 'K', 'M'].includes(S.screen)) beatClock = 0;
   renderer.render(scene, camera);
 });
 </script>
