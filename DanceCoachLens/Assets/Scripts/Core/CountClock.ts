@@ -59,11 +59,15 @@ export class CountClock {
     return this.ends[this.checkSection(n) - 1]
   }
 
-  /** The lead-in window before section n: the last 4 counts of section n − 1. None for Section 1. */
+  /**
+   * The lead-in window before section n: the last 4 counts of section n − 1. Section 1 leads in
+   * from the 4 counts of footage before the trim; null when the video doesn't have that much.
+   */
   leadIn(n: number): { start: number; end: number } | null {
-    if (this.checkSection(n) === 1) return null
+    this.checkSection(n)
     const end = this.sectionStart(n)
-    return { start: end - LEAD_IN_COUNTS * this.beatSec, end }
+    const start = end - LEAD_IN_COUNTS * this.beatSec
+    return start < -EPS ? null : { start: Math.max(start, 0), end }
   }
 
   /** The section a time falls in. Before the first beat that's 0; past the last section it stays on the last. */

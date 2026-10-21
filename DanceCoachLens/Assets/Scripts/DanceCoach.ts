@@ -7,8 +7,18 @@
  */
 import { TEST_DANCE } from "../Dance/TestDance"
 import { PlaybackController, ScreenId, VideoRequest, ViewState } from "./Core/PlaybackController"
+import { CountInPanel } from "./UI/CountInPanel"
 import { PLACEMENT, SCREENS } from "./UI/Layout"
+import { ProgressBar } from "./UI/ProgressBar"
+import { SectionRow, SectionTap } from "./UI/SectionRow"
 import { VideoWindow } from "./UI/VideoWindow"
+import { childObject } from "./UI/Visuals"
+
+// After a seek, the video's reported time can lag behind for a few frames. Wait until it's
+// near the target (or this long has passed) before the controller reads it again.
+const SEEK_SETTLE_SEC = 0.5
+const SEEK_NEAR_SEC = 0.25
+const SEEK_TRIES = 3
 
 @component
 export class DanceCoach extends BaseScriptComponent {
@@ -29,12 +39,16 @@ export class DanceCoach extends BaseScriptComponent {
   videoTexture: Texture
 
   private controller: PlaybackController
+  private countIn: CountInPanel
+  private progress: ProgressBar
+  private sections: SectionRow
   private video: VideoTextureProvider | null = null
   // Stand-in video time when there's no video texture.
   private fakeTime = 0
   private appliedSeekId = -1
   // A seek waits until the video is actually playing or paused; seeking a stopped video does nothing.
   private pendingSeek: number | null = null
+  private settle: { target: number; left: number; tries: number } | null = null
   private screen: ScreenId | null = null
 
   onAwake() {
@@ -45,6 +59,12 @@ export class DanceCoach extends BaseScriptComponent {
 
   private start() {
     this.placeWindow()
+    // The other panels sit on the same plane as the video, so they share its parent.
+    const plane = this.videoWindow.getSceneObject()
+    this.countIn = childObject("CountIn", plane).createComponent(CountInPanel.getTypeName()) as CountInPanel
+    this.progress = childObject("Progress", plane).createComponent(ProgressBar.getTypeName()) as ProgressBar
+    this.sections = childObject("Sections", plane).createComponent(SectionRow.getTypeName()) as SectionRow
+    this.sections.onTap = (id) => this.tapSection(id)
     if (this.videoTexture) {
       this.videoWindow.setVideo(this.videoTexture)
       this.video = this.videoTexture.control as VideoTextureProvider
@@ -52,20 +72,46 @@ export class DanceCoach extends BaseScriptComponent {
     } else {
       print("DanceCoach: no video texture assigned; using a stand-in clock")
     }
-    this.render(this.controller.playSection(1))
+    this.render(this.controller.tapSection(1))
+  }
+
+  private tapSection(id: SectionTap) {
+    // Full arrives with From the top (M1-04).
+    if (id === "full") return
+    this.render(this.controller.tapSection(id))
   }
 
   private update() {
+    const dt = getDeltaTime()
     const view = this.controller.view
-    if (!this.video && view.video.playing) this.fakeTime += getDeltaTime() * view.video.rate
-    // Until a pending seek lands, the video's time isn't the run's time yet.
-    if (this.video && this.pendingSeek !== null) {
+    if (!this.video && view.video.playing) this.fakeTime += dt * view.video.rate
+    // Until a seek has landed, the video's time isn't the run's time yet.
+    if (this.video && (this.pendingSeek !== null || this.settling(dt))) {
       this.render(view)
       return
     }
     const t = this.video ? this.video.currentTime : this.fakeTime
-    const v = this.controller.tick(t)
-    this.render(v)
+    this.render(this.controller.tick(t, dt))
+  }
+
+  private settling(dt: number): boolean {
+    const s = this.settle
+    if (!s) return false
+    if (Math.abs(this.video!.currentTime - s.target) < SEEK_NEAR_SEC) {
+      this.settle = null
+      return false
+    }
+    s.left -= dt
+    if (s.left <= 0) {
+      // A seek issued while the video is still starting up can be dropped: try again, then give up.
+      if (s.tries >= SEEK_TRIES) this.settle = null
+      else {
+        this.video!.seek(s.target)
+        s.tries++
+        s.left = SEEK_SETTLE_SEC
+      }
+    }
+    return this.settle !== null
   }
 
   private render(view: ViewState) {
@@ -75,6 +121,9 @@ export class DanceCoach extends BaseScriptComponent {
       this.videoWindow.setRect(SCREENS[view.screen].video)
     }
     this.videoWindow.render(view)
+    this.countIn.render(view)
+    this.progress.render(view)
+    this.sections.render(view)
   }
 
   private applyVideo(req: VideoRequest) {
@@ -87,18 +136,28 @@ export class DanceCoach extends BaseScriptComponent {
     const v = this.video
     if (seek) this.pendingSeek = req.seekTo
     if (v.playbackRate !== req.rate) v.playbackRate = req.rate
-    const status = v.status
+    let status = v.status
+    if (this.pendingSeek !== null) {
+      // Seeking needs a started video, even for a frozen frame; it's paused again once the seek lands.
+      if (status === VideoStatus.Stopped) {
+        v.play(1)
+        return
+      }
+      if (status === VideoStatus.Playing || status === VideoStatus.Paused) {
+        v.seek(this.pendingSeek)
+        this.settle = { target: this.pendingSeek, left: SEEK_SETTLE_SEC, tries: 1 }
+        this.pendingSeek = null
+        // The video's aspect is known by now, whether or not onPlaybackReady fired.
+        this.videoWindow.fitVideo()
+      }
+    }
+    status = v.status
     if (req.playing) {
       if (status === VideoStatus.Stopped) v.play(1)
       else if (status === VideoStatus.Paused) v.resume()
-    } else if (status === VideoStatus.Playing) {
+    } else if (status === VideoStatus.Playing && !this.settle) {
+      // Pausing straight after a seek drops the seek, so a frozen frame pauses once it has landed.
       v.pause()
-    }
-    if (this.pendingSeek !== null && (status === VideoStatus.Playing || status === VideoStatus.Paused)) {
-      v.seek(this.pendingSeek)
-      this.pendingSeek = null
-      // The video's aspect is known by now, whether or not onPlaybackReady fired.
-      this.videoWindow.fitVideo()
     }
   }
 

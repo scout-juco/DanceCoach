@@ -21,9 +21,14 @@ describe("CountClock", () => {
 
     it("gives the lead-in as the last 4 counts of the previous section", () => {
       const clock = new CountClock(makeDance())
-      expect(clock.leadIn(1)).toBeNull()
       expect(clock.leadIn(2)).toEqual({ start: 3, end: 5 })
       expect(clock.leadIn(3)).toEqual({ start: 7, end: 9 })
+    })
+
+    it("leads Section 1 in from the 4 counts before the trim, when the video has them", () => {
+      expect(new CountClock(makeDance({ firstBeatSec: 2 })).leadIn(1)).toEqual({ start: 0, end: 2 })
+      expect(new CountClock(makeDance({ firstBeatSec: 3, trim: { start: 3, end: 15 } })).leadIn(1)).toEqual({ start: 1, end: 3 })
+      expect(new CountClock(makeDance()).leadIn(1)).toBeNull()
     })
 
     it("rejects sections that don't exist", () => {

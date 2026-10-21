@@ -1,5 +1,5 @@
 /**
- * VideoWindow: the video panel with its count badge.
+ * VideoWindow: the video panel with its count badge, lead-in dimming and status tag.
  *
  * A shallow view: it renders a ViewState and nothing else. Its fixed API is
  * setVideo(), setRect() (where it sits, in prototype pixels) and render() (what it shows).
@@ -8,53 +8,70 @@
 import { RoundedRectangle, TextureMode } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { ViewState } from "../Core/PlaybackController"
 import { panelCm, pxToCm, PxRect } from "./Layout"
-import { COLORS, ColorToken, RADII, rgba, SPACING, TYPE } from "./Theme"
+import { RADII, SPACING, TYPE } from "./Theme"
+import { childObject, makeRect, makeText, setRectSize, themeColor } from "./Visuals"
 
-// Text em-square height in cm = size / this (Lens Studio 5.16+, as in UI Kit's TextStylePresets).
-const TEXT_SIZE_PER_CM = 43.88571429
 // Layers in front of the video, in cm, so nothing z-fights.
+const Z_DIM = 0.1
 const Z_BADGE = 0.2
+// Rough width of a tag character, in ems, to size the tag around its label.
+const TAG_CHAR_EM = 0.62
+const TAG_PAD = 20
 
-const color = (token: ColorToken) => {
-  const [r, g, b, a] = rgba(COLORS[token])
-  return new vec4(r, g, b, a)
+/** The status tag in the video's bottom-left corner, by screen. */
+function tagLabel(view: ViewState): string | null {
+  const sec = `SECTION ${view.section}`
+  switch (view.screen) {
+    case "BI":
+      return `${sec} · STARTING POSE · controls locked`
+    case "B0":
+      return "LEAD-IN · controls locked"
+    case "B":
+      return `PLAYTHROUGH · ${sec} · controls locked`
+    case "C":
+    case "C2":
+      return `${sec} DONE · controls unlocked`
+    default:
+      return null
+  }
 }
 
 @component
 export class VideoWindow extends BaseScriptComponent {
   private frame: RoundedRectangle
   private frameObject: SceneObject
+  private dim: RoundedRectangle
+  private dimObject: SceneObject
   private badgeObject: SceneObject
   private badgeText: Text
-  private lastCount = -1
+  private tag: RoundedRectangle
+  private tagObject: SceneObject
+  private tagText: Text
+  private rect: { x: number; y: number; w: number; h: number } | null = null
+  private lastBadge = ""
+  private lastTag: string | null = ""
 
   onAwake() {
-    this.frameObject = this.child("Video")
+    this.frameObject = childObject("Video", this.sceneObject)
     this.frame = this.frameObject.createComponent(RoundedRectangle.getTypeName()) as RoundedRectangle
-    this.frame.backgroundColor = color("video")
+    this.frame.backgroundColor = themeColor("video")
     this.frame.initialize()
 
-    this.badgeObject = this.child("CountBadge")
-    const badge = this.badgeObject.createComponent(RoundedRectangle.getTypeName()) as RoundedRectangle
-    const d = pxToCm(SPACING.countBadge)
-    badge.size = new vec2(d, d)
-    badge.cornerRadius = d / 2
-    badge.backgroundColor = color("countBg")
-    badge.renderOrder = 1
-    badge.initialize()
-    badge.renderMeshVisual.mainPass.blendMode = BlendMode.PremultipliedAlphaAuto
+    this.dimObject = childObject("Dim", this.sceneObject)
+    this.dim = makeRect(this.dimObject, "dim", 1)
 
-    const textObject = this.child("Count", this.badgeObject)
+    this.badgeObject = childObject("CountBadge", this.sceneObject)
+    const badge = makeRect(this.badgeObject, "countBg", 1)
+    setRectSize(badge, SPACING.countBadge, SPACING.countBadge, SPACING.countBadge / 2)
+    const textObject = childObject("Count", this.badgeObject)
     textObject.getTransform().setLocalPosition(new vec3(0, 0, 0.05))
-    textObject.createComponent("Component.ScreenTransform")
-    this.badgeText = textObject.createComponent("Component.Text") as Text
-    this.badgeText.size = pxToCm(TYPE.countBadge) * TEXT_SIZE_PER_CM
-    this.badgeText.textFill.color = color("ink")
-    this.badgeText.horizontalAlignment = HorizontalAlignment.Center
-    this.badgeText.verticalAlignment = VerticalAlignment.Center
-    this.badgeText.horizontalOverflow = HorizontalOverflow.Overflow
-    this.badgeText.verticalOverflow = VerticalOverflow.Overflow
-    this.badgeText.renderOrder = 2
+    this.badgeText = makeText(textObject, TYPE.countBadge, "ink", 2)
+
+    this.tagObject = childObject("Tag", this.sceneObject)
+    this.tag = makeRect(this.tagObject, "chip", 1)
+    const tagTextObject = childObject("TagText", this.tagObject)
+    tagTextObject.getTransform().setLocalPosition(new vec3(0, 0, 0.05))
+    this.tagText = makeText(tagTextObject, TYPE.tag, "ink", 2)
   }
 
   /** Shows a video texture in the window, cropped to fill its height. */
@@ -77,31 +94,50 @@ export class VideoWindow extends BaseScriptComponent {
   /** Places and sizes the window. The rect is in prototype pixels (Layout.SCREENS). */
   setRect(rect: PxRect) {
     const r = panelCm(rect)
+    this.rect = r
     this.frameObject.getTransform().setLocalPosition(new vec3(r.x, r.y, 0))
     this.frame.size = new vec2(r.w, r.h)
     this.frame.cornerRadius = pxToCm(RADII.video)
     this.fitVideo()
+    this.dimObject.getTransform().setLocalPosition(new vec3(r.x, r.y, Z_DIM))
+    setRectSize(this.dim, rect[2], rect[3], RADII.video)
     // The badge sits in the top-left corner, inset from the edges.
     const d = pxToCm(SPACING.countBadge)
     const inset = pxToCm(SPACING.videoInset)
     this.badgeObject.getTransform().setLocalPosition(new vec3(r.x - r.w / 2 + inset + d / 2, r.y + r.h / 2 - inset - d / 2, Z_BADGE))
+    this.lastTag = ""
   }
 
   render(view: ViewState) {
     const mirror = view.settings.mirror ? -1 : 1
     this.frameObject.getTransform().setLocalScale(new vec3(mirror, 1, 1))
-    const showCount = view.settings.counts && view.count > 0
-    this.badgeObject.enabled = showCount
-    if (showCount && view.count !== this.lastCount) {
-      this.badgeText.text = String(view.count)
-      this.lastCount = view.count
+    this.dimObject.enabled = view.video.dim
+
+    // During a count-in the badge always shows the 5, 6, 7, 8; otherwise the count, if counts are on.
+    const badge = view.countIn ? String(view.countIn.number) : view.settings.counts && view.count > 0 ? String(view.count) : ""
+    this.badgeObject.enabled = badge !== ""
+    if (badge !== this.lastBadge) {
+      this.badgeText.text = badge
+      this.lastBadge = badge
+    }
+
+    const tag = tagLabel(view)
+    if (tag !== this.lastTag) {
+      this.lastTag = tag
+      this.renderTag(tag)
     }
   }
 
-  private child(name: string, parent: SceneObject = this.sceneObject): SceneObject {
-    const so = global.scene.createSceneObject(name)
-    so.setParent(parent)
-    so.layer = this.sceneObject.layer
-    return so
+  private renderTag(label: string | null) {
+    this.tagObject.enabled = !!label && !!this.rect
+    if (!label || !this.rect) return
+    const r = this.rect
+    const wPx = label.length * TYPE.tag * TAG_CHAR_EM + TAG_PAD
+    setRectSize(this.tag, wPx, SPACING.tagHeight, RADII.tag)
+    this.tagText.text = label
+    const inset = pxToCm(SPACING.videoInset)
+    const w = pxToCm(wPx)
+    const h = pxToCm(SPACING.tagHeight)
+    this.tagObject.getTransform().setLocalPosition(new vec3(r.x - r.w / 2 + inset + w / 2, r.y - r.h / 2 + inset + h / 2, Z_BADGE))
   }
 }

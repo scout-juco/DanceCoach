@@ -49,5 +49,10 @@ export function panelCm(rect: PxRect): { x: number; y: number; w: number; h: num
   }
 }
 
+/** A point inside a panel, (x, y) px from its top-left corner, in centimetres relative to the anchor. */
+export function pointInPanelCm(rect: PxRect, x: number, y: number): vec2 {
+  return new vec2((rect[0] + x - ANCHOR.x) * CM_PER_PX, -(rect[1] + y - ANCHOR.y) * CM_PER_PX)
+}
+
 /** Prototype pixels → centimetres, for sizes inside a panel. */
 export const pxToCm = (px: number) => px * CM_PER_PX

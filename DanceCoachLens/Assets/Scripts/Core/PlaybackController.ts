@@ -5,9 +5,12 @@
  * with tick(), sends it commands, and renders the ViewState it returns. The view
  * carries out the video requests in that state (seek, play/pause, rate).
  *
- * Milestone 1 / M1-01: only "play Section 1, stop at its end" is handled.
+ * Milestone 1 / M1-02: section runs. Tapping a section starts a 5, 6, 7, 8 count-in
+ * over a dimmed lead-in (the 4 counts before it, which for Section 1 is footage from
+ * before the trim), then plays the section with the controls locked and stops on Clip
+ * ended. Without 4 counts of footage before Section 1, it freezes on a starting pose instead.
  */
-import { CountClock } from "./CountClock"
+import { COUNTS_PER_SECTION, CountClock, LEAD_IN_COUNTS } from "./CountClock"
 import { DancePackage } from "./DancePackage"
 
 /** Screen IDs from the clickable prototype. */
@@ -16,6 +19,14 @@ export type ScreenId = "PV" | "BI" | "B0" | "B" | "F" | "C" | "C2" | "G"
 export type RunKind = "section" | "top" | "full"
 
 export type Speed = 0.5 | 0.75 | 1
+
+export type CountInKind = "startingPose" | "leadIn"
+
+export interface CountIn {
+  /** 5–8. */
+  number: number
+  kind: CountInKind
+}
 
 export interface Settings {
   speed: Speed
@@ -50,17 +61,26 @@ export interface ViewState {
   /** 1–8, or 0 when there's no count to show. */
   count: number
   and: boolean
+  /** The 5, 6, 7, 8 before a run, or null once the run is playing. */
+  countIn: CountIn | null
   /** 0–1 through the current run. */
   runProgress: number
+  /** Where the section starts on 1 along the count-in's progress bar (0 for a starting pose). */
+  leadInFraction: number
   controlsLocked: boolean
   doneSections: number[]
   settings: Settings
   video: VideoRequest
 }
 
+// Absorbs float error so a time exactly on a beat lands on that beat.
+const EPS = 1e-6
+
 export class PlaybackController {
   readonly clock: CountClock
   private state: ViewState
+  // Video seconds counted through a frozen starting pose (the video isn't moving, so tick's dt drives it).
+  private poseElapsed = 0
 
   constructor(readonly pkg: DancePackage, progress?: Partial<Progress>) {
     this.clock = new CountClock(pkg)
@@ -72,7 +92,9 @@ export class PlaybackController {
       sectionCount: this.clock.sectionCount,
       count: 0,
       and: false,
+      countIn: null,
       runProgress: 0,
+      leadInFraction: 0,
       controlsLocked: false,
       doneSections: progress && progress.doneSections ? progress.doneSections.slice() : [],
       settings,
@@ -84,32 +106,101 @@ export class PlaybackController {
     return this.state
   }
 
-  /** Starts a run of a section: the video seeks to its first beat and plays to the end of count 8. */
-  playSection(n: number): ViewState {
+  /**
+   * Starts a run of section n with its count-in: the 4 counts before it play dimmed, or,
+   * when the video has no footage that early, the first frame freezes (starting pose).
+   * Ignored while the controls are locked.
+   */
+  tapSection(n: number): ViewState {
+    const s = this.state
+    if (s.controlsLocked) return s
+    const lead = this.clock.leadIn(n)
     const start = this.clock.sectionStart(n)
+    this.poseElapsed = 0
     this.state = {
-      ...this.state,
-      screen: "B",
+      ...s,
+      screen: lead ? "B0" : "BI",
       runKind: "section",
       section: n,
-      count: 1,
+      count: 0,
       and: false,
+      countIn: { number: 5, kind: lead ? "leadIn" : "startingPose" },
       runProgress: 0,
+      leadInFraction: lead ? (start - lead.start) / (this.clock.sectionEnd(n) - lead.start) : 0,
       controlsLocked: true,
-      video: { ...this.state.video, seekTo: start, seekId: this.state.video.seekId + 1, playing: true, rate: this.state.settings.speed, holdFrame: false },
+      video: {
+        ...s.video,
+        seekTo: lead ? lead.start : start,
+        seekId: s.video.seekId + 1,
+        playing: !!lead,
+        rate: s.settings.speed,
+        holdFrame: false,
+        dim: !!lead,
+      },
     }
     return this.state
   }
 
-  /** Advances to the given video time. Returns the new view state. */
-  tick(videoTimeSec: number): ViewState {
+  /**
+   * Advances to the given video time. dtSec is the real time since the last tick; it only
+   * matters while the video is frozen (the starting pose). Returns the new view state.
+   */
+  tick(videoTimeSec: number, dtSec = 0): ViewState {
+    switch (this.state.screen) {
+      case "BI":
+        return this.tickStartingPose(dtSec)
+      case "B0":
+        return this.tickLeadIn(videoTimeSec)
+      case "B":
+        return this.tickRun(videoTimeSec)
+      default:
+        return this.state
+    }
+  }
+
+  private tickStartingPose(dtSec: number): ViewState {
     const s = this.state
-    if (s.screen !== "B") return s
+    this.poseElapsed += dtSec * s.settings.speed
+    const beats = Math.floor(this.poseElapsed / this.clock.beatSec + EPS)
+    if (beats >= LEAD_IN_COUNTS) return this.startPlaying()
+    this.state = { ...s, countIn: { number: 5 + beats, kind: "startingPose" } }
+    return this.state
+  }
+
+  private tickLeadIn(t: number): ViewState {
+    const s = this.state
+    const lead = this.clock.leadIn(s.section)!
+    if (t >= lead.end - EPS) {
+      this.startPlaying()
+      return this.tickRun(t)
+    }
+    const beats = Math.floor((t - lead.start) / this.clock.beatSec + EPS)
+    const number = 5 + Math.min(Math.max(beats, 0), LEAD_IN_COUNTS - 1)
+    this.state = { ...s, countIn: { number, kind: "leadIn" } }
+    return this.state
+  }
+
+  /** The count-in is over: the section plays from count 1, carrying on from where the video is. */
+  private startPlaying(): ViewState {
+    const s = this.state
+    this.state = {
+      ...s,
+      screen: "B",
+      count: 1,
+      and: false,
+      countIn: null,
+      video: { ...s.video, playing: true, dim: false },
+    }
+    return this.state
+  }
+
+  private tickRun(t: number): ViewState {
+    const s = this.state
     const start = this.clock.sectionStart(s.section)
     const end = this.clock.sectionEnd(s.section)
-    if (videoTimeSec >= end) return this.endRun()
-    const { count, and } = this.clock.countIn(s.section, videoTimeSec)
-    this.state = { ...s, count, and, runProgress: clamp01((videoTimeSec - start) / (end - start)) }
+    if (t >= end - EPS) return this.endRun()
+    const { count, and } = this.clock.countIn(s.section, t)
+    this.state = { ...s, count, and, runProgress: clamp01((t - start) / (end - start)) }
     return this.state
   }
 
@@ -119,12 +210,13 @@ export class PlaybackController {
     this.state = {
       ...s,
       screen: "C",
-      count: 8,
+      count: COUNTS_PER_SECTION,
       and: false,
+      countIn: null,
       runProgress: 1,
       controlsLocked: false,
       doneSections: done,
-      video: { ...s.video, playing: false },
+      video: { ...s.video, playing: false, dim: false },
     }
     return this.state
   }
