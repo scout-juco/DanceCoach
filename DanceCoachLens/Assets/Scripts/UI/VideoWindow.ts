@@ -61,6 +61,16 @@ export class VideoWindow extends BaseScriptComponent {
   setVideo(texture: Texture) {
     this.frame.useTexture = true
     this.frame.texture = texture
+    this.fitVideo()
+  }
+
+  /**
+   * Re-fits the video to the window. UI Kit only works out the fit when textureMode is set,
+   * from the size at that moment, so call this after the size changes and once the video is
+   * ready (a video's aspect isn't known before then).
+   */
+  fitVideo() {
+    if (!this.frame.texture) return
     this.frame.textureMode = "Fill Height" as TextureMode
   }
 
@@ -70,6 +80,7 @@ export class VideoWindow extends BaseScriptComponent {
     this.frameObject.getTransform().setLocalPosition(new vec3(r.x, r.y, 0))
     this.frame.size = new vec2(r.w, r.h)
     this.frame.cornerRadius = pxToCm(RADII.video)
+    this.fitVideo()
     // The badge sits in the top-left corner, inset from the edges.
     const d = pxToCm(SPACING.countBadge)
     const inset = pxToCm(SPACING.videoInset)

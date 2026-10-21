@@ -30,10 +30,11 @@ export class DanceCoach extends BaseScriptComponent {
 
   private controller: PlaybackController
   private video: VideoTextureProvider | null = null
-  private videoReady = false
   // Stand-in video time when there's no video texture.
   private fakeTime = 0
   private appliedSeekId = -1
+  // A seek waits until the video is actually playing or paused; seeking a stopped video does nothing.
+  private pendingSeek: number | null = null
   private screen: ScreenId | null = null
 
   onAwake() {
@@ -47,27 +48,24 @@ export class DanceCoach extends BaseScriptComponent {
     if (this.videoTexture) {
       this.videoWindow.setVideo(this.videoTexture)
       this.video = this.videoTexture.control as VideoTextureProvider
-      const onReady = () => {
-        if (this.videoReady) return
-        this.videoReady = true
-        this.controller.playSection(1)
-      }
-      this.video.onPlaybackReady.add(onReady)
-      if (this.video.isPlaybackReady) onReady()
+      this.video.onPlaybackReady.add(() => this.videoWindow.fitVideo())
     } else {
       print("DanceCoach: no video texture assigned; using a stand-in clock")
-      this.controller.playSection(1)
     }
-    this.render(this.controller.view)
+    this.render(this.controller.playSection(1))
   }
 
   private update() {
-    if (this.video && !this.videoReady) return
-    const dt = getDeltaTime()
     const view = this.controller.view
-    if (!this.video && view.video.playing) this.fakeTime += dt * view.video.rate
+    if (!this.video && view.video.playing) this.fakeTime += getDeltaTime() * view.video.rate
+    // Until a pending seek lands, the video's time isn't the run's time yet.
+    if (this.video && this.pendingSeek !== null) {
+      this.render(view)
+      return
+    }
     const t = this.video ? this.video.currentTime : this.fakeTime
-    this.render(this.controller.tick(t))
+    const v = this.controller.tick(t)
+    this.render(v)
   }
 
   private render(view: ViewState) {
@@ -87,15 +85,21 @@ export class DanceCoach extends BaseScriptComponent {
       return
     }
     const v = this.video
+    if (seek) this.pendingSeek = req.seekTo
     if (v.playbackRate !== req.rate) v.playbackRate = req.rate
-    const status = v.getStatus()
+    const status = v.status
     if (req.playing) {
-      if (status === VideoStatus.Stopped || status === VideoStatus.Preparing) v.play(1)
+      if (status === VideoStatus.Stopped) v.play(1)
       else if (status === VideoStatus.Paused) v.resume()
     } else if (status === VideoStatus.Playing) {
       v.pause()
     }
-    if (seek) v.seek(req.seekTo)
+    if (this.pendingSeek !== null && (status === VideoStatus.Playing || status === VideoStatus.Paused)) {
+      v.seek(this.pendingSeek)
+      this.pendingSeek = null
+      // The video's aspect is known by now, whether or not onPlaybackReady fired.
+      this.videoWindow.fitVideo()
+    }
   }
 
   /** Puts the window at the default placement: ahead, to the right and a little below eye level. */
