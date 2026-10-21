@@ -13,12 +13,16 @@ import { ProgressBar } from "./UI/ProgressBar"
 import { SectionRow, SectionTap } from "./UI/SectionRow"
 import { VideoWindow } from "./UI/VideoWindow"
 import { childObject } from "./UI/Visuals"
+import { WindowGrab } from "./UI/WindowGrab"
 
 // After a seek, the video's reported time can lag behind for a few frames. Wait until it's
 // near the target (or this long has passed) before the controller reads it again.
 const SEEK_SETTLE_SEC = 0.5
 const SEEK_NEAR_SEC = 0.25
 const SEEK_TRIES = 3
+// The camera sits at the spawn point until tracking settles, so the window keeps
+// re-placing itself in front of you for this long after the Lens starts.
+const PLACE_SETTLE_SEC = 1.5
 
 @component
 export class DanceCoach extends BaseScriptComponent {
@@ -50,6 +54,7 @@ export class DanceCoach extends BaseScriptComponent {
   private pendingSeek: number | null = null
   private settle: { target: number; left: number; tries: number } | null = null
   private screen: ScreenId | null = null
+  private placeLeft = PLACE_SETTLE_SEC
 
   onAwake() {
     this.controller = new PlaybackController(TEST_DANCE)
@@ -65,6 +70,18 @@ export class DanceCoach extends BaseScriptComponent {
     this.progress = childObject("Progress", plane).createComponent(ProgressBar.getTypeName()) as ProgressBar
     this.sections = childObject("Sections", plane).createComponent(SectionRow.getTypeName()) as SectionRow
     this.sections.onTap = (id) => this.tapSection(id)
+    // Developer helper: drag the video to try out placements. The video's smallest rect
+    // (Clip ended) is inside it on every screen, so the grab area never covers a button.
+    const grab = childObject("Grab", plane).createComponent(WindowGrab.getTypeName()) as WindowGrab
+    grab.setup(this.windowRoot, SCREENS.C.video)
+    grab.onMoving = () => {
+      this.placeLeft = 0
+      this.faceCamera()
+    }
+    grab.onMoved = () => {
+      this.faceCamera()
+      this.logPlacement()
+    }
     if (this.videoTexture) {
       this.videoWindow.setVideo(this.videoTexture)
       this.video = this.videoTexture.control as VideoTextureProvider
@@ -83,6 +100,10 @@ export class DanceCoach extends BaseScriptComponent {
 
   private update() {
     const dt = getDeltaTime()
+    if (this.placeLeft > 0) {
+      this.placeLeft -= dt
+      this.placeWindow()
+    }
     const view = this.controller.view
     if (!this.video && view.video.playing) this.fakeTime += dt * view.video.rate
     // Until a seek has landed, the video's time isn't the run's time yet.
@@ -163,14 +184,39 @@ export class DanceCoach extends BaseScriptComponent {
 
   /** Puts the window at the default placement: ahead, to the right and a little below eye level. */
   private placeWindow() {
-    const cam = this.camera.getTransform()
-    const look = cam.back
-    const flat = new vec3(look.x, 0, look.z).normalize()
     const yaw = quat.angleAxis((-PLACEMENT.yawRightDeg * Math.PI) / 180, vec3.up())
-    const dir = yaw.multiplyVec3(flat)
-    const pos = cam.getWorldPosition().add(dir.uniformScale(PLACEMENT.distanceCm)).add(new vec3(0, -PLACEMENT.dropCm, 0))
-    const t = this.windowRoot.getTransform()
-    t.setWorldPosition(pos)
-    t.setWorldRotation(quat.angleAxis(Math.atan2(-dir.x, -dir.z), vec3.up()))
+    const dir = yaw.multiplyVec3(this.lookFlat())
+    const pos = this.camera.getTransform().getWorldPosition().add(dir.uniformScale(PLACEMENT.distanceCm)).add(new vec3(0, -PLACEMENT.dropCm, 0))
+    this.windowRoot.getTransform().setWorldPosition(pos)
+    this.faceCamera()
+  }
+
+  /** Turns the window (about the vertical only) to face you. */
+  private faceCamera() {
+    const dir = this.toWindowFlat()
+    this.windowRoot.getTransform().setWorldRotation(quat.angleAxis(Math.atan2(-dir.x, -dir.z), vec3.up()))
+  }
+
+  /** Prints where the window is, in PLACEMENT's terms, so a dragged position can become the default. */
+  private logPlacement() {
+    const cam = this.camera.getTransform().getWorldPosition()
+    const d = this.windowRoot.getTransform().getWorldPosition().sub(cam)
+    const look = this.lookFlat()
+    const dir = this.toWindowFlat()
+    const yawRightDeg = (-Math.atan2(look.cross(dir).y, look.dot(dir)) * 180) / Math.PI
+    const distanceCm = new vec3(d.x, 0, d.z).length
+    print(`DanceCoach placement: { distanceCm: ${distanceCm.toFixed(0)}, yawRightDeg: ${yawRightDeg.toFixed(0)}, dropCm: ${(-d.y).toFixed(0)} }`)
+  }
+
+  /** The way you're facing, flattened to the floor. */
+  private lookFlat(): vec3 {
+    const look = this.camera.getTransform().back
+    return new vec3(look.x, 0, look.z).normalize()
+  }
+
+  /** The direction from you to the window, flattened to the floor. */
+  private toWindowFlat(): vec3 {
+    const d = this.windowRoot.getTransform().getWorldPosition().sub(this.camera.getTransform().getWorldPosition())
+    return new vec3(d.x, 0, d.z).normalize()
   }
 }

@@ -3,7 +3,7 @@
  * (the 1280×800 "Spectacles view" frames). Copied from SCREENS in spectacles-preview/index.html.
  *
  * Pixels become world units around ANCHOR: 1 px = 1.5 mm, and the anchor sits at the
- * placement point 1.5 m away, 25° to the right and 0.10 m below eye level.
+ * placement point (PLACEMENT: 3.24 m away, 7° to the right and 0.10 m below eye level).
  * Lens Studio world units are centimetres.
  */
 import { ScreenId } from "../Core/PlaybackController"
@@ -31,10 +31,10 @@ export const ANCHOR = { x: 940, y: 306 }
 /** Centimetres per prototype pixel (1 px = 1.5 mm). */
 export const CM_PER_PX = 0.15
 
-/** Default window placement relative to where you stand and face at start. */
+/** Default window placement relative to where you stand and face at start (picked by dragging it in Preview). */
 export const PLACEMENT = {
-  distanceCm: 150,
-  yawRightDeg: 25,
+  distanceCm: 324,
+  yawRightDeg: 7,
   dropCm: 10,
 }
 
