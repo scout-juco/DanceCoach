@@ -1,0 +1,53 @@
+- !<AssetImportMetadata/8883f3de-37f9-4494-bd50-6bf5c41ab1df>
+  ImportedAssetIds:
+    TypeScriptAsset: !<reference> b0ba77f6-1174-4c4a-8963-03b1e98214b9
+  ImporterName: TypeScriptAssetImporter
+  PrimaryAsset: !<reference> b0ba77f6-1174-4c4a-8963-03b1e98214b9
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    TypeScriptAsset: !<own> f2542fe3-6acf-4c5f-8beb-82e76362f1e2
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<TypeScriptAssetData/f2542fe3-6acf-4c5f-8beb-82e76362f1e2>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: 3a132260-5ab5-458b-baa1-405f17f8a646
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    camera: false
+    videoTexture: false
+    videoWindow: false
+    windowRoot: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - camera: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      windowRoot: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      videoWindow: !<MappingBased.AssignableType> 00000000-0000-0000-0000-000000000000
+      videoTexture: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+  ScriptTypes:
+    -
+      {}
+  InputLines:
+    - '// @input SceneObject camera {"hint":"The camera the window is placed relative to"}'
+    - "// @input SceneObject windowRoot {\"hint\":\"The window's root object; it's moved to the default placement on start\"}"
+    - // @input AssignableType videoWindow
+    - '// @input Asset.Texture videoTexture {"hint":"The test dance video (git-ignored). Without it, counts run on a stand-in clock."}'

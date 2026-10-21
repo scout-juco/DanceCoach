@@ -1,0 +1,11 @@
+node_modules/
+
+# Lens Studio generated / per-machine files
+DanceCoachLens/Cache/
+DanceCoachLens/Workspaces/
+DanceCoachLens/PluginsUserPreferences/
+DanceCoachLens/*.lock
+
+# The test dance video is someone else's tutorial; the repo is public. Only the dance package is committed.
+DanceCoachLens/Assets/Dance/Video/*
+!DanceCoachLens/Assets/Dance/Video/README.md

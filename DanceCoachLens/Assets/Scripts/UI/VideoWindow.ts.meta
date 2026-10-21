@@ -1,0 +1,44 @@
+- !<AssetImportMetadata/9330a374-8858-404f-b6c4-febad6dc3c21>
+  ImportedAssetIds:
+    TypeScriptAsset: !<reference> fc804b87-267b-4b8c-8b50-85a09cd2506b
+  ImporterName: TypeScriptAssetImporter
+  PrimaryAsset: !<reference> fc804b87-267b-4b8c-8b50-85a09cd2506b
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    TypeScriptAsset: !<own> 40472314-6c0a-4c6d-b786-7e51403c9531
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<TypeScriptAssetData/40472314-6c0a-4c6d-b786-7e51403c9531>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: 09be9dee-0d55-432b-95d4-5f7390b9d9ac
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    videoTexture: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - videoTexture: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+  ScriptTypes:
+    -
+      {}
+  InputLines:
+    - '// @input Asset.Texture videoTexture {"hint":"The dance video. Leave empty to see the window without video."}'
