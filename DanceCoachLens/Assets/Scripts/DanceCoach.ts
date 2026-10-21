@@ -6,20 +6,19 @@
  * All playback rules live in the controller; this file is only glue.
  */
 import { TEST_DANCE } from "../Dance/TestDance"
-import { PlaybackController, ScreenId, VideoRequest, ViewState } from "./Core/PlaybackController"
+import { PlaybackController, ScreenId, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
+import { decodeSettings, encodeSettings, SETTINGS_KEY } from "./Core/SettingsStore"
+import { VideoDriver } from "./Core/VideoDriver"
+import { ControlBar, ControlCommand } from "./UI/ControlBar"
 import { CountInPanel } from "./UI/CountInPanel"
 import { PLACEMENT, SCREENS } from "./UI/Layout"
 import { ProgressBar } from "./UI/ProgressBar"
 import { SectionRow, SectionTap } from "./UI/SectionRow"
+import { Toast } from "./UI/Toast"
 import { VideoWindow } from "./UI/VideoWindow"
 import { childObject } from "./UI/Visuals"
 import { WindowGrab } from "./UI/WindowGrab"
 
-// After a seek, the video's reported time can lag behind for a few frames. Wait until it's
-// near the target (or this long has passed) before the controller reads it again.
-const SEEK_SETTLE_SEC = 0.5
-const SEEK_NEAR_SEC = 0.25
-const SEEK_TRIES = 3
 // The camera sits at the spawn point until tracking settles, so the window keeps
 // re-placing itself in front of you for this long after the Lens starts.
 const PLACE_SETTLE_SEC = 1.5
@@ -46,18 +45,20 @@ export class DanceCoach extends BaseScriptComponent {
   private countIn: CountInPanel
   private progress: ProgressBar
   private sections: SectionRow
-  private video: VideoTextureProvider | null = null
+  private controls: ControlBar
+  private toast: Toast
+  private driver: VideoDriver | null = null
   // Stand-in video time when there's no video texture.
   private fakeTime = 0
-  private appliedSeekId = -1
-  // A seek waits until the video is actually playing or paused; seeking a stopped video does nothing.
-  private pendingSeek: number | null = null
-  private settle: { target: number; left: number; tries: number } | null = null
+  private fakeSeekId = -1
   private screen: ScreenId | null = null
   private placeLeft = PLACE_SETTLE_SEC
+  private savedSettings: Settings | null = null
 
   onAwake() {
-    this.controller = new PlaybackController(TEST_DANCE)
+    const settings = decodeSettings(global.persistentStorageSystem.store.getString(SETTINGS_KEY))
+    this.controller = new PlaybackController(TEST_DANCE, { settings })
+    this.savedSettings = this.controller.view.settings
     this.createEvent("OnStartEvent").bind(() => this.start())
     this.createEvent("UpdateEvent").bind(() => this.update())
   }
@@ -70,6 +71,9 @@ export class DanceCoach extends BaseScriptComponent {
     this.progress = childObject("Progress", plane).createComponent(ProgressBar.getTypeName()) as ProgressBar
     this.sections = childObject("Sections", plane).createComponent(SectionRow.getTypeName()) as SectionRow
     this.sections.onTap = (id) => this.tapSection(id)
+    this.controls = childObject("Controls", plane).createComponent(ControlBar.getTypeName()) as ControlBar
+    this.controls.onPress = (command) => this.press(command)
+    this.toast = childObject("Toast", plane).createComponent(Toast.getTypeName()) as Toast
     // Developer helper: drag the video to try out placements. The video's smallest rect
     // (Clip ended) is inside it on every screen, so the grab area never covers a button.
     const grab = childObject("Grab", plane).createComponent(WindowGrab.getTypeName()) as WindowGrab
@@ -84,8 +88,9 @@ export class DanceCoach extends BaseScriptComponent {
     }
     if (this.videoTexture) {
       this.videoWindow.setVideo(this.videoTexture)
-      this.video = this.videoTexture.control as VideoTextureProvider
-      this.video.onPlaybackReady.add(() => this.videoWindow.fitVideo())
+      const video = this.videoTexture.control as VideoTextureProvider
+      video.onPlaybackReady.add(() => this.videoWindow.fitVideo())
+      this.driver = new VideoDriver(video)
     } else {
       print("DanceCoach: no video texture assigned; using a stand-in clock")
     }
@@ -98,45 +103,48 @@ export class DanceCoach extends BaseScriptComponent {
     this.render(this.controller.tapSection(id))
   }
 
+  private press(command: ControlCommand) {
+    const c = this.controller
+    switch (command) {
+      case "replay":
+        return this.render(c.replay())
+      case "mirror":
+        return this.render(c.toggleMirror())
+      case "counts":
+        return this.render(c.toggleCounts())
+      case "mode":
+        return this.render(c.tapMode())
+      default:
+        return this.render(c.setSpeed(command))
+    }
+  }
+
   private update() {
     const dt = getDeltaTime()
     if (this.placeLeft > 0) {
       this.placeLeft -= dt
       this.placeWindow()
     }
+    // Video requests are carried out once a frame, here; a command's request lands on the next frame.
     const view = this.controller.view
-    if (!this.video && view.video.playing) this.fakeTime += dt * view.video.rate
+    if (!this.driver) {
+      this.applyFakeVideo(view.video, dt)
+      this.render(this.controller.tick(this.fakeTime, dt))
+      return
+    }
     // Until a seek has landed, the video's time isn't the run's time yet.
-    if (this.video && (this.pendingSeek !== null || this.settling(dt))) {
+    const wasBusy = this.driver.busy
+    this.driver.apply(view.video, dt)
+    if (this.driver.busy) {
       this.render(view)
       return
     }
-    const t = this.video ? this.video.currentTime : this.fakeTime
-    this.render(this.controller.tick(t, dt))
-  }
-
-  private settling(dt: number): boolean {
-    const s = this.settle
-    if (!s) return false
-    if (Math.abs(this.video!.currentTime - s.target) < SEEK_NEAR_SEC) {
-      this.settle = null
-      return false
-    }
-    s.left -= dt
-    if (s.left <= 0) {
-      // A seek issued while the video is still starting up can be dropped: try again, then give up.
-      if (s.tries >= SEEK_TRIES) this.settle = null
-      else {
-        this.video!.seek(s.target)
-        s.tries++
-        s.left = SEEK_SETTLE_SEC
-      }
-    }
-    return this.settle !== null
+    // The video's aspect is known once a seek has landed, whether or not onPlaybackReady fired.
+    if (wasBusy) this.videoWindow.fitVideo()
+    this.render(this.controller.tick(this.driver.time, dt))
   }
 
   private render(view: ViewState) {
-    this.applyVideo(view.video)
     if (view.screen !== this.screen) {
       this.screen = view.screen
       this.videoWindow.setRect(SCREENS[view.screen].video)
@@ -145,40 +153,25 @@ export class DanceCoach extends BaseScriptComponent {
     this.countIn.render(view)
     this.progress.render(view)
     this.sections.render(view)
+    this.controls.render(view)
+    this.toast.render(view)
+    this.saveSettings(view.settings)
   }
 
-  private applyVideo(req: VideoRequest) {
-    const seek = req.seekId !== this.appliedSeekId
-    this.appliedSeekId = req.seekId
-    if (!this.video) {
-      if (seek) this.fakeTime = req.seekTo
-      return
-    }
-    const v = this.video
-    if (seek) this.pendingSeek = req.seekTo
-    if (v.playbackRate !== req.rate) v.playbackRate = req.rate
-    let status = v.status
-    if (this.pendingSeek !== null) {
-      // Seeking needs a started video, even for a frozen frame; it's paused again once the seek lands.
-      if (status === VideoStatus.Stopped) {
-        v.play(1)
-        return
-      }
-      if (status === VideoStatus.Playing || status === VideoStatus.Paused) {
-        v.seek(this.pendingSeek)
-        this.settle = { target: this.pendingSeek, left: SEEK_SETTLE_SEC, tries: 1 }
-        this.pendingSeek = null
-        // The video's aspect is known by now, whether or not onPlaybackReady fired.
-        this.videoWindow.fitVideo()
-      }
-    }
-    status = v.status
-    if (req.playing) {
-      if (status === VideoStatus.Stopped) v.play(1)
-      else if (status === VideoStatus.Paused) v.resume()
-    } else if (status === VideoStatus.Playing && !this.settle) {
-      // Pausing straight after a seek drops the seek, so a frozen frame pauses once it has landed.
-      v.pause()
+  /** Writes speed, mirror and counts to persistent storage whenever they change. */
+  private saveSettings(settings: Settings) {
+    if (settings === this.savedSettings) return
+    this.savedSettings = settings
+    global.persistentStorageSystem.store.putString(SETTINGS_KEY, encodeSettings(settings))
+  }
+
+  /** Without a video texture, a stand-in clock follows the video requests. */
+  private applyFakeVideo(req: VideoRequest, dtSec: number) {
+    if (req.seekId !== this.fakeSeekId) {
+      this.fakeSeekId = req.seekId
+      this.fakeTime = req.seekTo
+    } else if (req.playing) {
+      this.fakeTime += dtSec * req.rate
     }
   }
 

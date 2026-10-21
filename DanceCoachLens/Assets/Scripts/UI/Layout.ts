@@ -11,7 +11,7 @@ import { ScreenId } from "../Core/PlaybackController"
 /** [x, y, width, height] in prototype pixels. */
 export type PxRect = [number, number, number, number]
 
-export type PanelId = "video" | "progress" | "progLabel" | "ciHead" | "countIn" | "segBar" | "banner" | "sections" | "controls"
+export type PanelId = "video" | "progress" | "progLabel" | "ciHead" | "countIn" | "segBar" | "banner" | "sections" | "controls" | "toast"
 
 export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // First look plays like a full run (the preview has no PV frame).
@@ -20,8 +20,10 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   B0: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6], progLabel: [790, 674, 340, 16], countIn: [540, 200, 220, 236] },
   B: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6] },
   F: { banner: [790, 20, 340, 40], video: [790, 72, 340, 572], segBar: [790, 660, 340, 26] },
-  C: { video: [790, 40, 300, 533], sections: [600, 589, 490, 40], controls: [360, 645, 0, 84] },
-  C2: { video: [790, 40, 300, 533], sections: [600, 589, 490, 40], controls: [360, 645, 0, 84] },
+  // The controls' width is 0: the bar sizes itself to its buttons. The toast sits left of the video, above the
+  // section row (the preview floats it in front of you; that arrives with the pop-ups).
+  C: { video: [790, 40, 300, 533], sections: [600, 589, 490, 40], controls: [360, 645, 0, 84], toast: [360, 525, 420, 48] },
+  C2: { video: [790, 40, 300, 533], sections: [600, 589, 490, 40], controls: [360, 645, 0, 84], toast: [360, 525, 420, 48] },
   G: { video: [790, 40, 340, 604] },
 }
 

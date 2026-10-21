@@ -1,5 +1,5 @@
 /**
- * VideoWindow: the video panel with its count badge, lead-in dimming and status tag.
+ * VideoWindow: the video panel with its count badge, chips, lead-in dimming and status tag.
  *
  * A shallow view: it renders a ViewState and nothing else. Its fixed API is
  * setVideo(), setRect() (where it sits, in prototype pixels) and render() (what it shows).
@@ -17,6 +17,16 @@ const Z_BADGE = 0.2
 // Rough width of a tag character, in ems, to size the tag around its label.
 const TAG_CHAR_EM = 0.62
 const TAG_PAD = 20
+const CHIP_PAD = 16
+
+/** The chips in the video's top-right corner, left to right: the speed during a run, and MIRRORED. */
+function chipLabels(view: ViewState): string[] {
+  const running = view.screen === "BI" || view.screen === "B0" || view.screen === "B"
+  const chips: string[] = []
+  if (running || view.screen === "F") chips.push(`${view.settings.speed}×`)
+  if (running && view.settings.mirror) chips.push("MIRRORED")
+  return chips
+}
 
 /** The status tag in the video's bottom-left corner, by screen. */
 function tagLabel(view: ViewState): string | null {
@@ -47,15 +57,19 @@ export class VideoWindow extends BaseScriptComponent {
   private tag: RoundedRectangle
   private tagObject: SceneObject
   private tagText: Text
+  private chips: { object: SceneObject; rect: RoundedRectangle; text: Text }[] = []
   private rect: { x: number; y: number; w: number; h: number } | null = null
   private lastBadge = ""
   private lastTag: string | null = ""
+  private lastChips = "-"
 
   onAwake() {
     this.frameObject = childObject("Video", this.sceneObject)
     this.frame = this.frameObject.createComponent(RoundedRectangle.getTypeName()) as RoundedRectangle
     this.frame.backgroundColor = themeColor("video")
     this.frame.initialize()
+    // Mirroring flips the video with a negative X scale, which shows its back face.
+    this.frame.renderMeshVisual.mainPass.twoSided = true
 
     this.dimObject = childObject("Dim", this.sceneObject)
     this.dim = makeRect(this.dimObject, "dim", 1)
@@ -72,6 +86,14 @@ export class VideoWindow extends BaseScriptComponent {
     const tagTextObject = childObject("TagText", this.tagObject)
     tagTextObject.getTransform().setLocalPosition(new vec3(0, 0, 0.05))
     this.tagText = makeText(tagTextObject, TYPE.tag, "ink", 2)
+
+    for (let i = 0; i < 2; i++) {
+      const object = childObject(`Chip${i}`, this.sceneObject)
+      const rect = makeRect(object, "chip", 1)
+      const textObject = childObject("ChipText", object)
+      textObject.getTransform().setLocalPosition(new vec3(0, 0, 0.05))
+      this.chips.push({ object, rect, text: makeText(textObject, TYPE.chip, "ink", 2) })
+    }
   }
 
   /** Shows a video texture in the window, cropped to fill its height. */
@@ -106,6 +128,7 @@ export class VideoWindow extends BaseScriptComponent {
     const inset = pxToCm(SPACING.videoInset)
     this.badgeObject.getTransform().setLocalPosition(new vec3(r.x - r.w / 2 + inset + d / 2, r.y + r.h / 2 - inset - d / 2, Z_BADGE))
     this.lastTag = ""
+    this.lastChips = "-"
   }
 
   render(view: ViewState) {
@@ -121,11 +144,35 @@ export class VideoWindow extends BaseScriptComponent {
       this.lastBadge = badge
     }
 
+    const chips = chipLabels(view)
+    if (chips.join("|") !== this.lastChips) {
+      this.lastChips = chips.join("|")
+      this.renderChips(chips)
+    }
+
     const tag = tagLabel(view)
     if (tag !== this.lastTag) {
       this.lastTag = tag
       this.renderTag(tag)
     }
+  }
+
+  /** Lines the chips up from the top-right corner, inset from the edges. */
+  private renderChips(labels: string[]) {
+    let right = this.rect ? this.rect.x + this.rect.w / 2 - pxToCm(SPACING.videoInset) : 0
+    const top = this.rect ? this.rect.y + this.rect.h / 2 - pxToCm(SPACING.videoInset) : 0
+    this.chips.forEach((chip, i) => {
+      // The rightmost label goes in the rightmost slot.
+      const label = labels[labels.length - 1 - i]
+      chip.object.enabled = !!label && !!this.rect
+      if (!label || !this.rect) return
+      const wPx = label.length * TYPE.chip * TAG_CHAR_EM + CHIP_PAD
+      setRectSize(chip.rect, wPx, SPACING.chipHeight, RADII.chip)
+      chip.text.text = label
+      const w = pxToCm(wPx)
+      chip.object.getTransform().setLocalPosition(new vec3(right - w / 2, top - pxToCm(SPACING.chipHeight) / 2, Z_BADGE))
+      right -= w + pxToCm(SPACING.chipGap)
+    })
   }
 
   private renderTag(label: string | null) {

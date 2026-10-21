@@ -4,6 +4,7 @@
     - !<own> 00000000-0000-0065-0000-000000000064
     - !<own> 0005641c-028d-459a-0000-000000014b4d
     - !<own> 5aa0f98b-e799-448c-a2dc-cae5d04fa2a4
+    - !<own> c5a2d454-7bae-4761-9cc2-6aa08ced7e67
   layers: !<Layers/267ee9a7-aff2-4f9d-9a49-f71214747d03>
     userLayers:
       []
@@ -1138,6 +1139,25 @@
   ScriptTypes:
     "":
       {}
+- !<ScriptComponent/56287113-a56f-4fe9-ad12-a27c2e3d8089>
+  PrefabRemaps:
+    []
+  Name: DanceCoach
+  Enabled: true
+  ScriptAsset: !<reference> b0ba77f6-1174-4c4a-8963-03b1e98214b9
+  ScriptInputsDefault:
+    {}
+  ScriptTypesDefault:
+    {}
+  ScriptInputs:
+    "":
+      camera: !<reference.SceneObject> 00000000-0000-0065-0000-000000000064
+      windowRoot: !<reference.SceneObject> e7751c98-1954-4711-8427-f54ff53bf99d
+      videoWindow: !<MappingBased.AssignableType> ff5bdd9e-0379-48e1-88c7-91e9fc8af7f1
+      videoTexture: !<reference.Texture> 4a693464-8530-4487-9d4e-b184170b2e73
+  ScriptTypes:
+    "":
+      {}
 - !<SceneObject/5a2ca1a2-f292-4079-aebb-f491bb9f5bf5>
   PrefabRemaps:
     []
@@ -2205,6 +2225,21 @@
     - !<own> 80e9d924-bd3c-4176-9c52-05a2603b2a4e
   Components:
     []
+- !<SceneObject/c5a2d454-7bae-4761-9cc2-6aa08ced7e67>
+  PrefabRemaps:
+    []
+  Name: DanceCoach
+  Enabled: true
+  Layers: 1
+  LocalTransform: !<TransformEntity>
+    Position: {x: 0.000000, y: 0.000000, z: 0.000000}
+    Rotation: {x: 0.000000, y: 0.000000, z: 0.000000}
+    Scale: {x: 1.000000, y: 1.000000, z: 1.000000}
+    HasSegmentScaleCompensation: false
+  Children:
+    - !<own> e7751c98-1954-4711-8427-f54ff53bf99d
+  Components:
+    - !<own> 56287113-a56f-4fe9-ad12-a27c2e3d8089
 - !<SceneObject/c5f1f0e9-6707-4a13-9453-fbf92b4eba12>
   PrefabRemaps:
     []
@@ -2614,6 +2649,22 @@
     []
   Components:
     - !<own> 28cf3766-599c-4bd5-8505-2a92bf6606ed
+- !<SceneObject/e7751c98-1954-4711-8427-f54ff53bf99d>
+  PrefabRemaps:
+    - e7751c98-1954-4711-8427-f54ff53bf99d: 72f91a89-29cf-4057-5cbb-4fa5614a378a
+    - ff5bdd9e-0379-48e1-88c7-91e9fc8af7f1: f776c255-4970-4365-6180-d66fb100c690
+  Name: VideoWindow
+  Enabled: true
+  Layers: 1
+  LocalTransform: !<TransformEntity>
+    Position: {x: 0.000000, y: 0.000000, z: 0.000000}
+    Rotation: {x: 0.000000, y: 0.000000, z: 0.000000}
+    Scale: {x: 1.000000, y: 1.000000, z: 1.000000}
+    HasSegmentScaleCompensation: false
+  Children:
+    []
+  Components:
+    - !<own> ff5bdd9e-0379-48e1-88c7-91e9fc8af7f1
 - !<SceneObject/e7d04753-28a1-4f9d-bc21-9c8284652226>
   PrefabRemaps:
     []
@@ -2794,3 +2845,19 @@
     - !<own> 929164ef-2d41-474a-a457-1bf03d6cd9f1
   Components:
     []
+- !<ScriptComponent/ff5bdd9e-0379-48e1-88c7-91e9fc8af7f1>
+  PrefabRemaps:
+    []
+  Name: VideoWindow
+  Enabled: true
+  ScriptAsset: !<reference> fc804b87-267b-4b8c-8b50-85a09cd2506b
+  ScriptInputsDefault:
+    {}
+  ScriptTypesDefault:
+    {}
+  ScriptInputs:
+    "":
+      {}
+  ScriptTypes:
+    "":
+      {}

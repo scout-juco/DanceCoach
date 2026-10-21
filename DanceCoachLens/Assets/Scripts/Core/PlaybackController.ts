@@ -9,6 +9,9 @@
  * over a dimmed lead-in (the 4 counts before it, which for Section 1 is footage from
  * before the trim), then plays the section with the controls locked and stops on Clip
  * ended. Without 4 counts of footage before Section 1, it freezes on a starting pose instead.
+ *
+ * M1-03: the control bar on Clip ended. Replay section, speed, mirror and counts; the
+ * settings carry into every run. The mode button stays in Playthrough and shows a toast.
  */
 import { COUNTS_PER_SECTION, CountClock, LEAD_IN_COUNTS } from "./CountClock"
 import { DancePackage } from "./DancePackage"
@@ -21,6 +24,16 @@ export type RunKind = "section" | "top" | "full"
 export type Speed = 0.5 | 0.75 | 1
 
 export type CountInKind = "startingPose" | "leadIn"
+
+/** The practice modes, in the order the mode button cycles through them. Only Playthrough exists yet. */
+export const MODES = ["Playthrough", "Pose", "Lookback"] as const
+
+export type Mode = (typeof MODES)[number]
+
+export const COMING_SOON_TOAST = "Pose and Lookback are coming soon"
+
+/** How long a toast stays up, in seconds. */
+export const TOAST_SEC = 2.6
 
 export interface CountIn {
   /** 5–8. */
@@ -70,6 +83,9 @@ export interface ViewState {
   controlsLocked: boolean
   doneSections: number[]
   settings: Settings
+  mode: Mode
+  /** A short message over the controls, or null. */
+  toast: string | null
   video: VideoRequest
 }
 
@@ -81,6 +97,7 @@ export class PlaybackController {
   private state: ViewState
   // Video seconds counted through a frozen starting pose (the video isn't moving, so tick's dt drives it).
   private poseElapsed = 0
+  private toastLeft = 0
 
   constructor(readonly pkg: DancePackage, progress?: Partial<Progress>) {
     this.clock = new CountClock(pkg)
@@ -98,6 +115,8 @@ export class PlaybackController {
       controlsLocked: false,
       doneSections: progress && progress.doneSections ? progress.doneSections.slice() : [],
       settings,
+      mode: "Playthrough",
+      toast: null,
       video: { seekTo: this.clock.sectionStart(1), seekId: 0, playing: false, rate: settings.speed, holdFrame: false, dim: false },
     }
   }
@@ -141,11 +160,52 @@ export class PlaybackController {
     return this.state
   }
 
+  /** Runs the current section again, with its count-in. Ignored while the controls are locked. */
+  replay(): ViewState {
+    return this.tapSection(this.state.section)
+  }
+
+  /** Sets the speed for every run from the next one on. Ignored while the controls are locked. */
+  setSpeed(speed: Speed): ViewState {
+    const s = this.state
+    if (s.controlsLocked) return s
+    this.state = { ...s, settings: { ...s.settings, speed }, video: { ...s.video, rate: speed } }
+    return this.state
+  }
+
+  toggleMirror(): ViewState {
+    return this.changeSettings((st) => ({ ...st, mirror: !st.mirror }))
+  }
+
+  toggleCounts(): ViewState {
+    return this.changeSettings((st) => ({ ...st, counts: !st.counts }))
+  }
+
+  /** The mode button: Pose and Lookback don't exist yet, so it says so and stays in Playthrough. */
+  tapMode(): ViewState {
+    const s = this.state
+    if (s.controlsLocked) return s
+    this.toastLeft = TOAST_SEC
+    this.state = { ...s, toast: COMING_SOON_TOAST }
+    return this.state
+  }
+
+  private changeSettings(change: (settings: Settings) => Settings): ViewState {
+    const s = this.state
+    if (s.controlsLocked) return s
+    this.state = { ...s, settings: change(s.settings) }
+    return this.state
+  }
+
   /**
    * Advances to the given video time. dtSec is the real time since the last tick; it only
    * matters while the video is frozen (the starting pose). Returns the new view state.
    */
   tick(videoTimeSec: number, dtSec = 0): ViewState {
+    if (this.state.toast !== null) {
+      this.toastLeft -= dtSec
+      if (this.toastLeft <= EPS) this.state = { ...this.state, toast: null }
+    }
     switch (this.state.screen) {
       case "BI":
         return this.tickStartingPose(dtSec)

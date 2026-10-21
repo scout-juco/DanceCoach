@@ -34,6 +34,8 @@ export const RADII = {
   button: 11,
   progress: 3,
   tile: 10,
+  bar: 18,
+  control: 12,
 } as const
 
 export const TYPE = {
@@ -48,6 +50,10 @@ export const TYPE = {
   countInHead: 13,
   progLabel: 11,
   tile: 13,
+  icon: 18,
+  modeName: 13,
+  modeNext: 10,
+  toast: 14,
 } as const
 
 export const SPACING = {
@@ -64,6 +70,12 @@ export const SPACING = {
   /** The line marking where the section starts on 1 along the progress bar. */
   progressMarker: 2,
   tileGap: 6,
+  /** The control bar: padding around its items, the gap between them, and each item's width. */
+  barPad: 12,
+  controlGap: 8,
+  control: { mode: 170, replay: 110, speed: 132, toggle: 60 },
+  modeDot: 7,
+  modeDotGap: 11,
 } as const
 
 /** "#RRGGBB" or "#RRGGBBAA" → [r, g, b, a] in 0–1. */
