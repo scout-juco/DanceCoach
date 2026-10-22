@@ -6,7 +6,7 @@
  * placement point (PLACEMENT: 3.24 m away, 7° to the right and 0.10 m below eye level).
  * Lens Studio world units are centimetres.
  */
-import { ScreenId } from "../Core/PlaybackController"
+import { RunKind, ScreenId } from "../Core/PlaybackController"
 
 /** [x, y, width, height] in prototype pixels. */
 export type PxRect = [number, number, number, number]
@@ -25,6 +25,14 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   C: { video: [790, 40, 300, 533], sections: [600, 589, 490, 40], controls: [360, 645, 0, 84], toast: [360, 525, 420, 48] },
   C2: { video: [790, 40, 300, 533], sections: [600, 589, 490, 40], controls: [360, 645, 0, 84], toast: [360, 525, 420, 48] },
   G: { video: [790, 40, 340, 604] },
+}
+
+/** A Full run plays on B with From the top's segmented bar in place of the progress bar. */
+const FULL_RUN: Partial<Record<PanelId, PxRect>> = { video: [790, 40, 340, 604], segBar: [790, 660, 340, 26] }
+
+/** The panels on screen for a view state: its screen's, except for a Full run playing. */
+export function panelsFor(view: { screen: ScreenId; runKind: RunKind }): Partial<Record<PanelId, PxRect>> {
+  return view.screen === "B" && view.runKind === "full" ? FULL_RUN : SCREENS[view.screen]
 }
 
 /** This prototype point sits at the placement point. */

@@ -12,6 +12,11 @@
  *
  * M1-03: the control bar on Clip ended. Replay section, speed, mirror and counts; the
  * settings carry into every run. The mode button stays in Playthrough and shows a toast.
+ *
+ * M1-04: the chaining runs. From the top plays Section 1 through the end of the current
+ * section; Full plays the whole routine. Both count in the way Section 1 does (its lead-in,
+ * or the starting pose without one), play at the current speed with the controls locked,
+ * and stop on Clip ended.
  */
 import { COUNTS_PER_SECTION, CountClock, LEAD_IN_COUNTS } from "./CountClock"
 import { DancePackage } from "./DancePackage"
@@ -24,6 +29,9 @@ export type RunKind = "section" | "top" | "full"
 export type Speed = 0.5 | 0.75 | 1
 
 export type CountInKind = "startingPose" | "leadIn"
+
+/** What a section tile runs: a section, or the whole routine. */
+export type SectionTap = number | "full"
 
 /** The practice modes, in the order the mode button cycles through them. Only Playthrough exists yet. */
 export const MODES = ["Playthrough", "Pose", "Lookback"] as const
@@ -69,7 +77,14 @@ export interface VideoRequest {
 export interface ViewState {
   screen: ScreenId
   runKind: RunKind
+  /** The current section: the one a section run plays, or where From the top stops. */
   section: number
+  /** The section playing now. A section run plays only its section; From the top and Full play several. */
+  runSection: number
+  /** The last section the run plays. */
+  runStop: number
+  /** 0–1 through runSection. */
+  sectionProgress: number
   sectionCount: number
   /** 1–8, or 0 when there's no count to show. */
   count: number
@@ -106,6 +121,9 @@ export class PlaybackController {
       screen: "C",
       runKind: "section",
       section: 1,
+      runSection: 1,
+      runStop: 1,
+      sectionProgress: 0,
       sectionCount: this.clock.sectionCount,
       count: 0,
       and: false,
@@ -128,24 +146,47 @@ export class PlaybackController {
   /**
    * Starts a run of section n with its count-in: the 4 counts before it play dimmed, or,
    * when the video has no footage that early, the first frame freezes (starting pose).
-   * Ignored while the controls are locked.
+   * "full" runs the whole routine, counting in as Section 1 does. Ignored while the controls are locked.
    */
-  tapSection(n: number): ViewState {
+  tapSection(n: SectionTap): ViewState {
+    if (n === "full") return this.startRun("full", this.state.section, this.clock.sectionCount)
+    return this.startRun("section", n, n)
+  }
+
+  /**
+   * Runs from the start of Section 1 through the end of the current section (the whole
+   * routine after Full), counting in as Section 1 does. Ignored while the controls are locked.
+   */
+  fromTheTop(): ViewState {
+    const s = this.state
+    return this.startRun("top", s.section, s.runKind === "full" ? this.clock.sectionCount : s.section)
+  }
+
+  /** Runs the current section (or Full) again, with its count-in. Ignored while the controls are locked. */
+  replay(): ViewState {
+    return this.tapSection(this.state.runKind === "full" ? "full" : this.state.section)
+  }
+
+  private startRun(kind: RunKind, section: number, stop: number): ViewState {
     const s = this.state
     if (s.controlsLocked) return s
-    const lead = this.clock.leadIn(n)
-    const start = this.clock.sectionStart(n)
+    const first = kind === "section" ? section : 1
+    const lead = this.clock.leadIn(first)
+    const start = this.clock.sectionStart(first)
     this.poseElapsed = 0
     this.state = {
       ...s,
       screen: lead ? "B0" : "BI",
-      runKind: "section",
-      section: n,
+      runKind: kind,
+      section,
+      runSection: first,
+      runStop: stop,
+      sectionProgress: 0,
       count: 0,
       and: false,
       countIn: { number: 5, kind: lead ? "leadIn" : "startingPose" },
       runProgress: 0,
-      leadInFraction: lead ? (start - lead.start) / (this.clock.sectionEnd(n) - lead.start) : 0,
+      leadInFraction: lead ? (start - lead.start) / (this.clock.sectionEnd(first) - lead.start) : 0,
       controlsLocked: true,
       video: {
         ...s.video,
@@ -158,11 +199,6 @@ export class PlaybackController {
       },
     }
     return this.state
-  }
-
-  /** Runs the current section again, with its count-in. Ignored while the controls are locked. */
-  replay(): ViewState {
-    return this.tapSection(this.state.section)
   }
 
   /** Sets the speed for every run from the next one on. Ignored while the controls are locked. */
@@ -212,6 +248,7 @@ export class PlaybackController {
       case "B0":
         return this.tickLeadIn(videoTimeSec)
       case "B":
+      case "F":
         return this.tickRun(videoTimeSec)
       default:
         return this.state
@@ -229,7 +266,7 @@ export class PlaybackController {
 
   private tickLeadIn(t: number): ViewState {
     const s = this.state
-    const lead = this.clock.leadIn(s.section)!
+    const lead = this.clock.leadIn(s.runSection)!
     if (t >= lead.end - EPS) {
       this.startPlaying()
       return this.tickRun(t)
@@ -245,7 +282,7 @@ export class PlaybackController {
     const s = this.state
     this.state = {
       ...s,
-      screen: "B",
+      screen: s.runKind === "top" ? "F" : "B",
       count: 1,
       and: false,
       countIn: null,
@@ -256,23 +293,36 @@ export class PlaybackController {
 
   private tickRun(t: number): ViewState {
     const s = this.state
-    const start = this.clock.sectionStart(s.section)
-    const end = this.clock.sectionEnd(s.section)
+    const first = s.runKind === "section" ? s.section : 1
+    const start = this.clock.sectionStart(first)
+    const end = this.clock.sectionEnd(s.runStop)
     if (t >= end - EPS) return this.endRun()
-    const { count, and } = this.clock.countIn(s.section, t)
-    this.state = { ...s, count, and, runProgress: clamp01((t - start) / (end - start)) }
+    const n = Math.min(Math.max(this.clock.sectionAt(t), first), s.runStop)
+    const { count, and } = this.clock.countIn(n, t)
+    const nStart = this.clock.sectionStart(n)
+    this.state = {
+      ...s,
+      count,
+      and,
+      runSection: n,
+      sectionProgress: clamp01((t - nStart) / (this.clock.sectionEnd(n) - nStart)),
+      runProgress: clamp01((t - start) / (end - start)),
+    }
     return this.state
   }
 
   private endRun(): ViewState {
     const s = this.state
-    const done = s.doneSections.indexOf(s.section) >= 0 ? s.doneSections : s.doneSections.concat(s.section).sort((a, b) => a - b)
+    // Only a section run ticks its section; From the top and Full chain sections already learned.
+    const done = s.runKind !== "section" || s.doneSections.indexOf(s.section) >= 0 ? s.doneSections : s.doneSections.concat(s.section).sort((a, b) => a - b)
     this.state = {
       ...s,
       screen: "C",
       count: COUNTS_PER_SECTION,
       and: false,
       countIn: null,
+      runSection: s.runStop,
+      sectionProgress: 1,
       runProgress: 1,
       controlsLocked: false,
       doneSections: done,

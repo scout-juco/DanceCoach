@@ -9,9 +9,9 @@
  */
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { ViewState } from "../Core/PlaybackController"
-import { pointInPanelCm, PxRect, SCREENS } from "./Layout"
+import { panelsFor, pointInPanelCm, PxRect } from "./Layout"
 import { RADII, SPACING, TYPE } from "./Theme"
-import { childObject, makeRect, makeText, place, setRectSize } from "./Visuals"
+import { childObject, makeRect, makeText, place, runLabel, setRectSize } from "./Visuals"
 
 const Z = 0.1
 // The fill and lead-in sit just in front of the track, the marker in front of both.
@@ -53,7 +53,7 @@ export class ProgressBar extends BaseScriptComponent {
   }
 
   render(view: ViewState) {
-    const rects = SCREENS[view.screen]
+    const rects = panelsFor(view)
     const bar = rects.progress
     this.sceneObject.enabled = !!bar
     if (!bar) return
@@ -97,7 +97,7 @@ export class ProgressBar extends BaseScriptComponent {
     if (!label) return
     const y = label[3] / 2
     place(this.leadLabelObject, pointInPanelCm(label, 0, y), Z)
-    this.startLabel.text = `SECTION ${view.section} STARTS ON 1`
+    this.startLabel.text = `${runLabel(view)} STARTS ON 1`
     place(this.startLabelObject, pointInPanelCm(label, markX > 0 ? markX - 4 : 0, y), Z)
   }
 }

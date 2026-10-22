@@ -6,9 +6,9 @@
  * "Get in your starting pose" heading above the circle.
  */
 import { ViewState } from "../Core/PlaybackController"
-import { pointInPanelCm, pxToCm, SCREENS } from "./Layout"
+import { panelsFor, pointInPanelCm, pxToCm } from "./Layout"
 import { SPACING, TYPE } from "./Theme"
-import { childObject, makeRect, makeText, place, setRectSize, themeColor } from "./Visuals"
+import { childObject, makeRect, makeText, place, runLabel, setRectSize, themeColor } from "./Visuals"
 
 const Z = 0.1
 const COUNT_IN = [5, 6, 7, 8]
@@ -21,7 +21,7 @@ export class CountInPanel extends BaseScriptComponent {
   private label: Text
   private rowObjects: SceneObject[] = []
   private row: Text[] = []
-  private screen = ""
+  private layoutKey = ""
 
   onAwake() {
     this.head = childObject("StartingPose", this.sceneObject)
@@ -50,15 +50,16 @@ export class CountInPanel extends BaseScriptComponent {
 
   render(view: ViewState) {
     const ci = view.countIn
-    const rects = SCREENS[view.screen]
+    const rects = panelsFor(view)
     const show = !!ci && !!rects.countIn
     this.sceneObject.enabled = show
     if (!show) {
-      this.screen = ""
+      this.layoutKey = ""
       return
     }
-    if (view.screen !== this.screen) {
-      this.screen = view.screen
+    const key = `${view.screen}|${view.runKind}|${view.section}`
+    if (key !== this.layoutKey) {
+      this.layoutKey = key
       this.layout(view)
     }
     this.number.text = String(ci!.number)
@@ -66,12 +67,12 @@ export class CountInPanel extends BaseScriptComponent {
   }
 
   private layout(view: ViewState) {
-    const rects = SCREENS[view.screen]
+    const rects = panelsFor(view)
     const box = rects.countIn!
     const w = box[2]
     place(this.circle, pointInPanelCm(box, w / 2, SPACING.countInCircle / 2), Z)
     this.rowObjects.forEach((so, i) => place(so, pointInPanelCm(box, w / 2 + (i - 1.5) * SPACING.countInRowGap, SPACING.countInRowY), Z))
-    this.label.text = `SECTION ${view.section} IN`
+    this.label.text = `${runLabel(view)} IN`
     const head = rects.ciHead
     this.head.enabled = view.countIn!.kind === "startingPose" && !!head
     if (head) place(this.head, pointInPanelCm(head, head[2] / 2, head[3] / 2), Z)

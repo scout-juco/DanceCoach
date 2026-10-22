@@ -4,7 +4,7 @@
  * Lens Studio's player can't jump forward in a video: it plays through to the new time at
  * playback speed (measured in Preview, M1-03). Starting a video from 0 is quick, so every run
  * plays a clip that starts where the run starts: one per section (its lead-in to its end) and
- * one from the top (Section 1 through the end, for Section 1's starting pose, Full and From the top).
+ * one from the top (Section 1's lead-in through the end, for Section 1, Full and From the top).
  *
  * The clips are cut from the package's video by scripts/makeClips.ts, which uses this plan,
  * so the Lens and the script always agree. Times are seconds in the original video.
@@ -26,11 +26,12 @@ const SAME_START_SEC = 0.05
 export function planClips(pkg: DancePackage): Clip[] {
   const clock = new CountClock(pkg)
   const last = clock.sectionCount
-  const clips: Clip[] = [{ id: "top", start: clock.sectionStart(1), end: clock.sectionEnd(last) }]
+  const lead = clock.leadIn(1)
+  const clips: Clip[] = [{ id: "top", start: lead ? lead.start : clock.sectionStart(1), end: clock.sectionEnd(last) }]
   for (let n = 1; n <= last; n++) {
-    const lead = clock.leadIn(n)
-    const start = lead ? lead.start : clock.sectionStart(n)
-    // A section without a lead-in starts where the top clip does, so that one covers it.
+    const sectionLead = clock.leadIn(n)
+    const start = sectionLead ? sectionLead.start : clock.sectionStart(n)
+    // Section 1 starts where the top clip does, so that one covers it.
     if (clips.some((c) => Math.abs(c.start - start) < SAME_START_SEC)) continue
     clips.push({ id: `s${n}`, start, end: clock.sectionEnd(n) })
   }

@@ -27,7 +27,7 @@
   PackagePolicy: CanBeUnpacked
   ScriptInputsHidden:
     camera: false
-    videoTexture: false
+    videoClips: false
     videoWindow: false
     windowRoot: false
   ScriptTypesHidden:
@@ -42,7 +42,8 @@
     - camera: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
       windowRoot: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
       videoWindow: !<MappingBased.AssignableType> 00000000-0000-0000-0000-000000000000
-      videoTexture: !<reference.Texture> 00000000-0000-0000-0000-000000000000
+      videoClips: !<reference.Texture[]>
+        []
   ScriptTypes:
     -
       {}
@@ -50,4 +51,4 @@
     - '// @input SceneObject camera {"hint":"The camera the window is placed relative to"}'
     - "// @input SceneObject windowRoot {\"hint\":\"The window's root object; it's moved to the default placement on start\"}"
     - // @input AssignableType videoWindow
-    - '// @input Asset.Texture videoTexture {"hint":"The test dance video (git-ignored). Without it, counts run on a stand-in clock."}'
+    - "// @input Asset.Texture[] videoClips {\"hint\":\"The dance's clips, cut by `npm run clips` (git-ignored), in any order. Without them, counts run on a stand-in clock.\"}"

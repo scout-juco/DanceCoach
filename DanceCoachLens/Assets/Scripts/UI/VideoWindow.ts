@@ -1,6 +1,7 @@
 /**
  * VideoWindow: the video panel with its count badge, chips, lead-in dimming and status tag.
  *
+ * During From the top and Full the badge also shows which section is playing (SEC n).
  * A shallow view: it renders a ViewState and nothing else. Its fixed API is
  * setVideo(), setRect() (where it sits, in prototype pixels) and render() (what it shows).
  * Colours and sizes come from Theme.ts; position and size from Layout.ts.
@@ -9,7 +10,7 @@ import { RoundedRectangle, TextureMode } from "SpectaclesUIKit.lspkg/Scripts/Vis
 import { ViewState } from "../Core/PlaybackController"
 import { panelCm, pxToCm, PxRect } from "./Layout"
 import { RADII, SPACING, TYPE } from "./Theme"
-import { childObject, makeRect, makeText, setRectSize, themeColor } from "./Visuals"
+import { childObject, isMultiSection, makeRect, makeText, runLabel, setRectSize, themeColor } from "./Visuals"
 
 // Layers in front of the video, in cm, so nothing z-fights.
 const Z_DIM = 0.1
@@ -18,29 +19,33 @@ const Z_BADGE = 0.2
 const TAG_CHAR_EM = 0.62
 const TAG_PAD = 20
 const CHIP_PAD = 16
+// Inside the badge, from its centre: the count moves up to make room for the section under it (prototype px).
+const BADGE_COUNT_UP = 7
+const BADGE_SUB_DOWN = 24
 
 /** The chips in the video's top-right corner, left to right: the speed during a run, and MIRRORED. */
 function chipLabels(view: ViewState): string[] {
-  const running = view.screen === "BI" || view.screen === "B0" || view.screen === "B"
+  const running = view.screen === "BI" || view.screen === "B0" || view.screen === "B" || view.screen === "F"
   const chips: string[] = []
-  if (running || view.screen === "F") chips.push(`${view.settings.speed}×`)
+  if (running) chips.push(`${view.settings.speed}×`)
   if (running && view.settings.mirror) chips.push("MIRRORED")
   return chips
 }
 
 /** The status tag in the video's bottom-left corner, by screen. */
 function tagLabel(view: ViewState): string | null {
-  const sec = `SECTION ${view.section}`
   switch (view.screen) {
     case "BI":
-      return `${sec} · STARTING POSE · controls locked`
+      return `${runLabel(view)} · STARTING POSE · controls locked`
     case "B0":
       return "LEAD-IN · controls locked"
     case "B":
-      return `PLAYTHROUGH · ${sec} · controls locked`
+      return `PLAYTHROUGH · ${runLabel(view)} · controls locked`
+    case "F":
+      return "controls locked until it ends"
     case "C":
     case "C2":
-      return `${sec} DONE · controls unlocked`
+      return `${view.runKind === "full" ? "FULL ROUTINE" : `SECTION ${view.section}`} DONE · controls unlocked`
     default:
       return null
   }
@@ -54,6 +59,8 @@ export class VideoWindow extends BaseScriptComponent {
   private dimObject: SceneObject
   private badgeObject: SceneObject
   private badgeText: Text
+  private badgeTextObject: SceneObject
+  private badgeSub: Text
   private tag: RoundedRectangle
   private tagObject: SceneObject
   private tagText: Text
@@ -77,9 +84,11 @@ export class VideoWindow extends BaseScriptComponent {
     this.badgeObject = childObject("CountBadge", this.sceneObject)
     const badge = makeRect(this.badgeObject, "countBg", 1)
     setRectSize(badge, SPACING.countBadge, SPACING.countBadge, SPACING.countBadge / 2)
-    const textObject = childObject("Count", this.badgeObject)
-    textObject.getTransform().setLocalPosition(new vec3(0, 0, 0.05))
-    this.badgeText = makeText(textObject, TYPE.countBadge, "ink", 2)
+    this.badgeTextObject = childObject("Count", this.badgeObject)
+    this.badgeText = makeText(this.badgeTextObject, TYPE.countBadge, "ink", 2)
+    const subObject = childObject("Section", this.badgeObject)
+    subObject.getTransform().setLocalPosition(new vec3(0, -pxToCm(BADGE_SUB_DOWN), 0.05))
+    this.badgeSub = makeText(subObject, TYPE.countBadgeSub, "ink2", 2)
 
     this.tagObject = childObject("Tag", this.sceneObject)
     this.tag = makeRect(this.tagObject, "chip", 1)
@@ -137,11 +146,16 @@ export class VideoWindow extends BaseScriptComponent {
     this.dimObject.enabled = view.video.dim
 
     // During a count-in the badge always shows the 5, 6, 7, 8; otherwise the count, if counts are on.
-    const badge = view.countIn ? String(view.countIn.number) : view.settings.counts && view.count > 0 ? String(view.count) : ""
-    this.badgeObject.enabled = badge !== ""
+    // In a multi-section run the section playing shows under the count.
+    const count = view.countIn ? String(view.countIn.number) : view.settings.counts && view.count > 0 ? String(view.count) : ""
+    const sub = !view.countIn && count !== "" && isMultiSection(view) && (view.screen === "B" || view.screen === "F") ? `SEC ${view.runSection}` : ""
+    const badge = `${count}|${sub}`
+    this.badgeObject.enabled = count !== ""
     if (badge !== this.lastBadge) {
-      this.badgeText.text = badge
       this.lastBadge = badge
+      this.badgeText.text = count
+      this.badgeSub.text = sub
+      this.badgeTextObject.getTransform().setLocalPosition(new vec3(0, sub ? pxToCm(BADGE_COUNT_UP) : 0, 0.05))
     }
 
     const chips = chipLabels(view)

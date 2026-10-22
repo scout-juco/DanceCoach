@@ -14,10 +14,10 @@ describe("planClips", () => {
     ])
   })
 
-  it("gives Section 1 its own clip when it leads in from footage before the trim", () => {
+  it("starts the top clip at Section 1's lead-in when there's footage before the trim", () => {
     const plan = planClips(makeDance({ firstBeatSec: 3, trim: { start: 3, end: 15 } }))
-    expect(plan[0]).toEqual({ id: "top", start: 3, end: 15 })
-    expect(plan[1]).toEqual({ id: "s1", start: 1, end: 7 })
+    expect(plan[0]).toEqual({ id: "top", start: 1, end: 15 })
+    expect(plan.map((c) => c.id)).toEqual(["top", "s2", "s3"])
   })
 
   it("follows nudged sections", () => {

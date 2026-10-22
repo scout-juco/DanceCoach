@@ -1,7 +1,7 @@
 /**
  * ControlBar: the Playthrough controls on Clip ended.
  *
- * Mode button (Playthrough · NEXT: POSE), Replay section, speed (0.5× / 0.75× / 1×),
+ * Mode button (Playthrough · NEXT: POSE), Replay section, From the top, speed (0.5× / 0.75× / 1×),
  * Mirror and Counts. A pinch on a control calls onPress with its command.
  * A shallow view: render() shows the view state, placed by the screen's controls panel
  * in Layout.SCREENS. It's hidden on screens without one, so it can't be pressed mid-run.
@@ -10,9 +10,9 @@
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { MODES, Speed, ViewState } from "../Core/PlaybackController"
-import { pointInPanelCm, pxToCm, PxRect, SCREENS } from "./Layout"
+import { panelsFor, pointInPanelCm, pxToCm, PxRect, SCREENS } from "./Layout"
 import { ColorToken, RADII, SPACING, TYPE } from "./Theme"
-import { childObject, makeRect, makeText, place, setRectSize, themeColor } from "./Visuals"
+import { childObject, makeRect, makeText, makeTopIcon, place, setRectSize, themeColor } from "./Visuals"
 
 // Layers in front of the window plane, in cm: the bar, its controls, then their labels.
 const Z_BAR = 0.1
@@ -22,7 +22,7 @@ const Z_LABEL = 0.05
 const HIT_DEPTH = 1
 const SPEEDS: Speed[] = [0.5, 0.75, 1]
 
-export type ControlCommand = "mode" | "replay" | "mirror" | "counts" | Speed
+export type ControlCommand = "mode" | "replay" | "top" | "mirror" | "counts" | Speed
 
 interface Control {
   object: SceneObject
@@ -41,6 +41,7 @@ export class ControlBar extends BaseScriptComponent {
   private modeNext: Text
   private modeDots: RoundedRectangle[] = []
   private replay: Control
+  private top: Control
   private speedBox: Control
   private speeds: { control: Control; text: Text }[] = []
   private toggles: { control: Control; name: Text; state: Text }[] = []
@@ -78,6 +79,12 @@ export class ControlBar extends BaseScriptComponent {
     this.label(this.replay.object, TYPE.icon, "activeInk", 0, -8).text = "↺"
     this.label(this.replay.object, TYPE.button, "activeInk", 0, 14).text = "Replay section"
 
+    this.top = this.control("FromTheTop", c.top, H, "top")
+    const icon = childObject("Icon", this.top.object)
+    icon.getTransform().setLocalPosition(new vec3(pxToCm(72.5 - c.top / 2), pxToCm(8), Z_LABEL))
+    makeTopIcon(icon, "ink", 4, 39)
+    this.label(this.top.object, TYPE.button, "ink", 0, 14).text = "From the top"
+
     // The speed box is a frame; each speed is its own segment inside it.
     this.speedBox = this.control("Speed", c.speed, H, null)
     const segW = c.speed / SPEEDS.length
@@ -101,7 +108,7 @@ export class ControlBar extends BaseScriptComponent {
   }
 
   render(view: ViewState) {
-    const box = SCREENS[view.screen].controls
+    const box = panelsFor(view).controls
     this.sceneObject.enabled = !!box
     if (!box) {
       this.screen = ""
@@ -140,8 +147,8 @@ export class ControlBar extends BaseScriptComponent {
   private layout(box: PxRect) {
     const H = this.itemHeight()
     const pad = SPACING.barPad
-    const items = [this.mode, this.replay, this.speedBox, ...this.toggles.map((t) => t.control)]
-    const widths = [SPACING.control.mode, SPACING.control.replay, SPACING.control.speed, SPACING.control.toggle, SPACING.control.toggle]
+    const items = [this.mode, this.replay, this.top, this.speedBox, ...this.toggles.map((t) => t.control)]
+    const widths = [SPACING.control.mode, SPACING.control.replay, SPACING.control.top, SPACING.control.speed, SPACING.control.toggle, SPACING.control.toggle]
     const w = 2 * pad + widths.reduce((a, b) => a + b, 0) + SPACING.controlGap * (items.length - 1)
     const h = box[3]
     place(this.barObject, pointInPanelCm(box, w / 2, h / 2), Z_BAR)

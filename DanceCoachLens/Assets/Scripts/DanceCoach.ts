@@ -7,14 +7,16 @@
  */
 import { TEST_DANCE } from "../Dance/TestDance"
 import { clipAssetName, planClips } from "./Core/ClipPlan"
-import { PlaybackController, ScreenId, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
+import { PlaybackController, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
 import { decodeSettings, encodeSettings, SETTINGS_KEY } from "./Core/SettingsStore"
 import { ClipPlayer, VideoDriver } from "./Core/VideoDriver"
+import { Banner } from "./UI/Banner"
 import { ControlBar, ControlCommand } from "./UI/ControlBar"
 import { CountInPanel } from "./UI/CountInPanel"
-import { PLACEMENT, SCREENS } from "./UI/Layout"
+import { panelsFor, PanelId, PLACEMENT, PxRect, SCREENS } from "./UI/Layout"
 import { ProgressBar } from "./UI/ProgressBar"
-import { SectionRow, SectionTap } from "./UI/SectionRow"
+import { SectionRow } from "./UI/SectionRow"
+import { SegBar } from "./UI/SegBar"
 import { Toast } from "./UI/Toast"
 import { VideoWindow } from "./UI/VideoWindow"
 import { childObject } from "./UI/Visuals"
@@ -45,6 +47,8 @@ export class DanceCoach extends BaseScriptComponent {
   private controller: PlaybackController
   private countIn: CountInPanel
   private progress: ProgressBar
+  private segBar: SegBar
+  private banner: Banner
   private sections: SectionRow
   private controls: ControlBar
   private toast: Toast
@@ -52,7 +56,7 @@ export class DanceCoach extends BaseScriptComponent {
   // Stand-in video time when there's no video texture.
   private fakeTime = 0
   private fakeSeekId = -1
-  private screen: ScreenId | null = null
+  private panels: Partial<Record<PanelId, PxRect>> | null = null
   private placeLeft = PLACE_SETTLE_SEC
   private savedSettings: Settings | null = null
 
@@ -70,6 +74,8 @@ export class DanceCoach extends BaseScriptComponent {
     const plane = this.videoWindow.getSceneObject()
     this.countIn = childObject("CountIn", plane).createComponent(CountInPanel.getTypeName()) as CountInPanel
     this.progress = childObject("Progress", plane).createComponent(ProgressBar.getTypeName()) as ProgressBar
+    this.segBar = childObject("SegBar", plane).createComponent(SegBar.getTypeName()) as SegBar
+    this.banner = childObject("Banner", plane).createComponent(Banner.getTypeName()) as Banner
     this.sections = childObject("Sections", plane).createComponent(SectionRow.getTypeName()) as SectionRow
     this.sections.onTap = (id) => this.tapSection(id)
     this.controls = childObject("Controls", plane).createComponent(ControlBar.getTypeName()) as ControlBar
@@ -119,8 +125,6 @@ export class DanceCoach extends BaseScriptComponent {
   }
 
   private tapSection(id: SectionTap) {
-    // Full arrives with From the top (M1-04).
-    if (id === "full") return
     this.render(this.controller.tapSection(id))
   }
 
@@ -129,6 +133,8 @@ export class DanceCoach extends BaseScriptComponent {
     switch (command) {
       case "replay":
         return this.render(c.replay())
+      case "top":
+        return this.render(c.fromTheTop())
       case "mirror":
         return this.render(c.toggleMirror())
       case "counts":
@@ -166,13 +172,16 @@ export class DanceCoach extends BaseScriptComponent {
   }
 
   private render(view: ViewState) {
-    if (view.screen !== this.screen) {
-      this.screen = view.screen
-      this.videoWindow.setRect(SCREENS[view.screen].video)
+    const panels = panelsFor(view)
+    if (panels !== this.panels) {
+      this.panels = panels
+      this.videoWindow.setRect(panels.video!)
     }
     this.videoWindow.render(view)
     this.countIn.render(view)
     this.progress.render(view)
+    this.segBar.render(view)
+    this.banner.render(view)
     this.sections.render(view)
     this.controls.render(view)
     this.toast.render(view)

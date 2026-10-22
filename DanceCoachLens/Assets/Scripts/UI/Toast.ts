@@ -5,7 +5,7 @@
  * panel in Layout.SCREENS. Hidden when there's no toast or the screen has no place for one.
  */
 import { ViewState } from "../Core/PlaybackController"
-import { pointInPanelCm, SCREENS } from "./Layout"
+import { panelsFor, pointInPanelCm, SCREENS } from "./Layout"
 import { TYPE } from "./Theme"
 import { childObject, makeRect, makeText, place, setRectSize } from "./Visuals"
 
@@ -31,7 +31,7 @@ export class Toast extends BaseScriptComponent {
   }
 
   render(view: ViewState) {
-    const box = SCREENS[view.screen].toast
+    const box = panelsFor(view).toast
     const show = !!view.toast && !!box
     this.sceneObject.enabled = show
     if (!show) return

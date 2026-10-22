@@ -9,16 +9,14 @@
  */
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
-import { ViewState } from "../Core/PlaybackController"
-import { pointInPanelCm, pxToCm, SCREENS } from "./Layout"
+import { SectionTap, ViewState } from "../Core/PlaybackController"
+import { panelsFor, pointInPanelCm, pxToCm } from "./Layout"
 import { ColorToken, RADII, SPACING, TYPE } from "./Theme"
 import { childObject, makeRect, makeText, place, setRectSize, themeColor } from "./Visuals"
 
 const Z = 0.1
 // Collider depth, in cm.
 const HIT_DEPTH = 1
-
-export type SectionTap = number | "full"
 
 interface Tile {
   id: SectionTap
@@ -41,7 +39,7 @@ export class SectionRow extends BaseScriptComponent {
   }
 
   render(view: ViewState) {
-    const box = SCREENS[view.screen].sections
+    const box = panelsFor(view).sections
     this.sceneObject.enabled = !!box
     if (!box) return
     if (this.tiles.length !== view.sectionCount + 1) this.build(view.sectionCount)

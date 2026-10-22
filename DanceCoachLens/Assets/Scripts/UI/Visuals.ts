@@ -3,6 +3,7 @@
  * Everything is sized in prototype pixels and coloured by Theme tokens.
  */
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
+import { ViewState } from "../Core/PlaybackController"
 import { pxToCm } from "./Layout"
 import { COLORS, ColorToken, rgba } from "./Theme"
 
@@ -56,6 +57,33 @@ export function makeText(so: SceneObject, sizePx: number, token: ColorToken, ren
   text.verticalOverflow = VerticalOverflow.Overflow
   text.renderOrder = renderOrder
   return text
+}
+
+/** What a run is called on its labels: FULL ROUTINE, or the section it starts with. */
+export function runLabel(view: ViewState): string {
+  return view.runKind === "full" ? "FULL ROUTINE" : `SECTION ${view.runKind === "top" ? 1 : view.section}`
+}
+
+/** True for runs that play several sections (From the top and Full). */
+export const isMultiSection = (view: ViewState) => view.runKind !== "section"
+
+/**
+ * The From the top icon, |→, centred on the object's position: a bar for the top,
+ * then an arrow. Drawn from rectangles so it doesn't depend on the font.
+ */
+export function makeTopIcon(so: SceneObject, token: ColorToken, renderOrder: number, widthPx: number) {
+  const part = (name: string, x: number, y: number, w: number, h: number, angleDeg = 0) => {
+    const o = childObject(name, so)
+    setRectSize(makeRect(o, token, renderOrder), w, h, 1)
+    o.getTransform().setLocalPosition(new vec3(pxToCm(x), pxToCm(y), 0))
+    if (angleDeg) o.getTransform().setLocalRotation(quat.angleAxis((angleDeg * Math.PI) / 180, vec3.forward()))
+  }
+  // As in the prototype: 12 px tall, a bar, a shaft and a two-stroke head.
+  const half = widthPx / 2
+  part("Bar", -half, 0, 2, 12)
+  part("Shaft", 0, 0, widthPx, 2)
+  part("HeadUp", half - 3, 2.5, 8, 2, -45)
+  part("HeadDown", half - 3, -2.5, 8, 2, 45)
 }
 
 /** Moves an object on the window plane (centimetres), z in front of the video. */
