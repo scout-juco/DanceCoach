@@ -18,7 +18,7 @@
  * or the starting pose without one), play at the current speed with the controls locked,
  * and stop on Clip ended.
  */
-import { COUNTS_PER_SECTION, CountClock, LEAD_IN_COUNTS } from "./CountClock"
+import { CountClock, LEAD_IN_COUNTS } from "./CountClock"
 import { DancePackage } from "./DancePackage"
 
 /** Screen IDs from the clickable prototype. */
@@ -69,7 +69,7 @@ export interface VideoRequest {
   seekId: number
   playing: boolean
   rate: number
-  /** Hold the last frame (the run has gone past the end of the footage). */
+  /** Hold the last frame (the clip has played out before the run ended). */
   holdFrame: boolean
   dim: boolean
 }
@@ -318,7 +318,8 @@ export class PlaybackController {
     this.state = {
       ...s,
       screen: "C",
-      count: COUNTS_PER_SECTION,
+      // The last count reached: 8, or less for a partial last section that ends with the footage.
+      count: this.clock.countIn(s.runStop, this.clock.sectionEnd(s.runStop) - 1e-3).count,
       and: false,
       countIn: null,
       runSection: s.runStop,

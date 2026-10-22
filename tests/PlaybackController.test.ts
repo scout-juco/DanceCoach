@@ -172,6 +172,20 @@ describe("PlaybackController: a section run", () => {
   })
 })
 
+describe("PlaybackController: a partial last section", () => {
+  // 14.5 s of footage: Section 4 runs 13–14.5, three counts.
+  it("ends when the footage ends, on the last count it reached", () => {
+    const pc = new PlaybackController(makeDance({ trim: { start: 0, end: 14.5 } }))
+    expect(pc.view.sectionCount).toBe(4)
+    pc.tapSection(4)
+    play(pc, 11, 14.4)
+    expect(pc.view.screen).toBe("B")
+    const v = pc.tick(14.51)
+    expect(v).toMatchObject({ screen: "C", section: 4, count: 3, controlsLocked: false, doneSections: [4] })
+    expect(v.video.playing).toBe(false)
+  })
+})
+
 describe("PlaybackController: dances of different lengths", () => {
   it("has 3 sections, each runnable, with the last one leading in from Section 2", () => {
     const pc = new PlaybackController(makeDance())

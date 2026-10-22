@@ -1,7 +1,7 @@
 /**
  * CountClock turns video time into section, count and half-count.
  *
- * A section is always exactly 8 counts. Section n (1-based) starts at
+ * A section is exactly 8 counts, except a partial last section, which ends with the footage. Section n (1-based) starts at
  * firstBeatSec + (n − 1) · 8 · (60 / bpm), unless the package nudges it.
  * A nudged section keeps counting on its own beat grid from its nudged start.
  *
@@ -45,7 +45,9 @@ export class CountClock {
       const nudge = nudges[n - 1]
       const start = nudge ? nudge.start : pkg.firstBeatSec + (n - 1) * this.sectionSec
       this.starts.push(start)
-      this.ends.push(nudge && nudge.end !== undefined ? nudge.end : start + this.sectionSec)
+      // A partial last section ends where the footage does, not on count 8.
+      const end = n === this.sectionCount ? Math.min(start + this.sectionSec, Math.max(pkg.trim.end, start)) : start + this.sectionSec
+      this.ends.push(nudge && nudge.end !== undefined ? nudge.end : end)
     }
   }
 
@@ -54,7 +56,7 @@ export class CountClock {
     return this.starts[this.checkSection(n) - 1]
   }
 
-  /** End time of section n: count 8 runs out. May be past the end of the footage for the last section. */
+  /** End time of section n: the end of count 8, or for a partial last section the end of the footage. */
   sectionEnd(n: number): number {
     return this.ends[this.checkSection(n) - 1]
   }
@@ -78,7 +80,7 @@ export class CountClock {
     return n
   }
 
-  /** Section, count and half-count at a time. Counts keep going to 8 past the end of the footage. */
+  /** Section, count and half-count at a time. */
   at(t: number): CountPosition {
     const section = this.sectionAt(t)
     if (section === 0) return { section: 0, count: 0, and: false }

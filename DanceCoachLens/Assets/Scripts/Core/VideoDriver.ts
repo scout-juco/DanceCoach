@@ -98,7 +98,7 @@ export class VideoDriver {
     }
     const p = this.clips[this.active].player
     if (this.ended || p.status === VIDEO_STATUS.Stopped) {
-      // The clip has played out: hold its last frame while time runs on.
+      // The clip has played out (it can stop a frame short of its end): hold its last frame while time runs on.
       if (!this.ended) {
         this.ended = true
         this.endedAt = p.lastFrameTime

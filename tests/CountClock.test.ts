@@ -101,7 +101,7 @@ describe("CountClock", () => {
     it("includes a partial last section", () => {
       const clock = new CountClock(makeDance({ trim: { start: 0, end: 14.5 } }))
       expect(clock.sectionCount).toBe(4)
-      expect(clock.sectionEnd(4)).toBe(17)
+      expect(clock.sectionEnd(4)).toBe(14.5)
     })
 
     it("works for a 6-section dance", () => {
@@ -121,10 +121,19 @@ describe("CountClock", () => {
   describe("partial last section", () => {
     const clock = new CountClock(makeDance({ trim: { start: 0, end: 14.5 } }))
 
-    it("keeps counting to 8 past the end of the footage", () => {
+    it("ends where the footage ends, not on count 8", () => {
+      expect(clock.sectionStart(4)).toBe(13)
+      expect(clock.sectionEnd(4)).toBe(14.5)
       expect(clock.at(14)).toMatchObject({ section: 4, count: 3 })
-      expect(clock.at(16.8)).toMatchObject({ section: 4, count: 8, and: true })
-      expect(clock.at(30)).toMatchObject({ section: 4, count: 8 })
+    })
+
+    it("keeps a nudged section's own end", () => {
+      const nudged = new CountClock(makeDance({ trim: { start: 0, end: 14.5 }, sections: [{ start: 1 }, { start: 5 }, { start: 9 }, { start: 13, end: 17 }] }))
+      expect(nudged.sectionEnd(4)).toBe(17)
+    })
+
+    it("leaves a full last section at 8 counts", () => {
+      expect(new CountClock(makeDance()).sectionEnd(3)).toBe(13)
     })
 
     it("reports when the footage has run out", () => {
