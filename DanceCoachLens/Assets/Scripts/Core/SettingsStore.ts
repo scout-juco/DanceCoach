@@ -1,5 +1,6 @@
 /**
- * SettingsStore: speed, mirror and counts as a string for Lens persistent storage.
+ * SettingsStore: speed, mirror and counts as a string for Lens persistent storage,
+ * and the key each dance's "first look seen" flag is saved under.
  *
  * Pure: the Lens reads and writes the string; this only encodes and validates it,
  * so a missing or damaged entry falls back to the defaults instead of breaking playback.
@@ -8,6 +9,9 @@ import { DEFAULT_SETTINGS, Settings, Speed } from "./PlaybackController"
 
 /** The persistent storage key the settings live under. */
 export const SETTINGS_KEY = "danceCoach.settings"
+
+/** The persistent storage key for a dance's "first look seen" flag (a bool). */
+export const firstLookKey = (danceId: string) => `danceCoach.firstLookSeen.${danceId}`
 
 const SPEEDS: Speed[] = [0.5, 0.75, 1]
 

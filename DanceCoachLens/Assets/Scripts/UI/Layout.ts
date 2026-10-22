@@ -11,11 +11,12 @@ import { RunKind, ScreenId } from "../Core/PlaybackController"
 /** [x, y, width, height] in prototype pixels. */
 export type PxRect = [number, number, number, number]
 
-export type PanelId = "video" | "progress" | "progLabel" | "ciHead" | "countIn" | "segBar" | "banner" | "sections" | "controls" | "toast"
+export type PanelId = "video" | "progress" | "progLabel" | "ciHead" | "countIn" | "segBar" | "banner" | "sections" | "controls" | "toast" | "skip"
 
 export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
-  // First look plays like a full run (the preview has no PV frame).
-  PV: { video: [790, 40, 340, 604], segBar: [790, 660, 340, 26] },
+  // First look plays like From the top (the preview has no PV frame): its banner, the segmented bar,
+  // and "Skip to Section 1" under them.
+  PV: { banner: [790, 20, 340, 40], video: [790, 72, 340, 572], segBar: [790, 660, 340, 26], skip: [790, 712, 340, 44] },
   BI: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6], progLabel: [790, 674, 340, 16], ciHead: [540, 150, 220, 20], countIn: [540, 200, 220, 236] },
   B0: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6], progLabel: [790, 674, 340, 16], countIn: [540, 200, 220, 236] },
   B: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6] },

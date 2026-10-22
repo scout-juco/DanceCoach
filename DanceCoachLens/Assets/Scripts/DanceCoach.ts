@@ -8,7 +8,7 @@
 import { TEST_DANCE } from "../Dance/TestDance"
 import { clipAssetName, planClips } from "./Core/ClipPlan"
 import { PlaybackController, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
-import { decodeSettings, encodeSettings, SETTINGS_KEY } from "./Core/SettingsStore"
+import { decodeSettings, encodeSettings, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
 import { ClipPlayer, VideoDriver } from "./Core/VideoDriver"
 import { Banner } from "./UI/Banner"
 import { ControlBar, ControlCommand } from "./UI/ControlBar"
@@ -17,6 +17,7 @@ import { panelsFor, PanelId, PLACEMENT, PxRect, SCREENS } from "./UI/Layout"
 import { ProgressBar } from "./UI/ProgressBar"
 import { SectionRow } from "./UI/SectionRow"
 import { SegBar } from "./UI/SegBar"
+import { SkipButton } from "./UI/SkipButton"
 import { Toast } from "./UI/Toast"
 import { VideoWindow } from "./UI/VideoWindow"
 import { childObject } from "./UI/Visuals"
@@ -40,6 +41,10 @@ export class DanceCoach extends BaseScriptComponent {
   videoWindow: VideoWindow
 
   @input
+  @hint("Developer: play the first look on every open, as if it had never been seen")
+  alwaysFirstLook: boolean = false
+
+  @input
   @allowUndefined
   @hint("The dance's clips, cut by `npm run clips` (git-ignored), in any order. Without them, counts run on a stand-in clock.")
   videoClips: Texture[]
@@ -52,6 +57,7 @@ export class DanceCoach extends BaseScriptComponent {
   private sections: SectionRow
   private controls: ControlBar
   private toast: Toast
+  private skip: SkipButton
   private driver: VideoDriver | null = null
   // Stand-in video time when there's no video texture.
   private fakeTime = 0
@@ -59,10 +65,17 @@ export class DanceCoach extends BaseScriptComponent {
   private panels: Partial<Record<PanelId, PxRect>> | null = null
   private placeLeft = PLACE_SETTLE_SEC
   private savedSettings: Settings | null = null
+  private savedFirstLook = false
 
   onAwake() {
-    const settings = decodeSettings(global.persistentStorageSystem.store.getString(SETTINGS_KEY))
-    this.controller = new PlaybackController(TEST_DANCE, { settings })
+    const store = global.persistentStorageSystem.store
+    const settings = decodeSettings(store.getString(SETTINGS_KEY))
+    this.savedFirstLook = store.getBool(firstLookKey(TEST_DANCE.id))
+    const firstLookSeen = this.savedFirstLook && !this.alwaysFirstLook
+    if (this.savedFirstLook && !firstLookSeen) print("DanceCoach: playing the first look again (Always First Look is on)")
+    this.controller = new PlaybackController(TEST_DANCE, { settings, firstLookSeen })
+    // Saved again only when the first look ends.
+    this.savedFirstLook = firstLookSeen
     this.savedSettings = this.controller.view.settings
     this.createEvent("OnStartEvent").bind(() => this.start())
     this.createEvent("UpdateEvent").bind(() => this.update())
@@ -81,6 +94,11 @@ export class DanceCoach extends BaseScriptComponent {
     this.controls = childObject("Controls", plane).createComponent(ControlBar.getTypeName()) as ControlBar
     this.controls.onPress = (command) => this.press(command)
     this.toast = childObject("Toast", plane).createComponent(Toast.getTypeName()) as Toast
+    this.skip = childObject("Skip", plane).createComponent(SkipButton.getTypeName()) as SkipButton
+    this.skip.onPress = () => {
+      print("DanceCoach: Skip to Section 1 pressed")
+      this.render(this.controller.skipFirstLook())
+    }
     // Developer helper: drag the video to try out placements. The video's smallest rect
     // (Clip ended) is inside it on every screen, so the grab area never covers a button.
     const grab = childObject("Grab", plane).createComponent(WindowGrab.getTypeName()) as WindowGrab
@@ -99,7 +117,7 @@ export class DanceCoach extends BaseScriptComponent {
     } else {
       print("DanceCoach: no video clips assigned; using a stand-in clock")
     }
-    this.render(this.controller.tapSection(1))
+    this.render(this.controller.open())
   }
 
   /** Matches the clip textures to the clip plan by name; null if any clip is missing. */
@@ -185,7 +203,9 @@ export class DanceCoach extends BaseScriptComponent {
     this.sections.render(view)
     this.controls.render(view)
     this.toast.render(view)
+    this.skip.render(view)
     this.saveSettings(view.settings)
+    this.saveFirstLook(view.firstLookSeen)
   }
 
   /** Writes speed, mirror and counts to persistent storage whenever they change. */
@@ -193,6 +213,14 @@ export class DanceCoach extends BaseScriptComponent {
     if (settings === this.savedSettings) return
     this.savedSettings = settings
     global.persistentStorageSystem.store.putString(SETTINGS_KEY, encodeSettings(settings))
+  }
+
+  /** Saves the "first look seen" flag once the first look has played or been skipped. */
+  private saveFirstLook(seen: boolean) {
+    if (seen === this.savedFirstLook) return
+    this.savedFirstLook = seen
+    print("DanceCoach: first look over; later opens go straight to Section 1")
+    global.persistentStorageSystem.store.putBool(firstLookKey(TEST_DANCE.id), seen)
   }
 
   /** Without a video texture, a stand-in clock follows the video requests. */

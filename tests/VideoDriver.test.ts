@@ -190,4 +190,20 @@ describe("VideoDriver", () => {
     }
     expect(pc.view).toMatchObject({ screen: "C", section: 2, doneSections: [2] })
   })
+
+  it("plays the whole first look with the controller, then counts in to Section 1", () => {
+    const s = setup()
+    const pc = new PlaybackController(makeDance())
+    pc.open()
+    let pvSec = 0
+    for (let i = 0; i < 600 && pc.view.screen === "PV"; i++) {
+      s.videos.forEach((v) => v.advance(FRAME))
+      s.driver.apply(pc.view.video, FRAME)
+      if (!s.driver.busy) pc.tick(s.driver.time, FRAME)
+      pvSec += FRAME
+    }
+    // The routine runs 1 s to 13 s, and the first look starts at Section 1.
+    expect(pvSec).toBeGreaterThan(12)
+    expect(pc.view).toMatchObject({ screen: "BI", section: 1, firstLookSeen: true })
+  })
 })

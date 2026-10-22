@@ -26,6 +26,7 @@
   ExportUid: 00000000-0000-0000-0000-000000000000
   PackagePolicy: CanBeUnpacked
   ScriptInputsHidden:
+    alwaysFirstLook: false
     camera: false
     videoClips: false
     videoWindow: false
@@ -42,6 +43,7 @@
     - camera: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
       windowRoot: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
       videoWindow: !<MappingBased.AssignableType> 00000000-0000-0000-0000-000000000000
+      alwaysFirstLook: false
       videoClips: !<reference.Texture[]>
         []
   ScriptTypes:
@@ -51,4 +53,5 @@
     - '// @input SceneObject camera {"hint":"The camera the window is placed relative to"}'
     - "// @input SceneObject windowRoot {\"hint\":\"The window's root object; it's moved to the default placement on start\"}"
     - // @input AssignableType videoWindow
+    - '// @input bool alwaysFirstLook {"hint":"Developer: play the first look on every open, as if it had never been seen"}'
     - "// @input Asset.Texture[] videoClips {\"hint\":\"The dance's clips, cut by `npm run clips` (git-ignored), in any order. Without them, counts run on a stand-in clock.\"}"

@@ -1,6 +1,7 @@
 /**
  * Banner: the strip above the video during From the top,
- * "From the top · Section 1 → end of Section N".
+ * "From the top · Section 1 → end of Section N", and during the first look,
+ * "First look · Full routine" (no icon).
  *
  * A shallow view: render() shows the view state, placed by the screen's banner panel
  * in Layout.SCREENS. Hidden on screens without one.
@@ -47,12 +48,16 @@ export class Banner extends BaseScriptComponent {
       place(this.stripObject, pointInPanelCm(box, w / 2, h / 2), Z)
       setRectSize(this.strip, w, h, RADII.banner)
       place(this.iconObject, pointInPanelCm(box, SPACING.bannerIcon + ICON_HALF, h / 2), Z_TEXT)
-      place(this.textObject, pointInPanelCm(box, SPACING.bannerText, h / 2), Z_TEXT)
+      this.lastText = ""
     }
-    const label = `From the top · Section 1 → end of Section ${view.runStop}`
+    const firstLook = view.screen === "PV"
+    const label = firstLook ? "First look · Full routine" : `From the top · Section 1 → end of Section ${view.runStop}`
     if (label !== this.lastText) {
       this.lastText = label
       this.text.text = label
+      this.iconObject.enabled = !firstLook
+      const [, , , h] = box
+      place(this.textObject, pointInPanelCm(box, firstLook ? SPACING.bannerIcon : SPACING.bannerText, h / 2), Z_TEXT)
     }
   }
 }

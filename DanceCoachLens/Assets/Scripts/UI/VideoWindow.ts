@@ -35,6 +35,8 @@ function chipLabels(view: ViewState): string[] {
 /** The status tag in the video's bottom-left corner, by screen. */
 function tagLabel(view: ViewState): string | null {
   switch (view.screen) {
+    case "PV":
+      return "FIRST LOOK · 1× · controls locked"
     case "BI":
       return `${runLabel(view)} · STARTING POSE · controls locked`
     case "B0":
@@ -148,7 +150,7 @@ export class VideoWindow extends BaseScriptComponent {
     // During a count-in the badge always shows the 5, 6, 7, 8; otherwise the count, if counts are on.
     // In a multi-section run the section playing shows under the count.
     const count = view.countIn ? String(view.countIn.number) : view.settings.counts && view.count > 0 ? String(view.count) : ""
-    const sub = !view.countIn && count !== "" && isMultiSection(view) && (view.screen === "B" || view.screen === "F") ? `SEC ${view.runSection}` : ""
+    const sub = !view.countIn && count !== "" && isMultiSection(view) && (view.screen === "B" || view.screen === "F" || view.screen === "PV") ? `SEC ${view.runSection}` : ""
     const badge = `${count}|${sub}`
     this.badgeObject.enabled = count !== ""
     if (badge !== this.lastBadge) {

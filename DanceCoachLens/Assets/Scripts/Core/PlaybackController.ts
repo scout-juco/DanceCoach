@@ -17,6 +17,10 @@
  * section; Full plays the whole routine. Both count in the way Section 1 does (its lead-in,
  * or the starting pose without one), play at the current speed with the controls locked,
  * and stop on Clip ended.
+ *
+ * M1-05: the first look. The first time a dance opens, the whole routine plays once at 1×,
+ * whatever the saved speed, with the controls locked; "Skip to Section 1" cuts it short.
+ * Either way it goes on to Section 1's count-in. Once seen, later opens go straight there.
  */
 import { CountClock, LEAD_IN_COUNTS } from "./CountClock"
 import { DancePackage } from "./DancePackage"
@@ -76,6 +80,8 @@ export interface VideoRequest {
 
 export interface ViewState {
   screen: ScreenId
+  /** The first look has played (or been skipped) for this dance; the Lens saves it. */
+  firstLookSeen: boolean
   runKind: RunKind
   /** The current section: the one a section run plays, or where From the top stops. */
   section: number
@@ -119,6 +125,7 @@ export class PlaybackController {
     const settings = { ...DEFAULT_SETTINGS, ...(progress && progress.settings) }
     this.state = {
       screen: "C",
+      firstLookSeen: !!(progress && progress.firstLookSeen),
       runKind: "section",
       section: 1,
       runSection: 1,
@@ -141,6 +148,52 @@ export class PlaybackController {
 
   get view(): ViewState {
     return this.state
+  }
+
+  /**
+   * Opens the dance: the first look the first time, otherwise straight into Section 1's count-in.
+   * The first look plays from where the top clip starts (Section 1's lead-in, when there's footage
+   * for it) through the end of the routine, at 1×, with no count-in.
+   */
+  open(): ViewState {
+    if (this.state.firstLookSeen) return this.tapSection(1)
+    const s = this.state
+    const lead = this.clock.leadIn(1)
+    this.state = {
+      ...s,
+      screen: "PV",
+      runKind: "full",
+      section: 1,
+      runSection: 1,
+      runStop: this.clock.sectionCount,
+      sectionProgress: 0,
+      count: 0,
+      and: false,
+      countIn: null,
+      runProgress: 0,
+      controlsLocked: true,
+      video: {
+        ...s.video,
+        seekTo: lead ? lead.start : this.clock.sectionStart(1),
+        seekId: s.video.seekId + 1,
+        playing: true,
+        rate: 1,
+        holdFrame: false,
+        dim: false,
+      },
+    }
+    return this.state
+  }
+
+  /** "Skip to Section 1": ends the first look now. Ignored outside the first look. */
+  skipFirstLook(): ViewState {
+    return this.state.screen === "PV" ? this.endFirstLook() : this.state
+  }
+
+  /** The first look is over (played or skipped): it's seen, and Section 1 counts in. */
+  private endFirstLook(): ViewState {
+    this.state = { ...this.state, firstLookSeen: true, controlsLocked: false, video: { ...this.state.video, playing: false } }
+    return this.tapSection(1)
   }
 
   /**
@@ -243,6 +296,8 @@ export class PlaybackController {
       if (this.toastLeft <= EPS) this.state = { ...this.state, toast: null }
     }
     switch (this.state.screen) {
+      case "PV":
+        return this.tickFirstLook(videoTimeSec)
       case "BI":
         return this.tickStartingPose(dtSec)
       case "B0":
@@ -253,6 +308,13 @@ export class PlaybackController {
       default:
         return this.state
     }
+  }
+
+  private tickFirstLook(t: number): ViewState {
+    if (t >= this.clock.sectionEnd(this.state.runStop) - EPS) return this.endFirstLook()
+    // Before Section 1 (its lead-in) there's no count yet.
+    if (t < this.clock.sectionStart(1) - EPS) return this.state
+    return this.tickRun(t)
   }
 
   private tickStartingPose(dtSec: number): ViewState {
