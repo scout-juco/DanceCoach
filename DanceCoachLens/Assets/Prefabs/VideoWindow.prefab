@@ -1,0 +1,38 @@
+- !<ObjectPrefab/164ab71a-bcda-4bce-a69f-937e448cd205>
+  PackagePath: ""
+  objects:
+    - !<own> 72f91a89-29cf-4057-a344-b05a9eb5c875
+  LazyLoading: false
+  RetainAssets: true
+- !<SceneObject/72f91a89-29cf-4057-a344-b05a9eb5c875>
+  PrefabRemaps:
+    - 72f91a89-29cf-4057-a344-b05a9eb5c875: 72f91a89-29cf-4057-5cbb-4fa5614a378a
+    - f776c255-4970-4365-9e7f-29904eff396f: f776c255-4970-4365-6180-d66fb100c690
+  Name: VideoWindow
+  Enabled: true
+  Layers: 1
+  LocalTransform: !<TransformEntity>
+    Position: {x: 0.000000, y: 0.000000, z: 0.000000}
+    Rotation: {x: 0.000000, y: 0.000000, z: 0.000000}
+    Scale: {x: 1.000000, y: 1.000000, z: 1.000000}
+    HasSegmentScaleCompensation: false
+  Children:
+    []
+  Components:
+    - !<own> f776c255-4970-4365-9e7f-29904eff396f
+- !<ScriptComponent/f776c255-4970-4365-9e7f-29904eff396f>
+  PrefabRemaps:
+    []
+  Name: VideoWindow
+  Enabled: true
+  ScriptAsset: !<reference> fc804b87-267b-4b8c-8b50-85a09cd2506b
+  ScriptInputsDefault:
+    {}
+  ScriptTypesDefault:
+    {}
+  ScriptInputs:
+    "":
+      {}
+  ScriptTypes:
+    "":
+      {}
