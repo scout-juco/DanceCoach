@@ -6,9 +6,10 @@
  * All playback rules live in the controller; this file is only glue.
  */
 import { TEST_DANCE } from "../Dance/TestDance"
+import { clipAssetName, planClips } from "./Core/ClipPlan"
 import { PlaybackController, ScreenId, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
 import { decodeSettings, encodeSettings, SETTINGS_KEY } from "./Core/SettingsStore"
-import { VideoDriver } from "./Core/VideoDriver"
+import { ClipPlayer, VideoDriver } from "./Core/VideoDriver"
 import { ControlBar, ControlCommand } from "./UI/ControlBar"
 import { CountInPanel } from "./UI/CountInPanel"
 import { PLACEMENT, SCREENS } from "./UI/Layout"
@@ -38,8 +39,8 @@ export class DanceCoach extends BaseScriptComponent {
 
   @input
   @allowUndefined
-  @hint("The test dance video (git-ignored). Without it, counts run on a stand-in clock.")
-  videoTexture: Texture
+  @hint("The dance's clips, cut by `npm run clips` (git-ignored), in any order. Without them, counts run on a stand-in clock.")
+  videoClips: Texture[]
 
   private controller: PlaybackController
   private countIn: CountInPanel
@@ -86,15 +87,35 @@ export class DanceCoach extends BaseScriptComponent {
       this.faceCamera()
       this.logPlacement()
     }
-    if (this.videoTexture) {
-      this.videoWindow.setVideo(this.videoTexture)
-      const video = this.videoTexture.control as VideoTextureProvider
-      video.onPlaybackReady.add(() => this.videoWindow.fitVideo())
-      this.driver = new VideoDriver(video)
+    const clips = this.findClips()
+    if (clips) {
+      this.driver = new VideoDriver(clips.players, (i) => this.videoWindow.setVideo(clips.textures[i]))
     } else {
-      print("DanceCoach: no video texture assigned; using a stand-in clock")
+      print("DanceCoach: no video clips assigned; using a stand-in clock")
     }
     this.render(this.controller.tapSection(1))
+  }
+
+  /** Matches the clip textures to the clip plan by name; null if any clip is missing. */
+  private findClips(): { players: ClipPlayer[]; textures: Texture[] } | null {
+    const assigned = (this.videoClips || []).filter((t) => !!t)
+    if (assigned.length === 0) return null
+    const players: ClipPlayer[] = []
+    const textures: Texture[] = []
+    for (const clip of planClips(TEST_DANCE)) {
+      const name = clipAssetName(TEST_DANCE.video, clip.id)
+      const texture = assigned.find((t) => t.name.replace(/\.[^.]+$/, "") === name)
+      if (!texture) {
+        print(`DanceCoach: clip ${name} isn't assigned to Video Clips (run npm run clips, then add it)`)
+        return null
+      }
+      const player = texture.control as VideoTextureProvider
+      player.volume = 1
+      player.onPlaybackReady.add(() => this.videoWindow.fitVideo())
+      players.push({ clip, player })
+      textures.push(texture)
+    }
+    return { players, textures }
   }
 
   private tapSection(id: SectionTap) {
