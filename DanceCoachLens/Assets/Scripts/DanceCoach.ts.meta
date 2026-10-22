@@ -28,6 +28,14 @@
   ScriptInputsHidden:
     alwaysFirstLook: false
     camera: false
+    count1: false
+    count2: false
+    count3: false
+    count4: false
+    count5: false
+    count6: false
+    count7: false
+    count8: false
     videoClips: false
     videoWindow: false
     windowRoot: false
@@ -46,6 +54,14 @@
       alwaysFirstLook: false
       videoClips: !<reference.Texture[]>
         []
+      count1: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count2: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count3: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count4: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count5: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count6: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count7: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count8: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
   ScriptTypes:
     -
       {}
@@ -55,3 +71,11 @@
     - // @input AssignableType videoWindow
     - '// @input bool alwaysFirstLook {"hint":"Developer: play the first look on every open, as if it had never been seen"}'
     - "// @input Asset.Texture[] videoClips {\"hint\":\"The dance's clips, cut by `npm run clips` (git-ignored), in any order. Without them, counts run on a stand-in clock.\"}"
+    - // @input Asset.AudioTrackAsset count1
+    - // @input Asset.AudioTrackAsset count2
+    - // @input Asset.AudioTrackAsset count3
+    - // @input Asset.AudioTrackAsset count4
+    - // @input Asset.AudioTrackAsset count5
+    - // @input Asset.AudioTrackAsset count6
+    - // @input Asset.AudioTrackAsset count7
+    - // @input Asset.AudioTrackAsset count8

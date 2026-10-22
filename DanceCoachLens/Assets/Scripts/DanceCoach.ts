@@ -7,6 +7,7 @@
  */
 import { TEST_DANCE } from "../Dance/TestDance"
 import { clipAssetName, planClips } from "./Core/ClipPlan"
+import { CountCaller } from "./Core/CountCaller"
 import { PlaybackController, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
 import { decodeSettings, encodeSettings, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
 import { ClipPlayer, VideoDriver } from "./Core/VideoDriver"
@@ -49,7 +50,22 @@ export class DanceCoach extends BaseScriptComponent {
   @hint("The dance's clips, cut by `npm run clips` (git-ignored), in any order. Without them, counts run on a stand-in clock.")
   videoClips: Texture[]
 
+  // The spoken counts in Audio/Counts, made by scripts/makeCountVoice.ps1. One slot each
+  // rather than an array, so tooling can assign them; with any missing, counts stay silent.
+  @input @allowUndefined count1: AudioTrackAsset
+  @input @allowUndefined count2: AudioTrackAsset
+  @input @allowUndefined count3: AudioTrackAsset
+  @input @allowUndefined count4: AudioTrackAsset
+  @input @allowUndefined count5: AudioTrackAsset
+  @input @allowUndefined count6: AudioTrackAsset
+  @input @allowUndefined count7: AudioTrackAsset
+  @input @allowUndefined count8: AudioTrackAsset
+
   private controller: PlaybackController
+  private caller = new CountCaller()
+  private voice: AudioComponent | null = null
+  // countTracks[n] says n; empty without the spoken counts.
+  private countTracks: AudioTrackAsset[] = []
   private countIn: CountInPanel
   private progress: ProgressBar
   private segBar: SegBar
@@ -117,6 +133,7 @@ export class DanceCoach extends BaseScriptComponent {
     } else {
       print("DanceCoach: no video clips assigned; using a stand-in clock")
     }
+    this.setupVoice()
     this.render(this.controller.open())
   }
 
@@ -140,6 +157,29 @@ export class DanceCoach extends BaseScriptComponent {
       textures.push(texture)
     }
     return { players, textures }
+  }
+
+  /** Sets up the spoken counts; with any missing, counts stay silent. */
+  private setupVoice() {
+    const tracks = [null, this.count1, this.count2, this.count3, this.count4, this.count5, this.count6, this.count7, this.count8]
+    const missing = tracks.findIndex((t, n) => n > 0 && !t)
+    if (missing > 0) {
+      print(`DanceCoach: Count ${missing} isn't assigned; counts stay silent`)
+      return
+    }
+    this.countTracks = tracks
+    this.voice = this.getSceneObject().createComponent("Component.AudioComponent") as AudioComponent
+    // The word has to land on the beat.
+    this.voice.playbackMode = Audio.PlaybackMode.LowLatency
+  }
+
+  /** Says the count when a new one starts; a new word cuts off the one before. */
+  private callCount(view: ViewState) {
+    const n = this.caller.next(view)
+    if (n === 0 || !this.voice) return
+    if (this.voice.isPlaying()) this.voice.stop(false)
+    this.voice.audioTrack = this.countTracks[n]
+    this.voice.play(1)
   }
 
   private tapSection(id: SectionTap) {
@@ -175,6 +215,7 @@ export class DanceCoach extends BaseScriptComponent {
     if (!this.driver) {
       this.applyFakeVideo(view.video, dt)
       this.render(this.controller.tick(this.fakeTime, dt))
+      this.callCount(this.controller.view)
       return
     }
     // Until a seek has landed, the video's time isn't the run's time yet.
@@ -187,6 +228,8 @@ export class DanceCoach extends BaseScriptComponent {
     // The video's aspect is known once a seek has landed, whether or not onPlaybackReady fired.
     if (wasBusy) this.videoWindow.fitVideo()
     this.render(this.controller.tick(this.driver.time, dt))
+    // Only from ticks: a run's 5 waits until its seek has landed and the video is really there.
+    this.callCount(this.controller.view)
   }
 
   private render(view: ViewState) {

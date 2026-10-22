@@ -1146,7 +1146,7 @@
   Enabled: true
   ScriptAsset: !<reference> b0ba77f6-1174-4c4a-8963-03b1e98214b9
   ScriptInputsDefault:
-    {}
+    alwaysFirstLook: true
   ScriptTypesDefault:
     {}
   ScriptInputs:
@@ -1154,7 +1154,22 @@
       camera: !<reference.SceneObject> 00000000-0000-0065-0000-000000000064
       windowRoot: !<reference.SceneObject> e7751c98-1954-4711-8427-f54ff53bf99d
       videoWindow: !<MappingBased.AssignableType> ff5bdd9e-0379-48e1-88c7-91e9fc8af7f1
-      videoTexture: !<reference.Texture> 4a693464-8530-4487-9d4e-b184170b2e73
+      alwaysFirstLook: false
+      videoClips: !<reference.Texture[]>
+        - !<reference> 5a171790-0c57-4612-ad01-878ee1a89b88
+        - !<reference> 0e8ec988-f714-41b8-bd19-2f76bb2e5a2b
+        - !<reference> a6a53dee-ce0c-420b-90ee-eb7a638c9f33
+        - !<reference> 19f0e5fc-a03a-4e22-bb2b-0a0667ed59c8
+        - !<reference> f39ad366-3354-4669-b0e6-33e238bab8ed
+        - !<reference> 9da50727-c17a-4422-b6db-be79d4b83b9c
+      count1: !<reference.AudioTrackAsset> 4229a75b-d5e9-41b2-80df-fe4a184cd282
+      count2: !<reference.AudioTrackAsset> 48103da0-9c7e-498a-8f07-aed6a1ca399a
+      count3: !<reference.AudioTrackAsset> 45237fc2-61e1-40ce-951e-c11444146710
+      count4: !<reference.AudioTrackAsset> 0b085d3f-d529-4975-bfd7-b1f11cd44c3f
+      count5: !<reference.AudioTrackAsset> 04369281-23bc-4d4f-8a8b-e3c74f9495ef
+      count6: !<reference.AudioTrackAsset> 94663218-c19d-4cbd-8964-89f2e6f14440
+      count7: !<reference.AudioTrackAsset> ba30a0e3-d424-410a-b9af-ffc84ab0be06
+      count8: !<reference.AudioTrackAsset> d0fdcddf-5a52-46f4-a8d9-538f6e0fb53c
   ScriptTypes:
     "":
       {}
