@@ -11,7 +11,7 @@ import { RunKind, ScreenId } from "../Core/PlaybackController"
 /** [x, y, width, height] in prototype pixels. */
 export type PxRect = [number, number, number, number]
 
-export type PanelId = "video" | "progress" | "progLabel" | "ciHead" | "countIn" | "segBar" | "banner" | "sections" | "controls" | "toast" | "skip"
+export type PanelId = "video" | "progress" | "progLabel" | "ciHead" | "countIn" | "segBar" | "banner" | "sections" | "controls" | "toast" | "skip" | "popup"
 
 export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // First look plays like From the top (the preview has no PV frame): its banner, the segmented bar,
@@ -25,7 +25,8 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // section row (the preview floats it in front of you; that arrives with the pop-ups).
   C: { video: [790, 40, 300, 533], sections: [600, 589, 490, 40], controls: [360, 645, 0, 84], toast: [360, 525, 420, 48] },
   C2: { video: [790, 40, 300, 533], sections: [600, 589, 490, 40], controls: [360, 645, 0, 84], toast: [360, 525, 420, 48] },
-  G: { video: [790, 40, 340, 604] },
+  // The pop-up isn't on the board: it opens in front of you (POPUP), so only its size counts.
+  G: { video: [790, 40, 340, 604], popup: [0, 0, 640, 248] },
 }
 
 /** A Full run plays on B with From the top's segmented bar in place of the progress bar. */
@@ -38,6 +39,13 @@ export function panelsFor(view: { screen: ScreenId; runKind: RunKind }): Partial
 
 /** This prototype point sits at the placement point. */
 export const ANCHOR = { x: 940, y: 306 }
+
+/** Pop-ups open this far in front of you and this far below eye level, and follow when you turn more than followDeg away. */
+export const POPUP = {
+  distanceCm: 100,
+  dropCm: 5,
+  followDeg: 30,
+}
 
 /** Centimetres per prototype pixel (1 px = 1.5 mm). */
 export const CM_PER_PX = 0.15

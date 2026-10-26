@@ -8,13 +8,14 @@
 import { TEST_DANCE } from "../Dance/TestDance"
 import { clipAssetName, planClips } from "./Core/ClipPlan"
 import { CountCaller } from "./Core/CountCaller"
-import { PlaybackController, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
-import { decodeSettings, encodeSettings, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
+import { PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
+import { decodeSettings, encodeSettings, finishReadyKey, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
 import { ClipPlayer, VideoDriver } from "./Core/VideoDriver"
 import { Banner } from "./UI/Banner"
 import { ControlBar, ControlCommand } from "./UI/ControlBar"
 import { CountInPanel } from "./UI/CountInPanel"
 import { panelsFor, PanelId, PLACEMENT, PxRect, SCREENS } from "./UI/Layout"
+import { PopupCard } from "./UI/PopupCard"
 import { ProgressBar } from "./UI/ProgressBar"
 import { SectionRow } from "./UI/SectionRow"
 import { SegBar } from "./UI/SegBar"
@@ -74,6 +75,7 @@ export class DanceCoach extends BaseScriptComponent {
   private controls: ControlBar
   private toast: Toast
   private skip: SkipButton
+  private popup: PopupCard
   private driver: VideoDriver | null = null
   // Stand-in video time when there's no video texture.
   private fakeTime = 0
@@ -82,6 +84,7 @@ export class DanceCoach extends BaseScriptComponent {
   private placeLeft = PLACE_SETTLE_SEC
   private savedSettings: Settings | null = null
   private savedFirstLook = false
+  private savedFinishReady = false
 
   onAwake() {
     const store = global.persistentStorageSystem.store
@@ -89,7 +92,8 @@ export class DanceCoach extends BaseScriptComponent {
     this.savedFirstLook = store.getBool(firstLookKey(TEST_DANCE.id))
     const firstLookSeen = this.savedFirstLook && !this.alwaysFirstLook
     if (this.savedFirstLook && !firstLookSeen) print("DanceCoach: playing the first look again (Always First Look is on)")
-    this.controller = new PlaybackController(TEST_DANCE, { settings, firstLookSeen })
+    this.savedFinishReady = store.getBool(finishReadyKey(TEST_DANCE.id))
+    this.controller = new PlaybackController(TEST_DANCE, { settings, firstLookSeen, finishReady: this.savedFinishReady })
     // Saved again only when the first look ends.
     this.savedFirstLook = firstLookSeen
     this.savedSettings = this.controller.view.settings
@@ -115,6 +119,9 @@ export class DanceCoach extends BaseScriptComponent {
       print("DanceCoach: Skip to Section 1 pressed")
       this.render(this.controller.skipFirstLook())
     }
+    this.popup = childObject("Popup", this.getSceneObject()).createComponent(PopupCard.getTypeName()) as PopupCard
+    this.popup.setup(this.camera)
+    this.popup.onChoose = (choice) => this.chooseRoutineDone(choice)
     // Developer helper: drag the video to try out placements. The video's smallest rect
     // (Clip ended) is inside it on every screen, so the grab area never covers a button.
     const grab = childObject("Grab", plane).createComponent(WindowGrab.getTypeName()) as WindowGrab
@@ -186,6 +193,11 @@ export class DanceCoach extends BaseScriptComponent {
     this.render(this.controller.tapSection(id))
   }
 
+  private chooseRoutineDone(choice: RoutineDoneChoice) {
+    print(`DanceCoach: Routine done: ${choice}`)
+    this.render(this.controller.routineDone(choice))
+  }
+
   private press(command: ControlCommand) {
     const c = this.controller
     switch (command) {
@@ -199,6 +211,8 @@ export class DanceCoach extends BaseScriptComponent {
         return this.render(c.toggleCounts())
       case "mode":
         return this.render(c.tapMode())
+      case "finish":
+        return this.render(c.finish())
       default:
         return this.render(c.setSpeed(command))
     }
@@ -247,8 +261,17 @@ export class DanceCoach extends BaseScriptComponent {
     this.controls.render(view)
     this.toast.render(view)
     this.skip.render(view)
+    this.popup.render(view)
     this.saveSettings(view.settings)
     this.saveFirstLook(view.firstLookSeen)
+    this.saveFinishReady(view.finishReady)
+  }
+
+  /** Saves that Finish routine has unlocked; it stays unlocked for the dance. */
+  private saveFinishReady(ready: boolean) {
+    if (ready === this.savedFinishReady) return
+    this.savedFinishReady = ready
+    global.persistentStorageSystem.store.putBool(finishReadyKey(TEST_DANCE.id), ready)
   }
 
   /** Writes speed, mirror and counts to persistent storage whenever they change. */

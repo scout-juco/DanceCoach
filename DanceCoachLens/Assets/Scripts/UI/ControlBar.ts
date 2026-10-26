@@ -2,7 +2,8 @@
  * ControlBar: the Playthrough controls on Clip ended.
  *
  * Mode button (Playthrough · NEXT: POSE), Replay section, From the top, speed (0.5× / 0.75× / 1×),
- * Mirror and Counts. A pinch on a control calls onPress with its command.
+ * Mirror, Counts and Finish routine. A pinch on a control calls onPress with its command.
+ * Replay section is the filled button until Finish routine unlocks; then Finish routine is.
  * A shallow view: render() shows the view state, placed by the screen's controls panel
  * in Layout.SCREENS. It's hidden on screens without one, so it can't be pressed mid-run.
  * The bar sizes itself to its controls, so the panel's width is ignored.
@@ -22,7 +23,7 @@ const Z_LABEL = 0.05
 const HIT_DEPTH = 1
 const SPEEDS: Speed[] = [0.5, 0.75, 1]
 
-export type ControlCommand = "mode" | "replay" | "top" | "mirror" | "counts" | Speed
+export type ControlCommand = "mode" | "replay" | "top" | "mirror" | "counts" | "finish" | Speed
 
 interface Control {
   object: SceneObject
@@ -41,10 +42,14 @@ export class ControlBar extends BaseScriptComponent {
   private modeNext: Text
   private modeDots: RoundedRectangle[] = []
   private replay: Control
+  private replayLabels: Text[] = []
   private top: Control
   private speedBox: Control
   private speeds: { control: Control; text: Text }[] = []
   private toggles: { control: Control; name: Text; state: Text }[] = []
+  private finish: Control
+  private finishName: Text
+  private finishSub: Text
   private screen = ""
   private lastKey = ""
 
@@ -74,10 +79,9 @@ export class ControlBar extends BaseScriptComponent {
     }
 
     this.replay = this.control("Replay", c.replay, H, "replay")
-    this.replay.rect.backgroundColor = themeColor("active")
-    this.replay.rect.borderColor = themeColor("active")
-    this.label(this.replay.object, TYPE.icon, "activeInk", 0, -8).text = "↺"
-    this.label(this.replay.object, TYPE.button, "activeInk", 0, 14).text = "Replay section"
+    this.replayLabels = [this.label(this.replay.object, TYPE.icon, "activeInk", 0, -8), this.label(this.replay.object, TYPE.button, "activeInk", 0, 14)]
+    this.replayLabels[0].text = "↺"
+    this.replayLabels[1].text = "Replay section"
 
     this.top = this.control("FromTheTop", c.top, H, "top")
     const icon = childObject("Icon", this.top.object)
@@ -104,6 +108,11 @@ export class ControlBar extends BaseScriptComponent {
       const state = this.label(control.object, TYPE.chip, "ink", 0, 8)
       this.toggles.push({ control, name, state })
     }
+
+    this.finish = this.control("Finish", c.finish, H, "finish")
+    this.finishName = this.label(this.finish.object, TYPE.button, "soft", 0, -7)
+    this.finishName.text = "Finish routine"
+    this.finishSub = this.label(this.finish.object, TYPE.finishSub, "soft", 0, 11)
     this.sceneObject.enabled = false
   }
 
@@ -119,7 +128,7 @@ export class ControlBar extends BaseScriptComponent {
       this.layout(box)
     }
     const st = view.settings
-    const key = `${view.mode}|${st.speed}|${st.mirror}|${st.counts}`
+    const key = `${view.mode}|${st.speed}|${st.mirror}|${st.counts}|${view.finishReady}|${view.sectionCount}`
     if (key === this.lastKey) return
     this.lastKey = key
 
@@ -141,14 +150,26 @@ export class ControlBar extends BaseScriptComponent {
       state.text = on ? "on" : "off"
       state.textFill.color = themeColor(on ? "ink" : "muted")
     })
+
+    // The filled button is the next step: Replay section, then Finish routine once it unlocks.
+    const ready = view.finishReady
+    this.replay.rect.backgroundColor = themeColor(ready ? "panel" : "active")
+    this.replay.rect.borderColor = themeColor(ready ? "ink" : "active")
+    this.replayLabels.forEach((t) => (t.textFill.color = themeColor(ready ? "ink" : "activeInk")))
+    this.finish.rect.backgroundColor = themeColor(ready ? "active" : "panel")
+    this.finish.rect.borderColor = themeColor(ready ? "active" : "ghostLine")
+    this.finishName.textFill.color = themeColor(ready ? "activeInk" : "soft")
+    this.finishSub.textFill.color = themeColor(ready ? "activeInk" : "soft")
+    this.finishSub.text = ready ? "✓ ALL SECTIONS" : `AFTER SEC ${view.sectionCount}`
   }
 
   /** Sizes the bar to its controls and lays them out left to right from the panel's top-left. */
   private layout(box: PxRect) {
     const H = this.itemHeight()
     const pad = SPACING.barPad
-    const items = [this.mode, this.replay, this.top, this.speedBox, ...this.toggles.map((t) => t.control)]
-    const widths = [SPACING.control.mode, SPACING.control.replay, SPACING.control.top, SPACING.control.speed, SPACING.control.toggle, SPACING.control.toggle]
+    const items = [this.mode, this.replay, this.top, this.speedBox, ...this.toggles.map((t) => t.control), this.finish]
+    const c = SPACING.control
+    const widths = [c.mode, c.replay, c.top, c.speed, c.toggle, c.toggle, c.finish]
     const w = 2 * pad + widths.reduce((a, b) => a + b, 0) + SPACING.controlGap * (items.length - 1)
     const h = box[3]
     place(this.barObject, pointInPanelCm(box, w / 2, h / 2), Z_BAR)

@@ -25,6 +25,8 @@ export const COLORS = {
   ghostLine: "#3A3A36",
   /** Over the video during a lead-in (the end of the previous section plays dimmed). */
   dim: "#00000073",
+  /** Over the video behind a pop-up. */
+  scrim: "#000000B3",
 } as const
 
 export type ColorToken = keyof typeof COLORS
@@ -40,6 +42,9 @@ export const RADII = {
   tile: 10,
   bar: 18,
   control: 12,
+  popup: 20,
+  popupButton: 14,
+  popupTile: 8,
 } as const
 
 export const TYPE = {
@@ -60,6 +65,11 @@ export const TYPE = {
   modeName: 13,
   modeNext: 10,
   toast: 14,
+  finishSub: 9,
+  popupHead: 12,
+  popupTitle: 30,
+  popupTile: 12,
+  popupButton: 14,
 } as const
 
 export const SPACING = {
@@ -86,9 +96,17 @@ export const SPACING = {
   /** The control bar: padding around its items, the gap between them, and each item's width. */
   barPad: 12,
   controlGap: 8,
-  control: { mode: 170, replay: 110, top: 150, speed: 132, toggle: 60 },
+  control: { mode: 170, replay: 110, top: 150, speed: 132, toggle: 60, finish: 92 },
   modeDot: 7,
   modeDotGap: 11,
+  /** The Routine done pop-up: padding, the title and section tiles under the heading, and the buttons. */
+  popupPad: 28,
+  popupTitleY: 46,
+  popupTilesY: 80,
+  popupTileHeight: 30,
+  popupButtonsY: 126,
+  popupButtonHeight: 64,
+  popupButtonGap: 10,
 } as const
 
 /** "#RRGGBB" or "#RRGGBBAA" → [r, g, b, a] in 0–1. */

@@ -21,6 +21,11 @@
  * M1-05: the first look. The first time a dance opens, the whole routine plays once at 1×,
  * whatever the saved speed, with the controls locked; "Skip to Section 1" cuts it short.
  * Either way it goes on to Section 1's count-in. Once seen, later opens go straight there.
+ *
+ * M1-06: finishing the routine. Finish routine stays greyed until a run that includes the last
+ * section ends (a section run, From the top or Full; not the first look), then stays unlocked
+ * for the dance, and Clip ended becomes C2. No pop-up when the last section ends. Finish
+ * routine opens the Routine done pop-up (G) over the dimmed video.
  */
 import { CountClock, LEAD_IN_COUNTS } from "./CountClock"
 import { DancePackage } from "./DancePackage"
@@ -44,6 +49,14 @@ export type Mode = (typeof MODES)[number]
 
 export const COMING_SOON_TOAST = "Pose and Lookback are coming soon"
 
+export const finishLockedToast = (lastSection: number) => `Finish routine unlocks after you finish Section ${lastSection}`
+
+/** The pop-ups, which open in front of the dancer rather than on the video board. */
+export type Popup = "routineDone"
+
+/** The Routine done choices: Run it again (from the top), Keep practicing, Back. */
+export type RoutineDoneChoice = "again" | "practice" | "back"
+
 /** How long a toast stays up, in seconds. */
 export const TOAST_SEC = 2.6
 
@@ -62,6 +75,8 @@ export interface Settings {
 export interface Progress {
   firstLookSeen: boolean
   doneSections: number[]
+  /** Finish routine has unlocked for this dance. */
+  finishReady: boolean
   settings: Settings
 }
 
@@ -103,10 +118,14 @@ export interface ViewState {
   leadInFraction: number
   controlsLocked: boolean
   doneSections: number[]
+  /** Finish routine is unlocked: a run that includes the last section has ended. The Lens saves it. */
+  finishReady: boolean
   settings: Settings
   mode: Mode
   /** A short message over the controls, or null. */
   toast: string | null
+  /** The pop-up showing, or null. The board's controls are locked behind it. */
+  popup: Popup | null
   video: VideoRequest
 }
 
@@ -139,9 +158,11 @@ export class PlaybackController {
       leadInFraction: 0,
       controlsLocked: false,
       doneSections: progress && progress.doneSections ? progress.doneSections.slice() : [],
+      finishReady: !!(progress && progress.finishReady),
       settings,
       mode: "Playthrough",
       toast: null,
+      popup: null,
       video: { seekTo: this.clock.sectionStart(1), seekId: 0, playing: false, rate: settings.speed, holdFrame: false, dim: false },
     }
   }
@@ -279,6 +300,35 @@ export class PlaybackController {
     return this.state
   }
 
+  /**
+   * Finish routine: opens Routine done once it's unlocked; until then a toast says when it will.
+   * Ignored while the controls are locked.
+   */
+  finish(): ViewState {
+    const s = this.state
+    if (s.controlsLocked) return s
+    if (!s.finishReady) {
+      this.toastLeft = TOAST_SEC
+      this.state = { ...s, toast: finishLockedToast(this.clock.sectionCount) }
+      return this.state
+    }
+    this.state = { ...s, screen: "G", popup: "routineDone", controlsLocked: true, toast: null, video: { ...s.video, playing: false, dim: true } }
+    return this.state
+  }
+
+  /**
+   * A Routine done choice. Run it again plays From the top over the whole routine; Keep practicing
+   * and Back close the pop-up onto Clip ended. Ignored without the pop-up.
+   */
+  routineDone(choice: RoutineDoneChoice): ViewState {
+    const s = this.state
+    if (s.popup !== "routineDone") return s
+    this.state = { ...s, screen: "C2", popup: null, controlsLocked: false, video: { ...s.video, dim: false } }
+    if (choice !== "again") return this.state
+    const last = this.clock.sectionCount
+    return this.startRun("top", last, last)
+  }
+
   private changeSettings(change: (settings: Settings) => Settings): ViewState {
     const s = this.state
     if (s.controlsLocked) return s
@@ -377,9 +427,11 @@ export class PlaybackController {
     const s = this.state
     // Only a section run ticks its section; From the top and Full chain sections already learned.
     const done = s.runKind !== "section" || s.doneSections.indexOf(s.section) >= 0 ? s.doneSections : s.doneSections.concat(s.section).sort((a, b) => a - b)
+    // Any run that reaches the last section unlocks Finish routine, quietly: no pop-up.
+    const finishReady = s.finishReady || s.runStop === this.clock.sectionCount
     this.state = {
       ...s,
-      screen: "C",
+      screen: finishReady ? "C2" : "C",
       // The last count reached: 8, or less for a partial last section that ends with the footage.
       count: this.clock.countIn(s.runStop, this.clock.sectionEnd(s.runStop) - 1e-3).count,
       and: false,
@@ -389,6 +441,7 @@ export class PlaybackController {
       runProgress: 1,
       controlsLocked: false,
       doneSections: done,
+      finishReady,
       video: { ...s.video, playing: false, dim: false },
     }
     return this.state

@@ -1,5 +1,6 @@
 /**
- * VideoWindow: the video panel with its count badge, chips, lead-in dimming and status tag.
+ * VideoWindow: the video panel with its count badge, chips, status tag, and its dimming
+ * (lightly during a lead-in, more behind a pop-up).
  *
  * During From the top and Full the badge also shows which section is playing (SEC n).
  * A shallow view: it renders a ViewState and nothing else. Its fixed API is
@@ -48,6 +49,8 @@ function tagLabel(view: ViewState): string | null {
     case "C":
     case "C2":
       return `${view.runKind === "full" ? "FULL ROUTINE" : `SECTION ${view.section}`} DONE · controls unlocked`
+    case "G":
+      return "ROUTINE DONE"
     default:
       return null
   }
@@ -71,6 +74,7 @@ export class VideoWindow extends BaseScriptComponent {
   private lastBadge = ""
   private lastTag: string | null = ""
   private lastChips = "-"
+  private scrim = false
 
   onAwake() {
     this.frameObject = childObject("Video", this.sceneObject)
@@ -146,6 +150,11 @@ export class VideoWindow extends BaseScriptComponent {
     const mirror = view.settings.mirror ? -1 : 1
     this.frameObject.getTransform().setLocalScale(new vec3(mirror, 1, 1))
     this.dimObject.enabled = view.video.dim
+    const scrim = view.popup !== null
+    if (scrim !== this.scrim) {
+      this.scrim = scrim
+      this.dim.backgroundColor = themeColor(scrim ? "scrim" : "dim")
+    }
 
     // During a count-in the badge always shows the 5, 6, 7, 8; otherwise the count, if counts are on.
     // In a multi-section run the section playing shows under the count.

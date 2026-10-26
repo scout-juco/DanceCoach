@@ -181,7 +181,7 @@ describe("PlaybackController: a partial last section", () => {
     play(pc, 11, 14.4)
     expect(pc.view.screen).toBe("B")
     const v = pc.tick(14.51)
-    expect(v).toMatchObject({ screen: "C", section: 4, count: 3, controlsLocked: false, doneSections: [4] })
+    expect(v).toMatchObject({ screen: "C2", section: 4, count: 3, controlsLocked: false, doneSections: [4] })
     expect(v.video.playing).toBe(false)
   })
 })
@@ -192,7 +192,7 @@ describe("PlaybackController: dances of different lengths", () => {
     expect(pc.view.sectionCount).toBe(3)
     expect(pc.tapSection(3).video.seekTo).toBe(7)
     play(pc, 7, 13.1)
-    expect(pc.view).toMatchObject({ screen: "C", doneSections: [3] })
+    expect(pc.view).toMatchObject({ screen: "C2", doneSections: [3] })
   })
 
   it("has 6 sections when the footage runs to 25 s", () => {
@@ -200,6 +200,6 @@ describe("PlaybackController: dances of different lengths", () => {
     expect(pc.view.sectionCount).toBe(6)
     expect(pc.tapSection(6)).toMatchObject({ screen: "B0", video: { seekTo: 19 } })
     play(pc, 19, 25.1)
-    expect(pc.view).toMatchObject({ screen: "C", section: 6, doneSections: [6] })
+    expect(pc.view).toMatchObject({ screen: "C2", section: 6, doneSections: [6] })
   })
 })

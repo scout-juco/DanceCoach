@@ -43,7 +43,7 @@ describe("From the top", () => {
     const views = play(pc, 1, end - 0.05)
     expect(views.every((w) => w.screen === "F")).toBe(true)
     expect(views[views.length - 1]).toMatchObject({ runSection: n, count: 8 })
-    expect(pc.tick(end + 0.02)).toMatchObject({ screen: "C", section: n, controlsLocked: false, video: { playing: false } })
+    expect(pc.tick(end + 0.02)).toMatchObject({ screen: n === 3 ? "C2" : "C", section: n, controlsLocked: false, video: { playing: false } })
   })
 
   it("starts from the starting pose when there's no footage before Section 1", () => {
@@ -140,7 +140,7 @@ describe("Full", () => {
     const playing = views.filter((w) => w.screen === "B")
     expect(playing.every((w) => w.runKind === "full" && w.controlsLocked)).toBe(true)
     expect([...new Set(playing.map((w) => w.runSection))]).toEqual([1, 2, 3])
-    expect(pc.view).toMatchObject({ screen: "C", runKind: "full", controlsLocked: false })
+    expect(pc.view).toMatchObject({ screen: "C2", runKind: "full", controlsLocked: false })
   })
 
   it("covers every section of a 6-section dance", () => {
@@ -148,7 +148,7 @@ describe("Full", () => {
     pc.tapSection("full")
     const views = runFromPose(pc)
     expect([...new Set(views.filter((w) => w.screen === "B").map((w) => w.runSection))]).toEqual([1, 2, 3, 4, 5, 6])
-    expect(pc.view.screen).toBe("C")
+    expect(pc.view.screen).toBe("C2")
   })
 
   it("leads in with the 4 counts before Section 1, dimmed, when there's footage for them", () => {
