@@ -34,7 +34,6 @@ export type ColorToken = keyof typeof COLORS
 export const RADII = {
   video: 16,
   chip: 10,
-  tag: 11,
   button: 11,
   progress: 3,
   segment: 4,
@@ -51,13 +50,11 @@ export const TYPE = {
   countBadge: 44,
   countBadgeSub: 10,
   chip: 11,
-  tag: 11,
   button: 12,
   countIn: 20,
   countInNumber: 110,
   countInLabel: 11,
   countInHead: 13,
-  progLabel: 11,
   segLabel: 11,
   banner: 13,
   tile: 13,
@@ -73,15 +70,15 @@ export const TYPE = {
 } as const
 
 export const SPACING = {
-  /** Inset of badges, chips and tags from the video's edges. */
+  /** Inset of badges and chips from the video's edges. */
   videoInset: 14,
   countBadge: 84,
   chipHeight: 20,
-  tagHeight: 22,
   chipGap: 6,
-  /** The count-in circle's diameter, and the 5 6 7 8 row under it. */
+  /** The count-in circle's diameter, then the "SECTION n IN" label and the 5 6 7 8 row under it. */
   countInCircle: 200,
-  countInRowY: 226,
+  countInLabelY: 216,
+  countInRowY: 248,
   countInRowGap: 26,
   /** The line marking where the section starts on 1 along the progress bar. */
   progressMarker: 2,

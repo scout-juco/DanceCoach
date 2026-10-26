@@ -69,8 +69,8 @@ import * as THREE from 'three';
    SIZE turns pixels into meters: 1.5 means 1 px = 1.5 mm in your room.
 ------------------------------------------------------------------- */
 const SCREENS = {
-  BI: { group: 0, label: 'B0 Starting pose', panels: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6], progLabel: [790, 674, 340, 16], ciHead: [540, 150, 220, 20], countIn: [540, 200, 220, 236] } },
-  B0: { group: 0, label: 'B0 Lead-in',   panels: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6], progLabel: [790, 674, 340, 16], countIn: [540, 200, 220, 236] } },
+  BI: { group: 0, label: 'B0 Starting pose', panels: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6], ciHead: [540, 150, 220, 20], countIn: [540, 200, 220, 262] } },
+  B0: { group: 0, label: 'B0 Lead-in',   panels: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6], countIn: [540, 200, 220, 262] } },
   // A full-routine run uses the same segmented bar as From the top.
   B: { group: 0, label: 'B Playing',     panels: () => S.run.kind === 'full' ? { video: [790, 40, 340, 604], segBar: [790, 660, 340, 26] } : { video: [790, 40, 340, 604], progress: [790, 662, 340, 6] } },
   F: { group: 0, label: 'F From the top', panels: { banner: [790, 20, 340, 40], video: [790, 72, 340, 572], segBar: [790, 660, 340, 26] } },
@@ -345,34 +345,19 @@ function drawVideo(ctx, p) {
   rr(ctx, 0, 0, w, h, 16, t.video, frozen ? t.ink : t.stroke, frozen ? 2.5 : 1.5);
   let cnt = S.count, label = String(S.count), sub = null, size = 44;
   if (pose) { cnt = Math.floor(S.pose / 2) + 1; label = poseLabel(); size = 40; }
-  else if (sc === 'BI') { cnt = 0; label = String(5 + S.ci); sub = 'COUNT-IN'; }
-  else if (sc === 'B0') { cnt = 5 + S.ci; label = String(5 + S.ci); sub = `SEC ${S.section - 1}`; }
+  else if (sc === 'BI') cnt = 0;
+  else if (sc === 'B0') cnt = 5 + S.ci;
   else if (multi()) sub = `SEC ${S.runSec}`;
   ctx.save(); if (sc === 'B0') ctx.globalAlpha = 0.55;   // lead-in: the end of the previous section, dimmed
   figure(ctx, w / 2, h / 2, w > 320 ? 1.2 : 1.1, cnt, frozen ? t.ink2 : t.muted);
   ctx.restore();
-  if (S.counts || sc === 'BI' || sc === 'B0') countBadge(ctx, 14, 14, 84, label, size, sub);
+  if (S.counts && sc !== 'BI' && sc !== 'B0') countBadge(ctx, 14, 14, 84, label, size, sub);
   const chips = [];
   if (sc === 'K' && S.kPhase === 'play') chips.push(['● REC', true]);
   if (['B', 'B0', 'BI', 'K', 'F'].includes(sc)) chips.push([`${S.speed}×`]);
   if (sc === 'HR') chips.push(['1×']);
   if ((['B', 'B0', 'BI', 'K', 'HR'].includes(sc) || pose) && S.mirror) chips.push(['MIRRORED']);
   chipsRight(ctx, chips, w - 14, 14);
-  const sec = `SECTION ${S.section}`;
-  const tags = {
-    BI: [`${runLabel()} · STARTING POSE · controls locked`, { locked: true }],
-    B0: ['LEAD-IN · controls locked', { locked: true }],
-    B: [`PLAYTHROUGH · ${runLabel()} · controls locked`, { locked: true }],
-    F: ['controls locked until it ends', { locked: true }],
-    HR: ['FULL ROUTINE · controls locked', { locked: true }],
-    C: [S.section === 'Full' ? 'FULL ROUTINE DONE · controls unlocked' : `${sec} DONE · controls unlocked`],
-    D: ['POSE · FROZEN', { dark: true }], E: ['POSE · FROZEN', { dark: true }],
-    I: ['LOOKBACK MODE · controls unlocked'],
-    K: [S.kPhase === 'play' ? `LOOKBACK · ${sec} · controls locked` : `LOOKBACK · ${sec} · get ready`, { locked: true }],
-    L: ['LOOKBACK SAVED · controls unlocked'],
-    G: ['ROUTINE DONE · last frame'], H: ['ROUTINE DONE · last frame'],
-  }[sc];
-  if (tags) tag(ctx, tags[0], 14, h - 14, tags[1]);
   if (sc === 'E') p.hits.push({ x: 0, y: 0, w, h, id: 'closePose' });
 }
 function drawProgress(ctx, p) {
@@ -387,19 +372,13 @@ function drawProgress(ctx, p) {
   const frac = sc === 'K' && S.kPhase !== 'play' ? 0 : S.count / 8;
   if (frac > 0) rr(ctx, 0, 0, Math.max(6, p.w * frac), p.h, 3, t.muted, null);
 }
-function drawProgLabel(ctx, p) {
-  const t = T();
-  if (S.screen === 'BI') { text(ctx, `↑ ${runLabel()} STARTS ON 1 · 0:00`, 0, 8, { size: 11, font: MONO, weight: 600 }); return; }
-  text(ctx, 'LEAD-IN', 0, 8, { size: 11, font: MONO, color: t.ink2 });
-  text(ctx, `↑ SECTION ${S.section} STARTS ON 1`, p.w * 0.18 - 4, 8, { size: 11, font: MONO, weight: 600 });
-}
 function drawCiHead(ctx, p) { text(ctx, 'GET IN YOUR STARTING POSE', p.w / 2, p.h / 2, { size: 13, font: MONO, weight: 600, align: 'center' }); }
 function drawCountIn(ctx, p) {
   const t = T(), cx = p.w / 2;
   ctx.beginPath(); ctx.arc(cx, 100, 100, 0, Math.PI * 2); ctx.fillStyle = t.active; ctx.fill();
   text(ctx, String(5 + S.ci), cx, 92, { size: 110, weight: 600, color: t.activeInk, align: 'center' });
-  text(ctx, `${S.screen === 'B0' ? 'SECTION ' + S.section : runLabel()} IN`, cx, 160, { size: 11, font: MONO, color: t.activeInk, align: 'center' });
-  [5, 6, 7, 8].forEach((n, i) => text(ctx, String(n), cx + (i - 1.5) * 26, 226, { size: 20, font: MONO, weight: 600, color: i === S.ci ? t.ink : t.soft, align: 'center' }));
+  text(ctx, `${S.screen === 'B0' ? 'SECTION ' + S.section : runLabel()} IN`, cx, 216, { size: 11, font: MONO, color: t.ink2, align: 'center' });
+  [5, 6, 7, 8].forEach((n, i) => text(ctx, String(n), cx + (i - 1.5) * 26, 248, { size: 20, font: MONO, weight: 600, color: i === S.ci ? t.ink : t.soft, align: 'center' }));
 }
 function drawSegBar(ctx, p) {
   const t = T(), gap = 4, sw = (p.w - gap * 3) / 4, top = S.run.kind === 'top', stop = top ? S.run.stop : 4;
@@ -627,7 +606,6 @@ makePanel('posePanel', drawPosePanel);
 makePanel('lookPanel', drawLookPanel);
 makePanel('attempts', drawAttempts);
 makePanel('lookControls', drawBar);
-makePanel('progLabel', drawProgLabel, false);
 makePanel('ciHead', drawCiHead, false);
 makePanel('countIn', drawCountIn, false);
 makePanel('segBar', drawSegBar, false);

@@ -42,13 +42,16 @@ export function setRectSize(rect: RoundedRectangle, wPx: number, hPx: number, ra
 /**
  * A line of text whose anchor point is its scene object's position: the left edge
  * for "left", the middle for "center", vertically centred either way.
+ * The text lives on a child of so: a ScreenTransform ignores its own object's local
+ * position, so so stays a plain object that can be moved.
  */
 export function makeText(so: SceneObject, sizePx: number, token: ColorToken, renderOrder: number, align: "left" | "center" = "center"): Text {
-  const st = so.createComponent("Component.ScreenTransform") as ScreenTransform
+  const textObject = childObject("Text", so)
+  const st = textObject.createComponent("Component.ScreenTransform") as ScreenTransform
   // A zero-size box, so the alignment is relative to the object's position.
   st.anchors = Rect.create(0, 0, 0, 0)
   st.offsets = Rect.create(0, 0, 0, 0)
-  const text = so.createComponent("Component.Text") as Text
+  const text = textObject.createComponent("Component.Text") as Text
   text.size = pxToCm(sizePx) * TEXT_SIZE_PER_CM
   text.textFill.color = themeColor(token)
   text.horizontalAlignment = align === "left" ? HorizontalAlignment.Left : HorizontalAlignment.Center

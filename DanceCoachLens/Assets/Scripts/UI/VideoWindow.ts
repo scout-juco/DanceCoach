@@ -1,5 +1,5 @@
 /**
- * VideoWindow: the video panel with its count badge, chips, status tag, and its dimming
+ * VideoWindow: the video panel with its count badge, chips, and its dimming
  * (lightly during a lead-in, more behind a pop-up).
  *
  * During From the top and Full the badge also shows which section is playing (SEC n).
@@ -11,14 +11,13 @@ import { RoundedRectangle, TextureMode } from "SpectaclesUIKit.lspkg/Scripts/Vis
 import { ViewState } from "../Core/PlaybackController"
 import { panelCm, pxToCm, PxRect } from "./Layout"
 import { RADII, SPACING, TYPE } from "./Theme"
-import { childObject, isMultiSection, makeRect, makeText, runLabel, setRectSize, themeColor } from "./Visuals"
+import { childObject, isMultiSection, makeRect, makeText, setRectSize, themeColor } from "./Visuals"
 
 // Layers in front of the video, in cm, so nothing z-fights.
 const Z_DIM = 0.1
 const Z_BADGE = 0.2
-// Rough width of a tag character, in ems, to size the tag around its label.
-const TAG_CHAR_EM = 0.62
-const TAG_PAD = 20
+// Rough width of a chip character, in ems, to size the chip around its label.
+const CHIP_CHAR_EM = 0.62
 const CHIP_PAD = 16
 // Inside the badge, from its centre: the count moves up to make room for the section under it (prototype px).
 const BADGE_COUNT_UP = 7
@@ -33,29 +32,6 @@ function chipLabels(view: ViewState): string[] {
   return chips
 }
 
-/** The status tag in the video's bottom-left corner, by screen. */
-function tagLabel(view: ViewState): string | null {
-  switch (view.screen) {
-    case "PV":
-      return "FIRST LOOK · 1× · controls locked"
-    case "BI":
-      return `${runLabel(view)} · STARTING POSE · controls locked`
-    case "B0":
-      return "LEAD-IN · controls locked"
-    case "B":
-      return `PLAYTHROUGH · ${runLabel(view)} · controls locked`
-    case "F":
-      return "controls locked until it ends"
-    case "C":
-    case "C2":
-      return `${view.runKind === "full" ? "FULL ROUTINE" : `SECTION ${view.section}`} DONE · controls unlocked`
-    case "G":
-      return "ROUTINE DONE"
-    default:
-      return null
-  }
-}
-
 @component
 export class VideoWindow extends BaseScriptComponent {
   private frame: RoundedRectangle
@@ -66,13 +42,9 @@ export class VideoWindow extends BaseScriptComponent {
   private badgeText: Text
   private badgeTextObject: SceneObject
   private badgeSub: Text
-  private tag: RoundedRectangle
-  private tagObject: SceneObject
-  private tagText: Text
   private chips: { object: SceneObject; rect: RoundedRectangle; text: Text }[] = []
   private rect: { x: number; y: number; w: number; h: number } | null = null
   private lastBadge = ""
-  private lastTag: string | null = ""
   private lastChips = "-"
   private scrim = false
 
@@ -95,12 +67,6 @@ export class VideoWindow extends BaseScriptComponent {
     const subObject = childObject("Section", this.badgeObject)
     subObject.getTransform().setLocalPosition(new vec3(0, -pxToCm(BADGE_SUB_DOWN), 0.05))
     this.badgeSub = makeText(subObject, TYPE.countBadgeSub, "ink2", 2)
-
-    this.tagObject = childObject("Tag", this.sceneObject)
-    this.tag = makeRect(this.tagObject, "chip", 1)
-    const tagTextObject = childObject("TagText", this.tagObject)
-    tagTextObject.getTransform().setLocalPosition(new vec3(0, 0, 0.05))
-    this.tagText = makeText(tagTextObject, TYPE.tag, "ink", 2)
 
     for (let i = 0; i < 2; i++) {
       const object = childObject(`Chip${i}`, this.sceneObject)
@@ -142,7 +108,6 @@ export class VideoWindow extends BaseScriptComponent {
     const d = pxToCm(SPACING.countBadge)
     const inset = pxToCm(SPACING.videoInset)
     this.badgeObject.getTransform().setLocalPosition(new vec3(r.x - r.w / 2 + inset + d / 2, r.y + r.h / 2 - inset - d / 2, Z_BADGE))
-    this.lastTag = ""
     this.lastChips = "-"
   }
 
@@ -156,10 +121,10 @@ export class VideoWindow extends BaseScriptComponent {
       this.dim.backgroundColor = themeColor(scrim ? "scrim" : "dim")
     }
 
-    // During a count-in the badge always shows the 5, 6, 7, 8; otherwise the count, if counts are on.
+    // The count, if counts are on; never during a count-in, whose 5, 6, 7, 8 shows beside the video.
     // In a multi-section run the section playing shows under the count.
-    const count = view.countIn ? String(view.countIn.number) : view.settings.counts && view.count > 0 ? String(view.count) : ""
-    const sub = !view.countIn && count !== "" && isMultiSection(view) && (view.screen === "B" || view.screen === "F" || view.screen === "PV") ? `SEC ${view.runSection}` : ""
+    const count = !view.countIn && view.settings.counts && view.count > 0 ? String(view.count) : ""
+    const sub = count !== "" && isMultiSection(view) && (view.screen === "B" || view.screen === "F" || view.screen === "PV") ? `SEC ${view.runSection}` : ""
     const badge = `${count}|${sub}`
     this.badgeObject.enabled = count !== ""
     if (badge !== this.lastBadge) {
@@ -175,11 +140,6 @@ export class VideoWindow extends BaseScriptComponent {
       this.renderChips(chips)
     }
 
-    const tag = tagLabel(view)
-    if (tag !== this.lastTag) {
-      this.lastTag = tag
-      this.renderTag(tag)
-    }
   }
 
   /** Lines the chips up from the top-right corner, inset from the edges. */
@@ -191,25 +151,11 @@ export class VideoWindow extends BaseScriptComponent {
       const label = labels[labels.length - 1 - i]
       chip.object.enabled = !!label && !!this.rect
       if (!label || !this.rect) return
-      const wPx = label.length * TYPE.chip * TAG_CHAR_EM + CHIP_PAD
+      const wPx = label.length * TYPE.chip * CHIP_CHAR_EM + CHIP_PAD
       setRectSize(chip.rect, wPx, SPACING.chipHeight, RADII.chip)
       chip.text.text = label
       const w = pxToCm(wPx)
       chip.object.getTransform().setLocalPosition(new vec3(right - w / 2, top - pxToCm(SPACING.chipHeight) / 2, Z_BADGE))
       right -= w + pxToCm(SPACING.chipGap)
     })
-  }
-
-  private renderTag(label: string | null) {
-    this.tagObject.enabled = !!label && !!this.rect
-    if (!label || !this.rect) return
-    const r = this.rect
-    const wPx = label.length * TYPE.tag * TAG_CHAR_EM + TAG_PAD
-    setRectSize(this.tag, wPx, SPACING.tagHeight, RADII.tag)
-    this.tagText.text = label
-    const inset = pxToCm(SPACING.videoInset)
-    const w = pxToCm(wPx)
-    const h = pxToCm(SPACING.tagHeight)
-    this.tagObject.getTransform().setLocalPosition(new vec3(r.x - r.w / 2 + inset + w / 2, r.y - r.h / 2 + inset + h / 2, Z_BADGE))
-  }
-}
+  }}

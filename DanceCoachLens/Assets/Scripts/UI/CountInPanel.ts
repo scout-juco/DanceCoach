@@ -3,7 +3,8 @@
  *
  * A shallow view: render() shows the view state's count-in, placed by the screen's
  * countIn and ciHead panels in Layout.SCREENS. The starting pose adds a
- * "Get in your starting pose" heading above the circle.
+ * "Get in your starting pose" heading above the circle. The "SECTION n IN" label sits
+ * under the circle, clear of the number.
  */
 import { ViewState } from "../Core/PlaybackController"
 import { panelsFor, pointInPanelCm, pxToCm } from "./Layout"
@@ -19,7 +20,6 @@ export class CountInPanel extends BaseScriptComponent {
   private circle: SceneObject
   private number: Text
   private label: Text
-  private rowObjects: SceneObject[] = []
   private row: Text[] = []
   private layoutKey = ""
 
@@ -31,20 +31,21 @@ export class CountInPanel extends BaseScriptComponent {
     setRectSize(makeRect(this.circle, "active", 1), SPACING.countInCircle, SPACING.countInCircle, SPACING.countInCircle / 2)
     const numberObject = childObject("Number", this.circle)
     this.number = makeText(numberObject, TYPE.countInNumber, "activeInk", 2)
-    const labelObject = childObject("Label", this.circle)
-    this.label = makeText(labelObject, TYPE.countInLabel, "activeInk", 2)
-    // Inside the circle: the number a little above centre, the label near the bottom (prototype: 92 and 160 of 200).
+    // Inside the circle, the number a little above centre (prototype: 92 of 200).
     const r = SPACING.countInCircle / 2
     numberObject.getTransform().setLocalPosition(new vec3(0, pxToCm(r - 92), 0.05))
-    labelObject.getTransform().setLocalPosition(new vec3(0, pxToCm(r - 160), 0.05))
+    // Under the circle, the label, then the 5 6 7 8 row.
+    const labelObject = childObject("Label", this.circle)
+    this.label = makeText(labelObject, TYPE.countInLabel, "ink2", 2)
+    labelObject.getTransform().setLocalPosition(new vec3(0, pxToCm(r - SPACING.countInLabelY), 0.05))
 
-    for (const n of COUNT_IN) {
-      const so = childObject(`Count${n}`, this.sceneObject)
+    COUNT_IN.forEach((n, i) => {
+      const so = childObject(`Count${n}`, this.circle)
       const text = makeText(so, TYPE.countIn, "soft", 2)
       text.text = String(n)
-      this.rowObjects.push(so)
+      so.getTransform().setLocalPosition(new vec3(pxToCm((i - 1.5) * SPACING.countInRowGap), pxToCm(r - SPACING.countInRowY), 0.05))
       this.row.push(text)
-    }
+    })
     this.sceneObject.enabled = false
   }
 
@@ -71,7 +72,6 @@ export class CountInPanel extends BaseScriptComponent {
     const box = rects.countIn!
     const w = box[2]
     place(this.circle, pointInPanelCm(box, w / 2, SPACING.countInCircle / 2), Z)
-    this.rowObjects.forEach((so, i) => place(so, pointInPanelCm(box, w / 2 + (i - 1.5) * SPACING.countInRowGap, SPACING.countInRowY), Z))
     this.label.text = `${runLabel(view)} IN`
     const head = rects.ciHead
     this.head.enabled = view.countIn!.kind === "startingPose" && !!head
