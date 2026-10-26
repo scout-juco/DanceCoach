@@ -27,6 +27,9 @@ export class PopupFollow {
   yaw = 0
   private following = false
 
+  /** Follows once you turn more than followDeg away. */
+  constructor(private followDeg: number = POPUP.followDeg) {}
+
   /** Opens the pop-up straight ahead of the head. */
   open(headYaw: number) {
     this.yaw = headYaw
@@ -38,7 +41,7 @@ export class PopupFollow {
    * this frame, so its position can glide with it; 0 while it stays put.
    */
   step(headYaw: number, dtSec: number): number {
-    if (Math.abs(angleDiff(headYaw, this.yaw)) > rad(POPUP.followDeg)) this.following = true
+    if (Math.abs(angleDiff(headYaw, this.yaw)) > rad(this.followDeg)) this.following = true
     if (!this.following) return 0
     const a = Math.min(1, dtSec * GLIDE_PER_SEC)
     this.yaw += angleDiff(headYaw, this.yaw) * a

@@ -7,18 +7,19 @@
  * Lens Studio world units are centimetres.
  */
 import { RunKind, ScreenId } from "../Core/PlaybackController"
+import { Placement } from "../Core/WindowPlacement"
 
 /** [x, y, width, height] in prototype pixels. */
 export type PxRect = [number, number, number, number]
 
-export type PanelId = "video" | "progress" | "ciHead" | "countIn" | "segBar" | "banner" | "sections" | "controls" | "toast" | "skip" | "popup"
+export type PanelId = "video" | "progress" | "segBar" | "banner" | "sections" | "controls" | "toast" | "skip" | "popup"
 
 export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // First look plays like From the top (the preview has no PV frame): its banner, the segmented bar,
   // and "Skip to Section 1" under them.
   PV: { banner: [790, 20, 340, 40], video: [790, 72, 340, 572], segBar: [790, 660, 340, 26], skip: [790, 712, 340, 44] },
-  BI: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6], ciHead: [540, 150, 220, 20], countIn: [540, 200, 220, 262] },
-  B0: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6], countIn: [540, 200, 220, 262] },
+  BI: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6] },
+  B0: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6] },
   B: { video: [790, 40, 340, 604], progress: [790, 662, 340, 6] },
   F: { banner: [790, 20, 340, 40], video: [790, 72, 340, 572], segBar: [790, 660, 340, 26] },
   // The controls' width is 0: the bar sizes itself to its buttons. The toast sits left of the video, above the
@@ -47,14 +48,36 @@ export const POPUP = {
   followDeg: 30,
 }
 
+/**
+ * The count-in isn't on the board either: it opens centred in front of you, wherever the window is,
+ * and follows (like a pop-up) once you turn more than followDeg away.
+ */
+export const COUNT_IN = {
+  distanceCm: 200,
+  dropCm: 0,
+  followDeg: 10,
+  /** The starting-pose heading's centre, above the circle's centre (prototype px). */
+  headUp: 140,
+  /** How far it reaches from the circle's centre: each side (the heading), up and down (the 5 6 7 8 row), in prototype px. */
+  halfWidth: 110,
+  reachUp: 152,
+  reachDown: 262,
+  /** When it slides clear of the video, the space it keeps from the video's edge (prototype px at its distance). */
+  videoGap: 24,
+}
+
 /** Centimetres per prototype pixel (1 px = 1.5 mm). */
 export const CM_PER_PX = 0.15
 
-/** Default window placement relative to where you stand and face at start (picked by dragging it in Preview). */
-export const PLACEMENT = {
+/**
+ * Default window placement relative to where you stand and face at start (picked by dragging it in Preview),
+ * used until you move or resize the window; after that, your placement is saved and restored.
+ */
+export const PLACEMENT: Placement = {
   distanceCm: 324,
   yawRightDeg: 7,
   dropCm: 10,
+  scale: 1,
 }
 
 /** A panel's centre and size in centimetres on the window plane (x right, y up), relative to the anchor. */

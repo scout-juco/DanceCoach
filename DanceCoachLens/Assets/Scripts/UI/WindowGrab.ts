@@ -1,9 +1,8 @@
 /**
  * WindowGrab: pinch the video to drag the whole window somewhere else.
  *
- * A developer helper for now, to find a good default placement: it moves the window root
- * (translation only) and calls onMoved when you let go. Movable, resizable and remembered
- * placement is M1-07.
+ * It moves the window root (translation only; the Lens turns it to face you) and calls
+ * onMoved when you let go, so the placement can be saved. Resizing is WindowResize.
  */
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { InteractableManipulation } from "SpectaclesInteractionKit.lspkg/Components/Interaction/InteractableManipulation/InteractableManipulation"

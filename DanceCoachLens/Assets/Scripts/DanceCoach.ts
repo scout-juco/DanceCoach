@@ -11,6 +11,7 @@ import { CountCaller } from "./Core/CountCaller"
 import { PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
 import { decodeSettings, encodeSettings, finishReadyKey, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
 import { ClipPlayer, VideoDriver } from "./Core/VideoDriver"
+import { decodePlacement, encodePlacement, Placement, PLACEMENT_KEY } from "./Core/WindowPlacement"
 import { Banner } from "./UI/Banner"
 import { ControlBar, ControlCommand } from "./UI/ControlBar"
 import { CountInPanel } from "./UI/CountInPanel"
@@ -24,6 +25,7 @@ import { Toast } from "./UI/Toast"
 import { VideoWindow } from "./UI/VideoWindow"
 import { childObject } from "./UI/Visuals"
 import { WindowGrab } from "./UI/WindowGrab"
+import { WindowResize } from "./UI/WindowResize"
 
 // The camera sits at the spawn point until tracking settles, so the window keeps
 // re-placing itself in front of you for this long after the Lens starts.
@@ -36,7 +38,7 @@ export class DanceCoach extends BaseScriptComponent {
   camera: SceneObject
 
   @input
-  @hint("The window's root object; it's moved to the default placement on start")
+  @hint("The window's root object; it's moved to the saved (or default) placement on start")
   windowRoot: SceneObject
 
   @input
@@ -82,6 +84,12 @@ export class DanceCoach extends BaseScriptComponent {
   private fakeSeekId = -1
   private panels: Partial<Record<PanelId, PxRect>> | null = null
   private placeLeft = PLACE_SETTLE_SEC
+  private resize: WindowResize
+  // Where the window goes on start: the saved placement, or the default on first launch.
+  private placement: Placement = PLACEMENT
+  // Where you stood and faced (flat) when the window was placed; placements are saved relative to it.
+  private originPos: vec3
+  private originLook: vec3
   private savedSettings: Settings | null = null
   private savedFirstLook = false
   private savedFinishReady = false
@@ -93,6 +101,8 @@ export class DanceCoach extends BaseScriptComponent {
     const firstLookSeen = this.savedFirstLook && !this.alwaysFirstLook
     if (this.savedFirstLook && !firstLookSeen) print("DanceCoach: playing the first look again (Always First Look is on)")
     this.savedFinishReady = store.getBool(finishReadyKey(TEST_DANCE.id))
+    const saved = decodePlacement(store.getString(PLACEMENT_KEY))
+    if (saved) this.placement = saved
     this.controller = new PlaybackController(TEST_DANCE, { settings, firstLookSeen, finishReady: this.savedFinishReady })
     // Saved again only when the first look ends.
     this.savedFirstLook = firstLookSeen
@@ -105,7 +115,9 @@ export class DanceCoach extends BaseScriptComponent {
     this.placeWindow()
     // The other panels sit on the same plane as the video, so they share its parent.
     const plane = this.videoWindow.getSceneObject()
-    this.countIn = childObject("CountIn", plane).createComponent(CountInPanel.getTypeName()) as CountInPanel
+    // The count-in isn't on the window: it opens centred in front of you, like a pop-up.
+    this.countIn = childObject("CountIn", this.getSceneObject()).createComponent(CountInPanel.getTypeName()) as CountInPanel
+    this.countIn.setup(this.camera, this.videoWindow)
     this.progress = childObject("Progress", plane).createComponent(ProgressBar.getTypeName()) as ProgressBar
     this.segBar = childObject("SegBar", plane).createComponent(SegBar.getTypeName()) as SegBar
     this.banner = childObject("Banner", plane).createComponent(Banner.getTypeName()) as Banner
@@ -122,18 +134,23 @@ export class DanceCoach extends BaseScriptComponent {
     this.popup = childObject("Popup", this.getSceneObject()).createComponent(PopupCard.getTypeName()) as PopupCard
     this.popup.setup(this.camera)
     this.popup.onChoose = (choice) => this.chooseRoutineDone(choice)
-    // Developer helper: drag the video to try out placements. The video's smallest rect
-    // (Clip ended) is inside it on every screen, so the grab area never covers a button.
+    // Drag the video to move the window. The video's smallest rect (Clip ended) is inside
+    // it on every screen, so the grab area never covers a button.
     const grab = childObject("Grab", plane).createComponent(WindowGrab.getTypeName()) as WindowGrab
     grab.setup(this.windowRoot, SCREENS.C.video)
     grab.onMoving = () => {
-      this.placeLeft = 0
+      this.stopPlacing()
       this.faceCamera()
     }
     grab.onMoved = () => {
       this.faceCamera()
-      this.logPlacement()
+      this.savePlacement()
     }
+    // Pinch a top corner of the video to resize the window.
+    this.resize = childObject("Resize", plane).createComponent(WindowResize.getTypeName()) as WindowResize
+    this.resize.setup(this.windowRoot)
+    this.resize.onResizing = () => this.stopPlacing()
+    this.resize.onResized = () => this.savePlacement()
     const clips = this.findClips()
     if (clips) {
       this.driver = new VideoDriver(clips.players, (i) => this.videoWindow.setVideo(clips.textures[i]))
@@ -223,6 +240,7 @@ export class DanceCoach extends BaseScriptComponent {
     if (this.placeLeft > 0) {
       this.placeLeft -= dt
       this.placeWindow()
+      if (this.placeLeft <= 0) this.stopPlacing()
     }
     // Video requests are carried out once a frame, here; a command's request lands on the next frame.
     const view = this.controller.view
@@ -251,8 +269,10 @@ export class DanceCoach extends BaseScriptComponent {
     if (panels !== this.panels) {
       this.panels = panels
       this.videoWindow.setRect(panels.video!)
+      this.resize.setRect(panels.video!)
     }
     this.videoWindow.render(view)
+    this.resize.render(view)
     this.countIn.render(view)
     this.progress.render(view)
     this.segBar.render(view)
@@ -299,13 +319,23 @@ export class DanceCoach extends BaseScriptComponent {
     }
   }
 
-  /** Puts the window at the default placement: ahead, to the right and a little below eye level. */
+  /** Puts the window at its placement: ahead, to the right and a little below eye level, at its size. */
   private placeWindow() {
-    const yaw = quat.angleAxis((-PLACEMENT.yawRightDeg * Math.PI) / 180, vec3.up())
+    const p = this.placement
+    const yaw = quat.angleAxis((-p.yawRightDeg * Math.PI) / 180, vec3.up())
     const dir = yaw.multiplyVec3(this.lookFlat())
-    const pos = this.camera.getTransform().getWorldPosition().add(dir.uniformScale(PLACEMENT.distanceCm)).add(new vec3(0, -PLACEMENT.dropCm, 0))
+    const pos = this.camera.getTransform().getWorldPosition().add(dir.uniformScale(p.distanceCm)).add(new vec3(0, -p.dropCm, 0))
     this.windowRoot.getTransform().setWorldPosition(pos)
+    this.windowRoot.getTransform().setLocalScale(new vec3(p.scale, p.scale, p.scale))
     this.faceCamera()
+  }
+
+  /** Stops re-placing the window and remembers where you are now, as the origin placements are saved against. */
+  private stopPlacing() {
+    if (this.originPos) return
+    this.placeLeft = 0
+    this.originPos = this.camera.getTransform().getWorldPosition()
+    this.originLook = this.lookFlat()
   }
 
   /** Turns the window (about the vertical only) to face you. */
@@ -314,15 +344,25 @@ export class DanceCoach extends BaseScriptComponent {
     this.windowRoot.getTransform().setWorldRotation(quat.angleAxis(Math.atan2(-dir.x, -dir.z), vec3.up()))
   }
 
-  /** Prints where the window is, in PLACEMENT's terms, so a dragged position can become the default. */
-  private logPlacement() {
-    const cam = this.camera.getTransform().getWorldPosition()
-    const d = this.windowRoot.getTransform().getWorldPosition().sub(cam)
-    const look = this.lookFlat()
-    const dir = this.toWindowFlat()
-    const yawRightDeg = (-Math.atan2(look.cross(dir).y, look.dot(dir)) * 180) / Math.PI
-    const distanceCm = new vec3(d.x, 0, d.z).length
-    print(`DanceCoach placement: { distanceCm: ${distanceCm.toFixed(0)}, yawRightDeg: ${yawRightDeg.toFixed(0)}, dropCm: ${(-d.y).toFixed(0)} }`)
+  /**
+   * Saves where the window is and how big, relative to where you stood when it was placed (not where you
+   * are now, so walking up to the window to grab it doesn't save it as close). Restored on the next start.
+   */
+  private savePlacement() {
+    const root = this.windowRoot.getTransform()
+    const d = root.getWorldPosition().sub(this.originPos)
+    const flat = new vec3(d.x, 0, d.z)
+    const dir = flat.normalize()
+    const look = this.originLook
+    this.placement = {
+      distanceCm: Math.round(flat.length),
+      yawRightDeg: Math.round((-Math.atan2(look.cross(dir).y, look.dot(dir)) * 180) / Math.PI),
+      dropCm: Math.round(-d.y),
+      scale: Math.round(root.getLocalScale().x * 100) / 100,
+    }
+    global.persistentStorageSystem.store.putString(PLACEMENT_KEY, encodePlacement(this.placement))
+    const p = this.placement
+    print(`DanceCoach placement saved: { distanceCm: ${p.distanceCm}, yawRightDeg: ${p.yawRightDeg}, dropCm: ${p.dropCm}, scale: ${p.scale} }`)
   }
 
   /** The way you're facing, flattened to the floor. */

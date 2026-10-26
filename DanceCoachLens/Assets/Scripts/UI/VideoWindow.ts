@@ -94,6 +94,15 @@ export class VideoWindow extends BaseScriptComponent {
     this.frame.textureMode = "Fill Height" as TextureMode
   }
 
+  /** The middle of the video's left, right, top and bottom edges in world space, wherever the window is; null before setRect(). */
+  worldEdges(): { left: vec3; right: vec3; top: vec3; bottom: vec3 } | null {
+    const r = this.rect
+    if (!r) return null
+    const m = this.sceneObject.getTransform().getWorldTransform()
+    const at = (x: number, y: number) => m.multiplyPoint(new vec3(x, y, 0))
+    return { left: at(r.x - r.w / 2, r.y), right: at(r.x + r.w / 2, r.y), top: at(r.x, r.y + r.h / 2), bottom: at(r.x, r.y - r.h / 2) }
+  }
+
   /** Places and sizes the window. The rect is in prototype pixels (Layout.SCREENS). */
   setRect(rect: PxRect) {
     const r = panelCm(rect)
