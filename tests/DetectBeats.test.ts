@@ -14,3 +14,15 @@ describe.skipIf(!existsSync(video))("detectBeats on the test dance", () => {
     expect(guess.confidence).toBeGreaterThan(0.3)
   }, 60_000)
 })
+
+// A tutorial with a music-less intro: the first beat is a weak guess, but it must still be a usable draft.
+const tutorial = "media/originals/GoDanceTutorial.mp4"
+
+describe.skipIf(!existsSync(tutorial))("detectBeats on a tutorial with a music-less intro", () => {
+  it("still finds the tempo and a first beat inside the video", async () => {
+    const guess = detectBeats(await decodeAudio(tutorial))
+    expect(Math.abs(guess.bpm - 150)).toBeLessThanOrEqual(1)
+    expect(guess.firstBeatSec).toBeGreaterThanOrEqual(0)
+    expect(guess.firstBeatSec).toBeLessThan(48)
+  }, 60_000)
+})
