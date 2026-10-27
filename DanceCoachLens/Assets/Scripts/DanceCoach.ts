@@ -5,8 +5,9 @@
  * carries out its video requests and hands the view state to the view components.
  * All playback rules live in the controller; this file is only glue.
  */
-import { TEST_DANCE } from "../Dance/TestDance"
-import { clipAssetName, planClips } from "./Core/ClipPlan"
+import { BundledDanceSource } from "../Dance/BundledDanceSource"
+import { DancePackage } from "./Core/DancePackage"
+import { DanceSource, LoadedDance } from "./Core/DanceSource"
 import { CountCaller } from "./Core/CountCaller"
 import { PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
 import { decodeSettings, encodeSettings, finishReadyKey, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
@@ -64,6 +65,10 @@ export class DanceCoach extends BaseScriptComponent {
   @input @allowUndefined count7: AudioTrackAsset
   @input @allowUndefined count8: AudioTrackAsset
 
+  // Where the dance comes from; the Lens never imports a dance directly.
+  private danceSource: DanceSource<Texture>
+  private loaded: LoadedDance<Texture>
+  private dance: DancePackage
   private controller: PlaybackController
   private caller = new CountCaller()
   private voice: AudioComponent | null = null
@@ -95,15 +100,18 @@ export class DanceCoach extends BaseScriptComponent {
   private savedFinishReady = false
 
   onAwake() {
+    this.danceSource = new BundledDanceSource(this.videoClips, () => this.videoWindow.fitVideo())
+    this.loaded = this.danceSource.load(this.danceSource.list()[0].id)
+    this.dance = this.loaded.dance
     const store = global.persistentStorageSystem.store
     const settings = decodeSettings(store.getString(SETTINGS_KEY))
-    this.savedFirstLook = store.getBool(firstLookKey(TEST_DANCE.id))
+    this.savedFirstLook = store.getBool(firstLookKey(this.dance.id))
     const firstLookSeen = this.savedFirstLook && !this.alwaysFirstLook
     if (this.savedFirstLook && !firstLookSeen) print("DanceCoach: playing the first look again (Always First Look is on)")
-    this.savedFinishReady = store.getBool(finishReadyKey(TEST_DANCE.id))
+    this.savedFinishReady = store.getBool(finishReadyKey(this.dance.id))
     const saved = decodePlacement(store.getString(PLACEMENT_KEY))
     if (saved) this.placement = saved
-    this.controller = new PlaybackController(TEST_DANCE, { settings, firstLookSeen, finishReady: this.savedFinishReady })
+    this.controller = new PlaybackController(this.dance, { settings, firstLookSeen, finishReady: this.savedFinishReady })
     // Saved again only when the first look ends.
     this.savedFirstLook = firstLookSeen
     this.savedSettings = this.controller.view.settings
@@ -151,7 +159,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.resize.setup(this.windowRoot)
     this.resize.onResizing = () => this.stopPlacing()
     this.resize.onResized = () => this.savePlacement()
-    const clips = this.findClips()
+    const clips = this.loaded.clips
     if (clips) {
       this.driver = new VideoDriver(clips.players, (i) => this.videoWindow.setVideo(clips.textures[i]))
     } else {
@@ -159,28 +167,6 @@ export class DanceCoach extends BaseScriptComponent {
     }
     this.setupVoice()
     this.render(this.controller.open())
-  }
-
-  /** Matches the clip textures to the clip plan by name; null if any clip is missing. */
-  private findClips(): { players: ClipPlayer[]; textures: Texture[] } | null {
-    const assigned = (this.videoClips || []).filter((t) => !!t)
-    if (assigned.length === 0) return null
-    const players: ClipPlayer[] = []
-    const textures: Texture[] = []
-    for (const clip of planClips(TEST_DANCE)) {
-      const name = clipAssetName(TEST_DANCE.video, clip.id)
-      const texture = assigned.find((t) => t.name.replace(/\.[^.]+$/, "") === name)
-      if (!texture) {
-        print(`DanceCoach: clip ${name} isn't assigned to Video Clips (run npm run clips, then add it)`)
-        return null
-      }
-      const player = texture.control as VideoTextureProvider
-      player.volume = 1
-      player.onPlaybackReady.add(() => this.videoWindow.fitVideo())
-      players.push({ clip, player })
-      textures.push(texture)
-    }
-    return { players, textures }
   }
 
   /** Sets up the spoken counts; with any missing, counts stay silent. */
@@ -291,7 +277,7 @@ export class DanceCoach extends BaseScriptComponent {
   private saveFinishReady(ready: boolean) {
     if (ready === this.savedFinishReady) return
     this.savedFinishReady = ready
-    global.persistentStorageSystem.store.putBool(finishReadyKey(TEST_DANCE.id), ready)
+    global.persistentStorageSystem.store.putBool(finishReadyKey(this.dance.id), ready)
   }
 
   /** Writes speed, mirror and counts to persistent storage whenever they change. */
@@ -306,7 +292,7 @@ export class DanceCoach extends BaseScriptComponent {
     if (seen === this.savedFirstLook) return
     this.savedFirstLook = seen
     print("DanceCoach: first look over; later opens go straight to Section 1")
-    global.persistentStorageSystem.store.putBool(firstLookKey(TEST_DANCE.id), seen)
+    global.persistentStorageSystem.store.putBool(firstLookKey(this.dance.id), seen)
   }
 
   /** Without a video texture, a stand-in clock follows the video requests. */
