@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { loadDancePackage } from "../DanceCoachLens/Assets/Scripts/Core/DancePackage"
+import { clipAssetName, planClips } from "../DanceCoachLens/Assets/Scripts/Core/ClipPlan"
 import { createIngestServer } from "../server/ingestServer"
 
 // Real ffmpeg, real server: a 10 s clip with a click on every beat of 120 bpm (first beat at 0.5 s).
@@ -71,4 +72,58 @@ describe("POST /dances", () => {
     expect(res.status).toBe(422)
     expect((await res.json()).error).toMatch(/no sound/)
   })
+})
+
+describe("saving, listing and serving a dance", () => {
+  const draft = async () => (await (await upload(fixture, "Save Me.mp4")).json()).package
+  const save = (id: string, pkg: unknown) => fetch(`${base}/dances/${id}`, { method: "PUT", body: JSON.stringify(pkg) })
+  const ids = async () => (await (await fetch(`${base}/dances`)).json()).map((d: { id: string }) => d.id)
+
+  it("cuts the clips of a valid package, marks it ready, and serves the package and every clip", async () => {
+    const pkg = await draft()
+    expect(await ids()).not.toContain(pkg.id)
+
+    const saved = await save(pkg.id, { ...pkg, title: "Adjusted", difficulty: "Intermediate", trim: { start: 0, end: 9 } })
+    expect(saved.status).toBe(200)
+
+    const list = await (await fetch(`${base}/dances`)).json()
+    expect(list).toContainEqual({ id: pkg.id, title: "Adjusted", difficulty: "Intermediate" })
+
+    const served = loadDancePackage(await (await fetch(`${base}/dances/${pkg.id}/package`)).json())
+    expect(served.title).toBe("Adjusted")
+    const plan = planClips(served)
+    expect(plan.length).toBeGreaterThan(0)
+    for (const clip of plan) {
+      const name = `${clipAssetName(served.video, clip.id)}.mp4`
+      const res = await fetch(`${base}/dances/${pkg.id}/clips/${name}`)
+      expect(res.status).toBe(200)
+      expect(res.headers.get("content-type")).toBe("video/mp4")
+      expect((await res.arrayBuffer()).byteLength).toBeGreaterThan(0)
+    }
+    expect(new Set(plan.map((c) => clipAssetName(served.video, c.id))).size).toBe(plan.length)
+    expect(served.video.startsWith(pkg.id)).toBe(true)
+  }, 120_000)
+
+  it("refuses an invalid package with the validation's error, and the dance stays out of the list", async () => {
+    const pkg = await draft()
+    const res = await save(pkg.id, { ...pkg, bpm: -5 })
+    expect(res.status).toBe(422)
+    expect((await res.json()).error).toMatch(/bpm must be a positive number/)
+    expect(await ids()).not.toContain(pkg.id)
+    expect((await fetch(`${base}/dances/${pkg.id}/package`)).status).toBe(404)
+  }, 60_000)
+
+  it("refuses a body that isn't JSON, and a dance that was never uploaded", async () => {
+    const pkg = await draft()
+    const res = await fetch(`${base}/dances/${pkg.id}`, { method: "PUT", body: "nope" })
+    expect(res.status).toBe(422)
+    expect((await save("000000000000", pkg)).status).toBe(404)
+  }, 60_000)
+
+  it("only serves clips in the dance's clip plan", async () => {
+    const pkg = await draft()
+    await save(pkg.id, pkg)
+    expect((await fetch(`${base}/dances/${pkg.id}/clips/${pkg.id}_nope.mp4`)).status).toBe(404)
+    expect((await fetch(`${base}/dances/${pkg.id}/clips/..%2Foriginal.mp4`)).status).toBe(404)
+  }, 120_000)
 })
