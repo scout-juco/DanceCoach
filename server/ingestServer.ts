@@ -8,6 +8,8 @@
  *   GET /dances               the ready dances: [{ id, title, difficulty }]
  *   GET /dances/<id>/package  a ready dance's package
  *   GET /dances/<id>/clips/<name>  one of its clips, named <video>_<clip id>.mp4
+ *   GET /dances/<id>/original the uploaded video (supports Range, so the adjust page can seek)
+ *   GET /                     the adjust page; GET /app.js is its script, bundled from server/page
  *     4xx { error }                 a readable reason
  *
  * The original is kept at <storage>/<id>/original<ext>. Detection is only a starting guess.
@@ -17,8 +19,10 @@
 import { randomBytes } from "node:crypto"
 import { createReadStream, createWriteStream } from "node:fs"
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { build } from "esbuild"
 import { createServer, IncomingMessage, Server, ServerResponse } from "node:http"
 import { extname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { pipeline } from "node:stream/promises"
 import { DancePackage, loadDancePackage } from "../DanceCoachLens/Assets/Scripts/Core/DancePackage"
 import { cutClips } from "../scripts/cutClips"
@@ -146,6 +150,41 @@ async function listReady(storageDir: string) {
 
 class NotFoundError extends Error {}
 
+const pageDir = fileURLToPath(new URL("./page/", import.meta.url))
+const VIDEO_TYPES: Record<string, string> = { ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".m4v": "video/mp4" }
+
+let bundle: Promise<string> | undefined
+/** The adjust page's script: server/page/adjust.ts with the lens's count logic, bundled once. */
+function pageScript(): Promise<string> {
+  bundle ??= build({ entryPoints: [join(pageDir, "adjust.ts")], bundle: true, write: false, format: "esm", target: "es2020" })
+    .then((r) => r.outputFiles[0].text)
+    .catch((err) => {
+      bundle = undefined
+      throw err
+    })
+  return bundle
+}
+
+/** Streams a file, honouring a single Range so the browser can seek. */
+async function sendFile(req: IncomingMessage, res: ServerResponse, file: string, type: string) {
+  const size = (await stat(file)).size
+  const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "")
+  let start = 0
+  let end = size - 1
+  if (m && (m[1] || m[2])) {
+    start = m[1] ? Number(m[1]) : Math.max(size - Number(m[2]), 0)
+    end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1
+    if (start > end || start >= size) {
+      res.writeHead(416, { "Content-Range": `bytes */${size}` })
+      return void res.end()
+    }
+    res.writeHead(206, { "Content-Type": type, "Accept-Ranges": "bytes", "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": end - start + 1 })
+  } else {
+    res.writeHead(200, { "Content-Type": type, "Accept-Ranges": "bytes", "Content-Length": size })
+  }
+  createReadStream(file, { start, end }).pipe(res)
+}
+
 export function createIngestServer(options: IngestOptions): Server {
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost")
@@ -157,17 +196,28 @@ export function createIngestServer(options: IngestOptions): Server {
         const draft = await createDraft(req, url.searchParams.get("name") ?? "dance.mp4", options.storageDir)
         return send(res, 201, draft)
       }
+      if (req.method === "GET" && url.pathname === "/") {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+        return void res.end(await readFile(join(pageDir, "adjust.html")))
+      }
+      if (req.method === "GET" && url.pathname === "/app.js") {
+        res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" })
+        return void res.end(await pageScript())
+      }
       if (req.method === "GET" && url.pathname === "/dances") {
         return send(res, 200, await listReady(options.storageDir))
       }
-      const route = url.pathname.match(/^\/dances\/([^/]+)(?:\/(package|clips\/([^/]+)))?$/)
+      const route = url.pathname.match(/^\/dances\/([^/]+)(?:\/(package|original|clips\/([^/]+)))?$/)
       if (route) {
         const [, id, what, clipFile] = route
         if (req.method === "PUT" && !what) {
           const pkg = await saveDance(id, await readBody(req), options.storageDir)
           return send(res, 200, { package: pkg })
         }
-        if (req.method === "GET" && what) {
+        if (req.method === "GET" && what === "original") {
+          const original = await findOriginal(options.storageDir, id)
+          if (original) return await sendFile(req, res, original, VIDEO_TYPES[extname(original)] ?? "application/octet-stream")
+        } else if (req.method === "GET" && what) {
           const pkg = await readReady(options.storageDir, id)
           if (pkg && what === "package") return send(res, 200, pkg)
           if (pkg && clipFile) {

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dance Coach: Ready to learn</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { max-width: 720px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.3rem; }
+  fieldset { margin: 12px 0; border: 1px solid #8884; border-radius: 8px; }
+  label { display: inline-block; margin: 4px 8px 4px 0; }
+  input, select, button { font: inherit; padding: 4px 8px; }
+  input[type=number] { width: 6.5em; }
+  .stage { position: relative; background: #000; }
+  .stage video { width: 100%; display: block; }
+  #overlay { position: absolute; left: 8px; top: 8px; padding: 4px 10px; border-radius: 6px;
+             background: #000a; color: #fff; font-weight: 600; pointer-events: none; }
+  .error { color: #c33; } .ok { color: #2a7; }
+  [hidden] { display: none; }
+  progress { width: 100%; }
+</style>
+</head>
+<body>
+<h1>Ready to learn</h1>
+
+<section id="upload">
+  <input type="file" id="file" accept="video/*">
+  <progress id="uploadProgress" hidden></progress>
+  <p id="uploadStatus"></p>
+</section>
+
+<section id="adjust" hidden>
+  <p id="detected"></p>
+  <div class="stage"><video id="video" controls playsinline></video><div id="overlay"></div></div>
+
+  <fieldset><legend>Dance</legend>
+    <label>Name <input id="title"></label>
+    <label>Difficulty <select id="difficulty"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select></label>
+  </fieldset>
+
+  <fieldset><legend>Trim</legend>
+    <label>Start (s) <input type="number" id="trimStart" step="0.01"></label>
+    <button id="trimStartHere">Start here</button>
+    <label>End (s) <input type="number" id="trimEnd" step="0.01"></label>
+    <button id="trimEndHere">End here</button>
+  </fieldset>
+
+  <fieldset><legend>First beat</legend>
+    <label>Time (s) <input type="number" id="firstBeat" step="0.01"></label>
+    <button data-nudge="-0.05">−0.05</button><button data-nudge="-0.01">−0.01</button>
+    <button data-nudge="0.01">+0.01</button><button data-nudge="0.05">+0.05</button>
+    <button id="firstBeatHere">Count 1 is here</button>
+  </fieldset>
+
+  <fieldset><legend>Tempo</legend>
+    <label>BPM <input type="number" id="bpm" step="0.1" min="1"></label>
+    <button id="halve">½×</button><button id="double">2×</button>
+  </fieldset>
+
+  <fieldset><legend>Sections</legend>
+    <label>Section <input type="number" id="sectionN" min="1" value="2" step="1"></label>
+    <button id="sectionHere">Starts here</button>
+    <button id="clearSections">Clear nudges</button>
+    <p id="sectionsInfo"></p>
+  </fieldset>
+
+  <p id="problem" class="error"></p>
+  <button id="ready">Ready</button>
+  <progress id="cutProgress" hidden></progress>
+  <p id="readyStatus"></p>
+</section>
+
+<h2>Ready dances</h2>
+<ul id="list"></ul>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
