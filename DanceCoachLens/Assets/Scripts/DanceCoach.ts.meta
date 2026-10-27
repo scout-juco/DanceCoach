@@ -1,0 +1,81 @@
+- !<AssetImportMetadata/8883f3de-37f9-4494-bd50-6bf5c41ab1df>
+  ImportedAssetIds:
+    TypeScriptAsset: !<reference> b0ba77f6-1174-4c4a-8963-03b1e98214b9
+  ImporterName: TypeScriptAssetImporter
+  PrimaryAsset: !<reference> b0ba77f6-1174-4c4a-8963-03b1e98214b9
+  PackageType: NotAPackage
+  LegacyPackagePolicy: ~
+  ExtraData:
+    {}
+  AssetDataMap:
+    TypeScriptAsset: !<own> f2542fe3-6acf-4c5f-8beb-82e76362f1e2
+  DependentFiles:
+    []
+  ImporterSettings: !<AssetImporterSettings>
+    {}
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
+- !<TypeScriptAssetData/f2542fe3-6acf-4c5f-8beb-82e76362f1e2>
+  SvgIcon: ""
+  SetupScript:
+    code: ""
+  Description: ""
+  VersionMajor: 0
+  VersionMinor: 0
+  VersionPatch: 0
+  ComponentUid: 3a132260-5ab5-458b-baa1-405f17f8a646
+  ExportUid: 00000000-0000-0000-0000-000000000000
+  PackagePolicy: CanBeUnpacked
+  ScriptInputsHidden:
+    alwaysFirstLook: false
+    camera: false
+    count1: false
+    count2: false
+    count3: false
+    count4: false
+    count5: false
+    count6: false
+    count7: false
+    count8: false
+    videoClips: false
+    videoWindow: false
+    windowRoot: false
+  ScriptTypesHidden:
+    {}
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
+  Tags:
+    []
+  Attachments:
+    []
+  DefaultScriptInputs:
+    - camera: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      windowRoot: !<reference.SceneObject> 00000000-0000-0000-0000-000000000000
+      videoWindow: !<MappingBased.AssignableType> 00000000-0000-0000-0000-000000000000
+      alwaysFirstLook: false
+      videoClips: !<reference.Texture[]>
+        []
+      count1: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count2: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count3: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count4: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count5: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count6: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count7: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+      count8: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
+  ScriptTypes:
+    -
+      {}
+  InputLines:
+    - '// @input SceneObject camera {"hint":"The camera the window is placed relative to"}'
+    - "// @input SceneObject windowRoot {\"hint\":\"The window's root object; it's moved to the saved (or default) placement on start\"}"
+    - // @input AssignableType videoWindow
+    - '// @input bool alwaysFirstLook {"hint":"Developer: play the first look on every open, as if it had never been seen"}'
+    - "// @input Asset.Texture[] videoClips {\"hint\":\"The dance's clips, cut by `npm run clips` (git-ignored), in any order. Without them, counts run on a stand-in clock.\"}"
+    - // @input Asset.AudioTrackAsset count1
+    - // @input Asset.AudioTrackAsset count2
+    - // @input Asset.AudioTrackAsset count3
+    - // @input Asset.AudioTrackAsset count4
+    - // @input Asset.AudioTrackAsset count5
+    - // @input Asset.AudioTrackAsset count6
+    - // @input Asset.AudioTrackAsset count7
+    - // @input Asset.AudioTrackAsset count8
