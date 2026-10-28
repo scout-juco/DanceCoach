@@ -33,6 +33,10 @@
 <section id="adjust" hidden>
   <p id="detected"></p>
   <div class="stage"><video id="video" controls playsinline></video><div id="overlay"></div></div>
+  <p id="steps">Step:
+    <button data-step="-1">−1 s</button><button data-step="-0.1">−0.1</button><button data-step="-0.01">−0.01</button>
+    <button data-step="0.01">+0.01</button><button data-step="0.1">+0.1</button><button data-step="1">+1 s</button>
+    <span id="clock"></span></p>
 
   <fieldset><legend>Dance</legend>
     <label>Name <input id="title"></label>
@@ -60,7 +64,9 @@
 
   <fieldset><legend>Sections</legend>
     <label>Section <input type="number" id="sectionN" min="1" value="2" step="1"></label>
+    <label>at (s) <input type="number" id="sectionTime" step="0.001"></label>
     <button id="sectionHere">Starts here</button>
+    <button id="sectionAt">Starts at time</button>
     <button id="clearSections">Clear nudges</button>
     <p id="sectionsInfo"></p>
   </fieldset>

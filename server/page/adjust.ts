@@ -40,6 +40,7 @@ function render() {
 }
 
 function tick() {
+  $("clock").textContent = `${video.currentTime.toFixed(3)} s`
   if (clock) $("overlay").textContent = overlayLabel(clock, video.currentTime)
 }
 
@@ -136,6 +137,12 @@ document.querySelectorAll<HTMLElement>("[data-nudge]").forEach((b) =>
   b.addEventListener("click", () => change({ firstBeatSec: pkg.firstBeatSec + Number(b.dataset.nudge) })))
 on("halve", () => change({ bpm: pkg.bpm / 2 }))
 on("double", () => change({ bpm: pkg.bpm * 2 }))
+document.querySelectorAll<HTMLElement>("[data-step]").forEach((b) =>
+  b.addEventListener("click", () => {
+    video.pause()
+    video.currentTime = Math.max(video.currentTime + Number(b.dataset.step), 0)
+  }))
+on("sectionAt", () => markSection(num("sectionN"), num("sectionTime")))
 on("sectionHere", () => markSection(num("sectionN"), video.currentTime))
 on("clearSections", () => change({ sections: undefined }))
 on("ready", ready)
