@@ -9,7 +9,7 @@ describe("clipJobs", () => {
   it("reports one clip per planned clip, with its id, file, start and end", () => {
     expect(jobs.map((j) => j.clip)).toEqual([
       { id: "top", file: join("out", "fixture_top.mp4"), start: 1, end: 13 },
-      { id: "s2", file: join("out", "fixture_s2.mp4"), start: 3, end: 9 },
+      { id: "s2", file: join("out", "fixture_s2.mp4"), start: 3, end: 13 },
       { id: "s3", file: join("out", "fixture_s3.mp4"), start: 7, end: 13 },
     ])
   })
@@ -24,6 +24,6 @@ describe("clipJobs", () => {
   it("cuts each clip from its start for its length", () => {
     const { args } = jobs[1]
     expect(args.slice(args.indexOf("-ss"), args.indexOf("-ss") + 2)).toEqual(["-ss", "3.000"])
-    expect(args.slice(args.indexOf("-t"), args.indexOf("-t") + 2)).toEqual(["-t", "6.000"])
+    expect(args.slice(args.indexOf("-t"), args.indexOf("-t") + 2)).toEqual(["-t", "10.000"])
   })
 })

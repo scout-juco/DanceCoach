@@ -3,7 +3,7 @@
  *
  * Lens Studio's player can't jump forward in a video: it plays through to the new time at
  * playback speed (measured in Preview, M1-03). Starting a video from 0 is quick, so every run
- * plays a clip that starts where the run starts: one per section (its lead-in to its end) and
+ * plays a clip that starts where the run starts: one per section (its lead-in to the end of the routine, so a range of sections plays on through) and
  * one from the top (Section 1's lead-in through the end, for Section 1, Full and From the top).
  *
  * The clips are cut from the package's video by scripts/cutClips.ts, which uses this plan,
@@ -33,7 +33,7 @@ export function planClips(pkg: DancePackage): Clip[] {
     const start = sectionLead ? sectionLead.start : clock.sectionStart(n)
     // Section 1 starts where the top clip does, so that one covers it.
     if (clips.some((c) => Math.abs(c.start - start) < SAME_START_SEC)) continue
-    clips.push({ id: `s${n}`, start, end: clock.sectionEnd(n) })
+    clips.push({ id: `s${n}`, start, end: clock.sectionEnd(last) })
   }
   return clips
 }
