@@ -6,7 +6,7 @@
  * plays a clip that starts where the run starts: one per section (its lead-in to its end) and
  * one from the top (Section 1's lead-in through the end, for Section 1, Full and From the top).
  *
- * The clips are cut from the package's video by scripts/makeClips.ts, which uses this plan,
+ * The clips are cut from the package's video by scripts/cutClips.ts, which uses this plan,
  * so the Lens and the script always agree. Times are seconds in the original video.
  * Pure logic: no Lens Studio APIs.
  */
