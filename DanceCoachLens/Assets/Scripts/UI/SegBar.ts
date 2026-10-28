@@ -80,11 +80,12 @@ export class SegBar extends BaseScriptComponent {
       const n = i + 1
       const x = i * (sw + SPACING.segGap)
       const current = n === view.runSection
-      const past = n > view.runStop
+      // Out of the run: after its last section, or (for a range) before its first.
+      const past = n > view.runStop || (view.runKind === "section" && n < view.section)
       place(seg.object, pointInPanelCm(box, x + sw / 2, h / 2), Z)
       setRectSize(seg.rect, sw, h, RADII.segment)
       // Played: filled. Playing or still to come: a soft track. Out of the run: an outline.
-      seg.rect.backgroundColor = themeColor(past ? "panel" : n < view.runSection ? "stroke" : "soft")
+      seg.rect.backgroundColor = themeColor(past ? "panel" : n < view.runSection && !past ? "stroke" : "soft")
       seg.rect.border = past
       seg.rect.borderColor = themeColor("ghostLine")
       seg.fillObject.enabled = false

@@ -64,11 +64,13 @@ export function makeText(so: SceneObject, sizePx: number, token: ColorToken, ren
 
 /** What a run is called on its labels: FULL ROUTINE, or the section it starts with. */
 export function runLabel(view: ViewState): string {
-  return view.runKind === "full" ? "FULL ROUTINE" : `SECTION ${view.runKind === "top" ? 1 : view.section}`
+  if (view.runKind === "full") return "FULL ROUTINE"
+  if (view.runKind === "section" && view.runStop > view.section) return `SECTIONS ${view.section}–${view.runStop}`
+  return `SECTION ${view.runKind === "top" ? 1 : view.section}`
 }
 
-/** True for runs that play several sections (From the top and Full). */
-export const isMultiSection = (view: ViewState) => view.runKind !== "section"
+/** True for runs that play several sections (From the top, Full and a range). */
+export const isMultiSection = (view: ViewState) => view.runKind !== "section" || view.runStop > view.section
 
 /**
  * The From the top icon, |→, centred on the object's position: a bar for the top,

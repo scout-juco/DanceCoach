@@ -131,6 +131,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.banner = childObject("Banner", plane).createComponent(Banner.getTypeName()) as Banner
     this.sections = childObject("Sections", plane).createComponent(SectionRow.getTypeName()) as SectionRow
     this.sections.onTap = (id) => this.tapSection(id)
+    this.sections.onRange = (first, last) => this.render(this.controller.tapRange(first, last))
     this.controls = childObject("Controls", plane).createComponent(ControlBar.getTypeName()) as ControlBar
     this.controls.onPress = (command) => this.press(command)
     this.toast = childObject("Toast", plane).createComponent(Toast.getTypeName()) as Toast

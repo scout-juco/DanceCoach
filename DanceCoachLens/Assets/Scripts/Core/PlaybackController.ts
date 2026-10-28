@@ -228,17 +228,30 @@ export class PlaybackController {
   }
 
   /**
+   * Plays a contiguous range of sections, first through last, as one run with the count-in
+   * of the first. A range of one is the same as tapping that section. Ignored while the controls are locked.
+   */
+  tapRange(first: number, last: number): ViewState {
+    const lo = Math.max(1, Math.min(first, last))
+    const hi = Math.min(this.clock.sectionCount, Math.max(first, last))
+    return this.startRun("section", lo, hi)
+  }
+
+  /**
    * Runs from the start of Section 1 through the end of the current section (the whole
    * routine after Full), counting in as Section 1 does. Ignored while the controls are locked.
+   * After a range it stops at the end of the range.
    */
   fromTheTop(): ViewState {
     const s = this.state
-    return this.startRun("top", s.section, s.runKind === "full" ? this.clock.sectionCount : s.section)
+    return this.startRun("top", s.section, s.runKind === "full" ? this.clock.sectionCount : s.runStop)
   }
 
-  /** Runs the current section (or Full) again, with its count-in. Ignored while the controls are locked. */
+  /** Runs the current section, range (or Full) again, with its count-in. Ignored while the controls are locked. */
   replay(): ViewState {
-    return this.tapSection(this.state.runKind === "full" ? "full" : this.state.section)
+    const s = this.state
+    if (s.runKind === "full") return this.tapSection("full")
+    return this.tapRange(s.section, s.runKind === "section" ? s.runStop : s.section)
   }
 
   private startRun(kind: RunKind, section: number, stop: number): ViewState {
@@ -425,8 +438,12 @@ export class PlaybackController {
 
   private endRun(): ViewState {
     const s = this.state
-    // Only a section run ticks its section; From the top and Full chain sections already learned.
-    const done = s.runKind !== "section" || s.doneSections.indexOf(s.section) >= 0 ? s.doneSections : s.doneSections.concat(s.section).sort((a, b) => a - b)
+    // Only a section run ticks its sections (all of a range); From the top and Full chain sections already learned.
+    let done = s.doneSections
+    if (s.runKind === "section") {
+      for (let n = s.section; n <= s.runStop; n++) if (done.indexOf(n) < 0) done = done.concat(n)
+      done = done === s.doneSections ? done : done.slice().sort((a, b) => a - b)
+    }
     // Any run that reaches the last section unlocks Finish routine, quietly: no pop-up.
     const finishReady = s.finishReady || s.runStop === this.clock.sectionCount
     this.state = {

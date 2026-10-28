@@ -17,6 +17,8 @@ import { childObject, makeRect, makeText, place, setRectSize, themeColor } from 
 const Z = 0.1
 // Collider depth, in cm.
 const HIT_DEPTH = 1
+// How long a tile is held before it starts a range selection, in seconds.
+const HOLD_SEC = 0.6
 
 interface Tile {
   id: SectionTap
@@ -30,20 +32,34 @@ interface Tile {
 export class SectionRow extends BaseScriptComponent {
   /** Called when a tile is pinched. */
   onTap: (id: SectionTap) => void = () => {}
+  /** Called when a selected range of sections is pinched to play, first through last. */
+  onRange: (first: number, last: number) => void = () => {}
 
   private tiles: Tile[] = []
   private lastKey = ""
+  private lastView: ViewState | null = null
+  // The range being selected after a long press (0 when not selecting). Always contiguous.
+  private selFirst = 0
+  private selLast = 0
+  // The tile being held and how long it has been, or null.
+  private holding: Tile | null = null
+  private heldSec = 0
 
   onAwake() {
     this.sceneObject.enabled = false
+    this.createEvent("UpdateEvent").bind(() => this.updateHold())
   }
 
   render(view: ViewState) {
+    this.lastView = view
     const box = panelsFor(view).sections
     this.sceneObject.enabled = !!box
-    if (!box) return
+    if (!box) {
+      this.clearSelection()
+      return
+    }
     if (this.tiles.length !== view.sectionCount + 1) this.build(view.sectionCount)
-    const key = `${view.screen}|${view.section}|${view.runKind}|${view.doneSections.join(",")}`
+    const key = `${view.screen}|${view.section}|${view.runStop}|${view.runKind}|${view.doneSections.join(",")}|${this.selFirst}-${this.selLast}`
     if (key === this.lastKey) return
     this.lastKey = key
 
@@ -57,7 +73,12 @@ export class SectionRow extends BaseScriptComponent {
       shape.size = new vec3(pxToCm(tw), pxToCm(th), HIT_DEPTH)
       tile.collider.shape = shape
 
-      const current = tile.id === "full" ? view.runKind === "full" : view.runKind !== "full" && tile.id === view.section
+      const selecting = this.selFirst > 0
+      const inRange = (n: number) => selecting ? n >= this.selFirst && n <= this.selLast : view.runKind === "section" && n >= view.section && n <= view.runStop
+      let current: boolean
+      if (tile.id === "full") current = !selecting && view.runKind === "full"
+      else if (selecting || view.runKind === "section") current = inRange(tile.id)
+      else current = view.runKind === "top" && tile.id === view.section
       const done = typeof tile.id === "number" && !current && view.doneSections.indexOf(tile.id) >= 0
       const bg: ColorToken = current ? "active" : done || tile.id === "full" ? "done" : "panel"
       tile.rect.backgroundColor = themeColor(bg)
@@ -84,9 +105,65 @@ export class SectionRow extends BaseScriptComponent {
       const collider = object.createComponent("ColliderComponent") as ColliderComponent
       collider.fitVisual = false
       const interactable = object.createComponent(Interactable.getTypeName()) as Interactable
-      interactable.onTriggerEnd.add(() => this.onTap(id))
-      this.tiles.push({ id, object, rect, text, collider })
+      const tile: Tile = { id, object, rect, text, collider }
+      interactable.onTriggerStart.add(() => {
+        this.holding = tile
+        this.heldSec = 0
+      })
+      interactable.onTriggerCanceled.add(() => {
+        if (this.holding === tile) this.holding = null
+      })
+      interactable.onTriggerEnd.add(() => {
+        // A hold that started a selection has already been handled.
+        if (this.holding !== tile) return
+        this.holding = null
+        this.tap(id)
+      })
+      this.tiles.push(tile)
     }
     this.lastKey = ""
+  }
+
+  /** A held tile starts a range at that section. */
+  private updateHold() {
+    const tile = this.holding
+    if (!tile || typeof tile.id !== "number") return
+    this.heldSec += getDeltaTime()
+    if (this.heldSec < HOLD_SEC) return
+    this.holding = null
+    this.selFirst = this.selLast = tile.id
+    this.refresh()
+  }
+
+  /**
+   * A pinch on a tile. While selecting: a tile outside the range stretches it to that tile
+   * (filling the gap, so it stays contiguous), a tile inside it plays it; Full cancels.
+   */
+  private tap(id: SectionTap) {
+    if (this.selFirst === 0) return this.onTap(id)
+    if (id === "full") {
+      this.clearSelection()
+      return this.refresh()
+    }
+    if (id >= this.selFirst && id <= this.selLast) {
+      const first = this.selFirst
+      const last = this.selLast
+      this.clearSelection()
+      return first === last ? this.onTap(first) : this.onRange(first, last)
+    }
+    // Outside the range: stretch to it, taking in the sections in between.
+    if (id < this.selFirst) this.selFirst = id
+    else this.selLast = id
+    this.refresh()
+  }
+
+  private clearSelection() {
+    this.selFirst = this.selLast = 0
+    this.holding = null
+  }
+
+  private refresh() {
+    this.lastKey = ""
+    if (this.lastView) this.render(this.lastView)
   }
 }
