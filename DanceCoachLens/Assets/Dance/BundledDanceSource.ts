@@ -20,11 +20,11 @@ export class BundledDanceSource implements DanceSource<Texture> {
     private readonly onClipReady: () => void = () => {},
   ) {}
 
-  list(): DanceListing[] {
-    return this.dances.map((d) => ({ id: d.id, title: d.title }))
+  async list(): Promise<DanceListing[]> {
+    return this.dances.map((d) => ({ id: d.id, title: d.title, difficulty: d.difficulty }))
   }
 
-  load(name: string): LoadedDance<Texture> {
+  async load(name: string): Promise<LoadedDance<Texture>> {
     const dance = this.dances.find((d) => d.id === name)
     if (!dance) throw new Error(`No dance named "${name}"`)
     return { dance, clips: this.findClips(dance) }

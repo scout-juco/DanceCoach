@@ -24,6 +24,10 @@ class FakeVideo implements VideoPlayer {
 
   constructor(readonly duration: number) {}
 
+  get totalDuration() {
+    return this.duration
+  }
+
   play() {
     this.status = VIDEO_STATUS.Preparing
     this.activeRate = this.playbackRate
@@ -144,6 +148,15 @@ describe("VideoDriver", () => {
     expect(s.video("s3").status).toBe(VIDEO_STATUS.Playing)
   })
 
+  it("stops the playing clip when asked, and is safe to ask before anything has played", () => {
+    const s = setup()
+    s.driver.stop()
+    settle(s, request({ seekTo: 3 }))
+    s.driver.stop()
+    expect(s.video("s2").status).toBe(VIDEO_STATUS.Stopped)
+    s.driver.stop()
+  })
+
   it("holds a frozen frame at the start of a clip, then plays on from it", () => {
     const s = setup()
     const frozen = request({ seekTo: 1, playing: false })
@@ -168,7 +181,8 @@ describe("VideoDriver", () => {
     const s = setup()
     settle(s, request({ seekTo: 7 }))
     frames(s, request({ seekTo: 7 }), 6.5)
-    expect(s.video("s3").status).toBe(VIDEO_STATUS.Stopped)
+    // Held paused on its last frames rather than stopped, which would drop the picture.
+    expect(s.video("s3").status).toBe(VIDEO_STATUS.Paused)
     expect(s.video("s3").plays).toBe(1)
     expect(s.driver.time).toBeGreaterThan(13.4)
   })

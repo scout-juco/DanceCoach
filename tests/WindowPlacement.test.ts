@@ -20,6 +20,7 @@ describe("A saved window placement should", () => {
     expect(decodePlacement('{"distanceCm":180,"yawRightDeg":0,"dropCm":4}')).toBeNull()
     expect(decodePlacement('{"distanceCm":"far","yawRightDeg":0,"dropCm":4,"scale":1}')).toBeNull()
     expect(decodePlacement('{"distanceCm":5,"yawRightDeg":0,"dropCm":4,"scale":1}')).toBeNull()
+    expect(decodePlacement('{"distanceCm":851,"yawRightDeg":33,"dropCm":4,"scale":0.97}')).toBeNull()
     expect(decodePlacement('{"distanceCm":180,"yawRightDeg":0,"dropCm":4,"scale":0}')).toBeNull()
   })
 

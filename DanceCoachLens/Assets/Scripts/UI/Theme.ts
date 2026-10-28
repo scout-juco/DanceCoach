@@ -67,6 +67,10 @@ export const TYPE = {
   popupTitle: 30,
   popupTile: 12,
   popupButton: 14,
+  /** The dance picker: its title, a tile's title and the difficulty pill on its thumbnail. */
+  pickerTitle: 24,
+  pickerTile: 15,
+  pickerPill: 11,
 } as const
 
 export const SPACING = {

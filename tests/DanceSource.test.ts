@@ -10,8 +10,8 @@ import { TEST_DANCE } from "../DanceCoachLens/Assets/Dance/TestDance"
 function fakeSource(dances: DancePackage[]): DanceSource<never> {
   const copies = dances.map((d) => loadDancePackage(JSON.parse(JSON.stringify(d))))
   return {
-    list: () => copies.map((d) => ({ id: d.id, title: d.title })),
-    load: (name) => {
+    list: async () => copies.map((d) => ({ id: d.id, title: d.title })),
+    load: async (name) => {
       const dance = copies.find((d) => d.id === name)
       if (!dance) throw new Error(`No dance named "${name}"`)
       return { dance, clips: null }
@@ -24,16 +24,16 @@ const options = { settings: undefined, firstLookSeen: false, finishReady: false 
 describe("DanceSource", () => {
   const source = fakeSource([TEST_DANCE])
 
-  it("lists the dances it has", () => {
-    expect(source.list()).toEqual([{ id: "test-dance", title: "Test dance" }])
+  it("lists the dances it has", async () => {
+    expect(await source.list()).toEqual([{ id: "test-dance", title: "Test dance" }])
   })
 
-  it("throws for a dance it doesn't have", () => {
-    expect(() => source.load("nope")).toThrow(/nope/)
+  it("rejects for a dance it doesn't have", async () => {
+    await expect(source.load("nope")).rejects.toThrow(/nope/)
   })
 
-  it("loads a dance with the same sections, counts and lead-ins as the test dance", () => {
-    const { dance } = source.load("test-dance")
+  it("loads a dance with the same sections, counts and lead-ins as the test dance", async () => {
+    const { dance } = await source.load("test-dance")
     const loaded = new CountClock(dance)
     const direct = new CountClock(TEST_DANCE)
     expect(loaded.sectionCount).toBe(direct.sectionCount)
@@ -46,8 +46,8 @@ describe("DanceSource", () => {
     expect(planClips(dance)).toEqual(planClips(TEST_DANCE))
   })
 
-  it("plays the loaded dance the way the test dance plays", () => {
-    const { dance } = source.load("test-dance")
+  it("plays the loaded dance the way the test dance plays", async () => {
+    const { dance } = await source.load("test-dance")
     expect(new PlaybackController(dance, options).open()).toEqual(new PlaybackController(TEST_DANCE, options).open())
   })
 })

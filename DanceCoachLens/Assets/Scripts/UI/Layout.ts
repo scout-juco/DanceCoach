@@ -48,6 +48,12 @@ export const POPUP = {
   followDeg: 30,
 }
 
+/** The dance picker opens in front of you like a pop-up, but farther out: its 3:4 card is 480×640 px (72×96 cm). */
+export const PICKER = {
+  distanceCm: 200,
+  dropCm: 5,
+}
+
 /**
  * The count-in isn't on the board either: it opens centred in front of you, wherever the window is,
  * and follows (like a pop-up) once you turn more than followDeg away.

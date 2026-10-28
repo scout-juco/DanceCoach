@@ -6,8 +6,11 @@
  * All playback rules live in the controller; this file is only glue.
  */
 import { BundledDanceSource } from "../Dance/BundledDanceSource"
+import { LensTransport } from "../Dance/LensTransport"
 import { DancePackage } from "./Core/DancePackage"
+import { DancePicker } from "./Core/DancePicker"
 import { DanceSource, LoadedDance } from "./Core/DanceSource"
+import { RemoteDanceSource } from "./Core/RemoteDanceSource"
 import { CountCaller } from "./Core/CountCaller"
 import { PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
 import { decodeSettings, encodeSettings, finishReadyKey, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
@@ -16,6 +19,8 @@ import { decodePlacement, encodePlacement, Placement, PLACEMENT_KEY } from "./Co
 import { Banner } from "./UI/Banner"
 import { ControlBar, ControlCommand } from "./UI/ControlBar"
 import { CountInPanel } from "./UI/CountInPanel"
+import { DancePickerPanel } from "./UI/DancePickerPanel"
+import { DancesButton } from "./UI/DancesButton"
 import { panelsFor, PanelId, PLACEMENT, PxRect, SCREENS } from "./UI/Layout"
 import { PopupCard } from "./UI/PopupCard"
 import { ProgressBar } from "./UI/ProgressBar"
@@ -31,6 +36,8 @@ import { WindowResize } from "./UI/WindowResize"
 // The camera sits at the spawn point until tracking settles, so the window keeps
 // re-placing itself in front of you for this long after the Lens starts.
 const PLACE_SETTLE_SEC = 1.5
+// The window's scale while a dance is being picked: too small to see, but not 0, which can break the maths on its transform.
+const HIDDEN_SCALE = 0.0001
 
 @component
 export class DanceCoach extends BaseScriptComponent {
@@ -56,6 +63,20 @@ export class DanceCoach extends BaseScriptComponent {
 
   // The spoken counts in Audio/Counts, made by scripts/makeCountVoice.ps1. One slot each
   // rather than an array, so tooling can assign them; with any missing, counts stay silent.
+  @input
+  @hint("The ingest server's address (https on the glasses), with no trailing path, e.g. https://dance.example. Dances are listed from it.")
+  serverUrl: string = "http://localhost:8787"
+
+  @input
+  @allowUndefined
+  @hint("The Internet Module asset: fetches the dance list and packages. Without it, the bundled test dance is offered.")
+  internetModule: InternetModule
+
+  @input
+  @allowUndefined
+  @hint("The Remote Media Module asset: turns downloaded clips into video textures.")
+  remoteMediaModule: RemoteMediaModule
+
   @input @allowUndefined count1: AudioTrackAsset
   @input @allowUndefined count2: AudioTrackAsset
   @input @allowUndefined count3: AudioTrackAsset
@@ -65,8 +86,14 @@ export class DanceCoach extends BaseScriptComponent {
   @input @allowUndefined count7: AudioTrackAsset
   @input @allowUndefined count8: AudioTrackAsset
 
-  // Where the dance comes from; the Lens never imports a dance directly.
-  private danceSource: DanceSource<Texture>
+  // Where the dance comes from; the Lens never imports a dance directly. The picker lists the
+  // server's dances (or the bundled test dance, offline) and hands over the one chosen.
+  private picker: DancePicker<Texture>
+  private pickerPanel: DancePickerPanel
+  private dancesButton: DancesButton
+  // True from start until a dance has loaded, and again after "Dances": no dance is playing.
+  private picking = true
+  private windowShown = true
   private loaded: LoadedDance<Texture>
   private dance: DancePackage
   private controller: PlaybackController
@@ -100,23 +127,85 @@ export class DanceCoach extends BaseScriptComponent {
   private savedFinishReady = false
 
   onAwake() {
-    this.danceSource = new BundledDanceSource(this.videoClips, () => this.videoWindow.fitVideo())
-    this.loaded = this.danceSource.load(this.danceSource.list()[0].id)
-    this.dance = this.loaded.dance
+    const onClipReady = () => this.videoWindow.fitVideo()
+    const bundled = new BundledDanceSource(this.videoClips, onClipReady)
+    this.picker = new DancePicker(this.remoteSource(onClipReady), bundled)
+    this.picker.onLoaded = (loaded) => this.beginDance(loaded)
+    const saved = decodePlacement(global.persistentStorageSystem.store.getString(PLACEMENT_KEY))
+    if (saved) this.placement = saved
+    this.createEvent("OnStartEvent").bind(() => this.start())
+    this.createEvent("UpdateEvent").bind(() => this.update())
+  }
+
+  /** The server's dances; without the network modules assigned, a source that can't be reached, so the bundled dance is offered. */
+  private remoteSource(onClipReady: () => void): DanceSource<Texture> {
+    if (this.internetModule && this.remoteMediaModule && this.serverUrl) {
+      const remote = new RemoteDanceSource(this.serverUrl, new LensTransport(this.internetModule, this.remoteMediaModule, onClipReady))
+      // Failures show in the picker only as "offline" or "couldn't load", so log why.
+      const logged = <T>(what: string, p: Promise<T>) =>
+        p.catch((err) => {
+          print(`DanceCoach: ${what} failed: ${err && err.message ? err.message : err}`)
+          throw err
+        })
+      return {
+        list: () => logged(`listing dances from ${this.serverUrl}`, remote.list()),
+        load: (name) => logged(`loading ${name}`, remote.load(name)),
+      }
+    }
+    print("DanceCoach: Internet Module, Remote Media Module or Server Url isn't set; offering the bundled test dance")
+    const unreachable = () => Promise.reject(new Error("No dance server is set up"))
+    return { list: unreachable, load: unreachable }
+  }
+
+  /** A dance has loaded: set up its playback and show the window. */
+  private beginDance(loaded: LoadedDance<Texture>) {
+    this.loaded = loaded
+    this.dance = loaded.dance
+    print(`DanceCoach: playing ${this.dance.title}${loaded.clips ? "" : " (no clips; stand-in clock)"}`)
     const store = global.persistentStorageSystem.store
     const settings = decodeSettings(store.getString(SETTINGS_KEY))
     this.savedFirstLook = store.getBool(firstLookKey(this.dance.id))
     const firstLookSeen = this.savedFirstLook && !this.alwaysFirstLook
     if (this.savedFirstLook && !firstLookSeen) print("DanceCoach: playing the first look again (Always First Look is on)")
     this.savedFinishReady = store.getBool(finishReadyKey(this.dance.id))
-    const saved = decodePlacement(store.getString(PLACEMENT_KEY))
-    if (saved) this.placement = saved
     this.controller = new PlaybackController(this.dance, { settings, firstLookSeen, finishReady: this.savedFinishReady })
     // Saved again only when the first look ends.
     this.savedFirstLook = firstLookSeen
     this.savedSettings = this.controller.view.settings
-    this.createEvent("OnStartEvent").bind(() => this.start())
-    this.createEvent("UpdateEvent").bind(() => this.update())
+    this.caller = new CountCaller()
+    this.fakeTime = 0
+    this.fakeSeekId = -1
+    const clips = loaded.clips
+    this.driver = clips ? new VideoDriver(clips.players, (i) => this.videoWindow.setVideo(clips.textures[i])) : null
+    if (!clips) print("DanceCoach: no video clips; using a stand-in clock")
+    this.picking = false
+    this.panels = null
+    this.pickerPanel.render(null)
+    this.showWindow(true)
+    this.render(this.controller.open())
+  }
+
+  /** Back to the list of dances: stops this dance, hides its panels and window, and lists again. */
+  private leaveDance() {
+    print("DanceCoach: back to the dance list")
+    if (this.driver) this.driver.stop()
+    this.driver = null
+    if (this.voice && this.voice.isPlaying()) this.voice.stop(false)
+    // Closes the count-in and the pop-up, which aren't on the window.
+    this.render({ ...this.controller.view, countIn: null, popup: null })
+    this.picking = true
+    this.showWindow(false)
+    this.picker.open()
+  }
+
+  /**
+   * Shows or hides the window while picking. It's scaled to nothing rather than disabled: a window
+   * that was disabled and enabled again stayed invisible on the glasses.
+   */
+  private showWindow(shown: boolean) {
+    this.windowShown = shown
+    const s = shown ? this.placement.scale : HIDDEN_SCALE
+    this.windowRoot.getTransform().setLocalScale(new vec3(s, s, s))
   }
 
   private start() {
@@ -160,14 +249,17 @@ export class DanceCoach extends BaseScriptComponent {
     this.resize.setup(this.windowRoot)
     this.resize.onResizing = () => this.stopPlacing()
     this.resize.onResized = () => this.savePlacement()
-    const clips = this.loaded.clips
-    if (clips) {
-      this.driver = new VideoDriver(clips.players, (i) => this.videoWindow.setVideo(clips.textures[i]))
-    } else {
-      print("DanceCoach: no video clips assigned; using a stand-in clock")
-    }
+    this.dancesButton = childObject("Dances", plane).createComponent(DancesButton.getTypeName()) as DancesButton
+    this.dancesButton.onPress = () => this.leaveDance()
+    // The dance picker comes first; the window shows once a dance has loaded.
+    this.pickerPanel = childObject("DancePicker", this.getSceneObject()).createComponent(DancePickerPanel.getTypeName()) as DancePickerPanel
+    this.pickerPanel.setup(this.camera)
+    this.pickerPanel.onPick = (id) => this.picker.pick(id)
+    this.pickerPanel.onRetry = () => this.picker.retry()
+    this.pickerPanel.onList = () => this.picker.back()
     this.setupVoice()
-    this.render(this.controller.open())
+    this.showWindow(false)
+    this.picker.open()
   }
 
   /** Sets up the spoken counts; with any missing, counts stay silent. */
@@ -228,6 +320,11 @@ export class DanceCoach extends BaseScriptComponent {
       this.placeLeft -= dt
       this.placeWindow()
       if (this.placeLeft <= 0) this.stopPlacing()
+    }
+    if (this.picking) {
+      this.picker.tick(dt)
+      this.pickerPanel.render(this.picker.view)
+      return
     }
     // Video requests are carried out once a frame, here; a command's request lands on the next frame.
     const view = this.controller.view
@@ -313,7 +410,9 @@ export class DanceCoach extends BaseScriptComponent {
     const dir = yaw.multiplyVec3(this.lookFlat())
     const pos = this.camera.getTransform().getWorldPosition().add(dir.uniformScale(p.distanceCm)).add(new vec3(0, -p.dropCm, 0))
     this.windowRoot.getTransform().setWorldPosition(pos)
-    this.windowRoot.getTransform().setLocalScale(new vec3(p.scale, p.scale, p.scale))
+    // Still scaled to nothing while a dance is being picked.
+    const s = this.windowShown ? p.scale : HIDDEN_SCALE
+    this.windowRoot.getTransform().setLocalScale(new vec3(s, s, s))
     this.faceCamera()
   }
 

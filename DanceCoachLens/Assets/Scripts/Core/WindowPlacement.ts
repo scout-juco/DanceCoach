@@ -23,6 +23,9 @@ export const MAX_SCALE = 2.5
 
 // Closer than this and the window is out of reach of a far pinch and fills the view.
 const MIN_DISTANCE_CM = 30
+// Farther than this and the window is too small to read, or off in another room; a saved placement like that is damaged
+// (seen on the glasses: one saved at 8.5 m left the window out of sight at every start).
+const MAX_DISTANCE_CM = 600
 
 const clampScale = (scale: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale))
 
@@ -50,6 +53,6 @@ export function decodePlacement(raw: string | null | undefined): Placement | nul
   if (!data || typeof data !== "object") return null
   const num = (v: any) => typeof v === "number" && isFinite(v)
   if (!num(data.distanceCm) || !num(data.yawRightDeg) || !num(data.dropCm) || !num(data.scale)) return null
-  if (data.distanceCm < MIN_DISTANCE_CM || data.scale <= 0) return null
+  if (data.distanceCm < MIN_DISTANCE_CM || data.distanceCm > MAX_DISTANCE_CM || data.scale <= 0) return null
   return { distanceCm: data.distanceCm, yawRightDeg: data.yawRightDeg, dropCm: data.dropCm, scale: clampScale(data.scale) }
 }

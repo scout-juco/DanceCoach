@@ -1156,12 +1156,17 @@
       videoWindow: !<MappingBased.AssignableType> ff5bdd9e-0379-48e1-88c7-91e9fc8af7f1
       alwaysFirstLook: false
       videoClips: !<reference.Texture[]>
-        - !<reference> 5a171790-0c57-4612-ad01-878ee1a89b88
-        - !<reference> 0e8ec988-f714-41b8-bd19-2f76bb2e5a2b
-        - !<reference> a6a53dee-ce0c-420b-90ee-eb7a638c9f33
-        - !<reference> 19f0e5fc-a03a-4e22-bb2b-0a0667ed59c8
-        - !<reference> f39ad366-3354-4669-b0e6-33e238bab8ed
-        - !<reference> 9da50727-c17a-4422-b6db-be79d4b83b9c
+        - !<reference> 36e7c7e2-ae6e-4189-a69b-663d219d2b76
+        - !<reference> 4fe3aa82-0f73-415c-a4ed-9786c8bf68cd
+        - !<reference> dcad4940-3c1a-46d6-985d-c9242ce32139
+        - !<reference> c579bfa8-862b-48cb-9cec-828d06680be0
+        - !<reference> 01417e69-0fa2-4d1a-bda1-c1b290928f7e
+        - !<reference> 07cf0cb0-6ac1-4f48-8f3d-319b0fb5b0d3
+        - !<reference> 98d95387-c60e-448d-97c6-efbbfc57a959
+        - !<reference> 178658eb-572f-4b26-adaa-4873921f7576
+      serverUrl: "https://silly-seller-committees-discrimination.trycloudflare.com"
+      internetModule: !<reference.InternetModule> eebf6808-5aba-4e36-93fe-1f953128779f
+      remoteMediaModule: !<reference.RemoteMediaModule> c503e25e-d86a-45bc-97ce-b44a45c4b6b1
       count1: !<reference.AudioTrackAsset> 4229a75b-d5e9-41b2-80df-fe4a184cd282
       count2: !<reference.AudioTrackAsset> 48103da0-9c7e-498a-8f07-aed6a1ca399a
       count3: !<reference.AudioTrackAsset> 45237fc2-61e1-40ce-951e-c11444146710

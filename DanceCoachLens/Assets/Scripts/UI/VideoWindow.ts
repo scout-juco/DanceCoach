@@ -47,6 +47,7 @@ export class VideoWindow extends BaseScriptComponent {
   private lastBadge = ""
   private lastChips = "-"
   private scrim = false
+  private fitPending = false
 
   onAwake() {
     this.frameObject = childObject("Video", this.sceneObject)
@@ -91,6 +92,11 @@ export class VideoWindow extends BaseScriptComponent {
    */
   fitVideo() {
     if (!this.frame.texture) return
+    // A clip that hasn't prepared yet reports an aspect of NaN, which would blank the window;
+    // keep the last fit (every clip has the same aspect) and fit again once it's known.
+    const aspect = (this.frame.texture.control as VideoTextureProvider).getAspect()
+    this.fitPending = !(aspect > 0)
+    if (this.fitPending) return
     this.frame.textureMode = "Fill Height" as TextureMode
   }
 
@@ -121,6 +127,7 @@ export class VideoWindow extends BaseScriptComponent {
   }
 
   render(view: ViewState) {
+    if (this.fitPending) this.fitVideo()
     const mirror = view.settings.mirror ? -1 : 1
     this.frameObject.getTransform().setLocalScale(new vec3(mirror, 1, 1))
     this.dimObject.enabled = view.video.dim

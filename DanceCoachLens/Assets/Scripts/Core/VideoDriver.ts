@@ -25,6 +25,8 @@ export interface VideoPlayer {
   readonly status: number
   readonly currentTime: number
   readonly lastFrameTime: number
+  /** The clip's length in seconds, once it has prepared. */
+  readonly totalDuration?: number
   playbackRate: number
   play(playCount: number): void
   pause(): void
@@ -42,6 +44,8 @@ export interface ClipPlayer {
 const NEAR_SEC = 0.25
 // If the picture hasn't reached the target after this long, start the clip again.
 const LAND_SEC = 1.5
+// A clip is held on its picture this long before its end, so it never stops.
+const END_HOLD_SEC = 0.1
 
 type Phase = "start" | "wait" | "kick" | "land"
 
@@ -79,6 +83,13 @@ export class VideoDriver {
     return clip.start + (this.ended ? this.endedAt : player.currentTime)
   }
 
+  /** Stops whatever is playing, for when the dance is swapped out. */
+  stop() {
+    if (this.active < 0) return
+    const p = this.clips[this.active].player
+    if (p.status !== VIDEO_STATUS.Stopped) p.stop()
+  }
+
   /** Call every frame with the controller's current request. */
   apply(req: VideoRequest, dtSec: number) {
     if (req.seekId !== this.seekId) {
@@ -105,6 +116,14 @@ export class VideoDriver {
       } else if (req.playing) {
         this.endedAt += dtSec * this.rate
       }
+      return
+    }
+    // A clip that plays out stops, and a stopped video can drop its picture. Pause on its last
+    // frames instead, which holds the picture, and let time carry on past the end as before.
+    if (p.status === VIDEO_STATUS.Playing && p.totalDuration && p.currentTime >= p.totalDuration - END_HOLD_SEC) {
+      p.pause()
+      this.ended = true
+      this.endedAt = p.currentTime
       return
     }
     if (req.playing) {
