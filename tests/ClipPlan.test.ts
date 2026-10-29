@@ -6,10 +6,10 @@ import { makeDance } from "./fixtures"
 // The fixture: 120 bpm (a count is 0.5 s, a section 4 s), first beat at 1 s, sections at 1, 5 and 9 s.
 
 describe("planClips", () => {
-  it("cuts one clip per section, from its lead-in to the end of the routine (so a range can play on), and one from the top", () => {
+  it("cuts one clip per section, from its lead-in to its end, and one from the top", () => {
     expect(planClips(makeDance())).toEqual([
       { id: "top", start: 1, end: 13 },
-      { id: "s2", start: 3, end: 13 },
+      { id: "s2", start: 3, end: 9 },
       { id: "s3", start: 7, end: 13 },
     ])
   })
@@ -22,7 +22,7 @@ describe("planClips", () => {
 
   it("follows nudged sections", () => {
     const plan = planClips(makeDance({ sections: [{ start: 1 }, { start: 5.3 }, { start: 9 }] }))
-    expect(plan.find((c) => c.id === "s2")).toEqual({ id: "s2", start: 3.3, end: 13 })
+    expect(plan.find((c) => c.id === "s2")).toEqual({ id: "s2", start: 3.3, end: 9.3 })
   })
 })
 
