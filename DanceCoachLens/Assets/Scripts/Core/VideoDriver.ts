@@ -46,6 +46,10 @@ const NEAR_SEC = 0.25
 const LAND_SEC = 1.5
 // A clip is held on its picture this long before its end, so it never stops.
 const END_HOLD_SEC = 0.1
+// The next clip of a range starts preparing this long before the video reaches its start.
+const PRESTART_SEC = 0.5
+// Clip starts closer than this are the same start (as in ClipPlan).
+const SAME_START_SEC = 0.05
 
 type Phase = "start" | "wait" | "kick" | "land"
 
@@ -61,6 +65,12 @@ export class VideoDriver {
   // Once a clip has played to its end, time carries on past it (the last section counts on to 8).
   private ended = false
   private endedAt = 0
+  // A range plays on into the next section's clip: that clip is started early (ahead), held on its
+  // first frame, released when the video reaches its start, and takes over when the active one ends.
+  private runEnd = 0
+  private ahead = -1
+  private aheadHeld = false
+  private aheadReleased = false
 
   /**
    * @param clips one player per clip
@@ -85,9 +95,12 @@ export class VideoDriver {
 
   /** Stops whatever is playing, for when the dance is swapped out. */
   stop() {
-    if (this.active < 0) return
-    const p = this.clips[this.active].player
-    if (p.status !== VIDEO_STATUS.Stopped) p.stop()
+    for (const i of [this.active, this.ahead]) {
+      if (i < 0) continue
+      const p = this.clips[i].player
+      if (p.status !== VIDEO_STATUS.Stopped) p.stop()
+    }
+    this.ahead = -1
   }
 
   /** Call every frame with the controller's current request. */
@@ -95,6 +108,7 @@ export class VideoDriver {
     if (req.seekId !== this.seekId) {
       this.seekId = req.seekId
       this.target = req.seekTo
+      this.runEnd = req.runEnd
       const at = clipFor(
         this.clips.map((c) => c.clip),
         req.seekTo,
@@ -107,6 +121,7 @@ export class VideoDriver {
       this.stepSeek(req, dtSec)
       return
     }
+    if (!this.ended) this.stepChain()
     const p = this.clips[this.active].player
     if (this.ended || p.status === VIDEO_STATUS.Stopped) {
       // The clip has played out (it can stop a frame short of its end): hold its last frame while time runs on.
@@ -136,6 +151,8 @@ export class VideoDriver {
   private stepSeek(req: VideoRequest, dtSec: number) {
     switch (this.phase) {
       case "start": {
+        // A new run drops any clip started ahead for the last one.
+        if (this.dropAhead()) return
         // Stop whatever is running, then start the target clip from 0 at the run's speed.
         if (this.active >= 0) {
           const old = this.clips[this.active].player
@@ -187,6 +204,63 @@ export class VideoDriver {
         return this.countDown(dtSec)
       }
     }
+  }
+
+  /** The clip a run that outlasts the active one carries on into: the next to start inside it. -1 when the run ends in it. */
+  private chainNext(): number {
+    const cur = this.clips[this.active].clip
+    if (this.runEnd <= cur.end + SAME_START_SEC) return -1
+    let best = -1
+    this.clips.forEach(({ clip }, i) => {
+      if (clip.start <= cur.start + SAME_START_SEC || clip.start > cur.end) return
+      if (best < 0 || clip.start < this.clips[best].clip.start) best = i
+    })
+    return best
+  }
+
+  /** Starts the next clip early, holds it on its first frame, releases it at its start and hands over when the active clip ends. */
+  private stepChain() {
+    const next = this.ahead >= 0 ? this.ahead : this.chainNext()
+    if (next < 0) return
+    const cur = this.clips[this.active]
+    const n = this.clips[next]
+    const t = cur.clip.start + cur.player.currentTime
+    if (this.ahead < 0) {
+      if (t < n.clip.start - PRESTART_SEC) return
+      n.player.playbackRate = this.rate
+      n.player.play(1)
+      this.ahead = next
+      this.aheadHeld = false
+      this.aheadReleased = false
+      return
+    }
+    const a = n.player
+    if (!this.aheadHeld && a.status === VIDEO_STATUS.Playing) {
+      a.pause()
+      this.aheadHeld = true
+    }
+    if (this.aheadHeld && !this.aheadReleased && t >= n.clip.start) {
+      a.resume()
+      this.aheadReleased = true
+    }
+    const p = cur.player
+    const over = p.status === VIDEO_STATUS.Stopped || (!!p.totalDuration && p.currentTime >= p.totalDuration - END_HOLD_SEC)
+    if (!over || !this.aheadReleased) return
+    // Hand over: the next clip is already showing the same moment, so the picture carries on.
+    if (p.status !== VIDEO_STATUS.Stopped) p.stop()
+    this.active = next
+    this.ahead = -1
+    this.onShow(next)
+  }
+
+  /** Stops a clip that was started ahead and isn't wanted. True while it can't be stopped yet (still preparing). */
+  private dropAhead(): boolean {
+    if (this.ahead < 0) return false
+    const a = this.clips[this.ahead].player
+    if (a.status === VIDEO_STATUS.Preparing) return true
+    if (a.status !== VIDEO_STATUS.Stopped) a.stop()
+    this.ahead = -1
+    return false
   }
 
   /** Gives up on a seek that hasn't landed in time and starts the clip again. */

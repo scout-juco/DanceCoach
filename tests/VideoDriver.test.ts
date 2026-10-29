@@ -90,7 +90,7 @@ function setup() {
 }
 
 function request(over: Partial<VideoRequest> = {}): VideoRequest {
-  return { seekTo: 3, seekId: 1, playing: true, rate: 1, holdFrame: false, dim: false, ...over }
+  return { seekTo: 3, seekId: 1, runEnd: 0, playing: true, rate: 1, holdFrame: false, dim: false, ...over }
 }
 
 /** Runs frames until the driver has landed its seek; returns how long that took. */
@@ -203,6 +203,102 @@ describe("VideoDriver", () => {
       if (!s.driver.busy) pc.tick(s.driver.time, FRAME)
     }
     expect(pc.view).toMatchObject({ screen: "C", section: 2, doneSections: [2] })
+  })
+
+  describe("a range of sections", () => {
+    // Sections 2 and 3: s2 covers 3-9, s3 covers 7-13, so s3's lead-in overlaps the end of s2.
+    const range = (over: Partial<VideoRequest> = {}) => request({ seekTo: 3, runEnd: 13, ...over })
+
+    it("starts the next clip early, holds its first frame, releases it at its start and hands over when the clip ends", () => {
+      const s = setup()
+      settle(s, range())
+      // Video time 3 -> 6.4: s3 (starts at 7, so 6.5 minus the head start) hasn't been touched.
+      frames(s, range(), 3.3)
+      expect(s.video("s3").plays).toBe(0)
+      // Just before 7: prepared and held on its first frame.
+      frames(s, range(), 0.5)
+      expect(s.video("s3").plays).toBe(1)
+      expect(s.video("s3").status).toBe(VIDEO_STATUS.Paused)
+      expect(s.shown).toEqual(["s2"])
+      // Past 7: released and playing behind s2, which is still the one showing.
+      frames(s, range(), 0.5)
+      expect(s.video("s3").status).toBe(VIDEO_STATUS.Playing)
+      expect(s.video("s3").currentTime).toBeGreaterThan(0.2)
+      expect(s.shown).toEqual(["s2"])
+      // s2 ends at 9: s3 takes over.
+      frames(s, range(), 1.8)
+      expect(s.shown).toEqual(["s2", "s3"])
+      expect(s.video("s2").status).toBe(VIDEO_STATUS.Stopped)
+      expect(s.video("s3").plays).toBe(1)
+      expect(s.driver.time).toBeGreaterThan(9)
+    })
+
+    it("keeps one continuous run time across the hand-off", () => {
+      const s = setup()
+      settle(s, range())
+      let last = s.driver.time
+      let worst = 0
+      for (let i = 0; i < 30 * 8; i++) {
+        s.videos.forEach((v) => v.advance(FRAME))
+        s.driver.apply(range(), FRAME)
+        worst = Math.min(worst, s.driver.time - last)
+        last = s.driver.time
+      }
+      expect(worst).toBeGreaterThan(-0.05)
+      expect(last).toBeGreaterThan(10.5)
+    })
+
+    it("plays a range through with the controller", () => {
+      const s = setup()
+      const pc = new PlaybackController(makeDance())
+      pc.tapRange(2, 3)
+      for (let i = 0; i < 600 && pc.view.screen !== "C" && pc.view.screen !== "C2"; i++) {
+        s.videos.forEach((v) => v.advance(FRAME))
+        s.driver.apply(pc.view.video, FRAME)
+        if (!s.driver.busy) pc.tick(s.driver.time, FRAME)
+      }
+      expect(pc.view).toMatchObject({ section: 2, runStop: 3, doneSections: [2, 3] })
+      expect(s.shown).toEqual(["s2", "s3"])
+      expect(s.video("s2").plays).toBe(1)
+      expect(s.video("s3").plays).toBe(1)
+    })
+
+    it("doesn't chain when the run ends inside the clip", () => {
+      const s = setup()
+      settle(s, request({ seekTo: 3, runEnd: 9 }))
+      frames(s, request({ seekTo: 3, runEnd: 9 }), 5.5)
+      expect(s.video("s3").plays).toBe(0)
+      expect(s.shown).toEqual(["s2"])
+    })
+
+    it("doesn't chain when the run is in the top clip", () => {
+      const s = setup()
+      settle(s, request({ seekTo: 1, runEnd: 13 }))
+      frames(s, request({ seekTo: 1, runEnd: 13 }), 8)
+      expect(s.video("s2").plays + s.video("s3").plays).toBe(0)
+      expect(s.shown).toEqual(["top"])
+    })
+
+    it("drops a clip started ahead when a new run starts", () => {
+      const s = setup()
+      settle(s, range())
+      frames(s, range(), 3.6)
+      expect(s.video("s3").status).toBe(VIDEO_STATUS.Paused)
+      settle(s, range({ seekId: 2, seekTo: 3 }))
+      expect(s.video("s3").status).toBe(VIDEO_STATUS.Stopped)
+      // The restarted run chains again from scratch.
+      frames(s, range({ seekId: 2, seekTo: 3 }), 6.5)
+      expect(s.video("s3").plays).toBe(2)
+      expect(s.shown).toEqual(["s2", "s3"])
+    })
+
+    it("drops a clip started ahead when the dance is swapped out", () => {
+      const s = setup()
+      settle(s, range())
+      frames(s, range(), 3.6)
+      s.driver.stop()
+      expect(s.video("s3").status).toBe(VIDEO_STATUS.Stopped)
+    })
   })
 
   it("plays the whole first look with the controller, then counts in to Section 1", () => {

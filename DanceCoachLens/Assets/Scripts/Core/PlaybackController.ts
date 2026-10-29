@@ -86,6 +86,8 @@ export interface VideoRequest {
   /** Video time to seek to. Apply it only when seekId changes. */
   seekTo: number
   seekId: number
+  /** Video time where the run ends. A run that outlasts its clip carries on into the next section's clip. */
+  runEnd: number
   playing: boolean
   rate: number
   /** Hold the last frame (the clip has played out before the run ended). */
@@ -163,7 +165,7 @@ export class PlaybackController {
       mode: "Playthrough",
       toast: null,
       popup: null,
-      video: { seekTo: this.clock.sectionStart(1), seekId: 0, playing: false, rate: settings.speed, holdFrame: false, dim: false },
+      video: { seekTo: this.clock.sectionStart(1), seekId: 0, runEnd: this.clock.sectionEnd(1), playing: false, rate: settings.speed, holdFrame: false, dim: false },
     }
   }
 
@@ -197,6 +199,7 @@ export class PlaybackController {
         ...s.video,
         seekTo: lead ? lead.start : this.clock.sectionStart(1),
         seekId: s.video.seekId + 1,
+        runEnd: this.clock.sectionEnd(this.clock.sectionCount),
         playing: true,
         rate: 1,
         holdFrame: false,
@@ -279,6 +282,7 @@ export class PlaybackController {
         ...s.video,
         seekTo: lead ? lead.start : start,
         seekId: s.video.seekId + 1,
+        runEnd: this.clock.sectionEnd(stop),
         playing: !!lead,
         rate: s.settings.speed,
         holdFrame: false,
