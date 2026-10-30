@@ -3,82 +3,201 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dance Coach: Ready to learn</title>
+<title>Dance Coach</title>
 <style>
-  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-  body { max-width: 720px; margin: 0 auto; padding: 16px; }
-  h1 { font-size: 1.3rem; }
-  fieldset { margin: 12px 0; border: 1px solid #8884; border-radius: 8px; }
-  label { display: inline-block; margin: 4px 8px 4px 0; }
-  input, select, button { font: inherit; padding: 4px 8px; }
-  input[type=number] { width: 6.5em; }
-  .stage { position: relative; background: #000; }
-  .stage video { width: 100%; display: block; }
-  #overlay { position: absolute; left: 8px; top: 8px; padding: 4px 10px; border-radius: 6px;
-             background: #000a; color: #fff; font-weight: 600; pointer-events: none; }
-  .error { color: #c33; } .ok { color: #2a7; }
-  [hidden] { display: none; }
+  /* One phone-width screen at a time, laid out like the phone app's P1–P4. */
+  :root {
+    color-scheme: light dark; font-family: system-ui, sans-serif;
+    --bg: #fff; --ink: #1f1f1e; --muted: #5e5e5a; --line: #d6d6d2; --soft: #f0f0ed; --fill: #e3e3df;
+    --err: #c33; --ok: #2a7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1b1a; --ink: #ecece8; --muted: #a3a29c; --line: #3a3a37; --soft: #252523; --fill: #2f2f2c; --err: #f77; --ok: #4c9; }
+  }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink); }
+  .screen { max-width: 420px; min-height: 100vh; margin: 0 auto; box-sizing: border-box; padding: 24px 20px;
+            display: flex; flex-direction: column; gap: 16px; }
+  .top { display: flex; align-items: center; gap: 12px; }
+  .top h1 { margin: 0; font-size: 22px; font-weight: 600; }
+  .screen.home h1 { font-size: 28px; }
+  button, input, select { font: inherit; color: inherit; }
+  input, select { box-sizing: border-box; height: 44px; padding: 0 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--bg); }
+  input[type=number] { width: 7em; }
+  button { cursor: pointer; }
+  .back { width: 44px; height: 44px; flex-shrink: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); font-size: 18px; font-weight: 600; }
+  .primary { height: 56px; border: 0; border-radius: 16px; background: var(--ink); color: var(--bg); font-size: 16px; font-weight: 600; }
+  .primary:disabled { opacity: .5; cursor: default; }
+  .outline { height: 56px; border: 1.5px solid var(--ink); border-radius: 16px; background: var(--bg); font-size: 16px; font-weight: 600; }
+  .chip { height: 40px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); font-size: 13px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row.tight { gap: 6px; }
+  .grow { flex-grow: 1; min-width: 0; }
+  .push { margin-top: auto; }
+  .label { font-size: 13px; font-weight: 600; }
+  .hint { color: var(--muted); font-size: 12px; margin: 0; }
+  .mono { font: 400 12px ui-monospace, monospace; color: var(--muted); }
+  .error { color: var(--err); } .ok { color: var(--ok); }
   progress { width: 100%; }
+  .section-title { font-size: 17px; font-weight: 600; margin: 0; }
+
+  /* Library */
+  #list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  #list li { display: flex; gap: 12px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 14px; }
+  #list .name { font-size: 15px; font-weight: 600; }
+  #list .meta { font-size: 12px; color: var(--muted); }
+  #list .open { flex-grow: 1; text-align: left; border: 0; background: none; padding: 4px; }
+  .empty { color: var(--muted); text-align: center; padding: 24px 0; }
+
+  /* Video */
+  .stage { position: relative; align-self: center; background: #000; border-radius: 14px; overflow: hidden; max-width: 100%; }
+  .stage video { display: block; max-width: 100%; max-height: 50vh; }
+  .overlay { position: absolute; left: 8px; top: 8px; padding: 4px 10px; border-radius: 6px;
+             background: #000a; color: #fff; font-weight: 600; pointer-events: none; }
+
+  /* Trim slider: two handles on a track, the chosen part highlighted, a line for where the video is now. */
+  .trim { display: flex; flex-direction: column; gap: 6px; }
+  .track { position: relative; height: 48px; border-radius: 10px; background: var(--fill); touch-action: none; user-select: none; }
+  .track .sel { position: absolute; top: 0; bottom: 0; border: 2.5px solid var(--ink); border-radius: 10px; background: var(--line); box-sizing: border-box; }
+  .track .handle { position: absolute; top: 10px; width: 12px; height: 28px; margin-left: -6px; border-radius: 4px; background: var(--ink); cursor: ew-resize; }
+  .track .handle::after { content: ""; position: absolute; inset: -10px -12px; } /* a bigger thumb target */
+  .track .playhead { position: absolute; top: 4px; bottom: 4px; width: 2px; margin-left: -1px; background: #2f5bff; pointer-events: none; }
+  .times { display: flex; justify-content: space-between; }
+
+  /* Ready screen */
+  .sections { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .sections div { display: flex; justify-content: space-between; align-items: center; height: 48px; padding: 0 14px; border-bottom: 1px solid var(--fill); font-size: 15px; font-weight: 600; }
+  .sections div:last-child { border-bottom: 0; }
+  .sections div:first-child { background: var(--soft); }
+  .sections .mono { font-weight: 400; }
+
+  /* Adjust screen */
+  .group { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .group h2 { margin: 0; font-size: 15px; }
+  details.group > summary { cursor: pointer; font-size: 15px; font-weight: 600; }
 </style>
 </head>
 <body>
-<h1>Ready to learn</h1>
 
-<section id="upload">
-  <input type="file" id="file" accept="video/*">
+<!-- P1: your dances -->
+<section class="screen home" id="library" data-screen>
+  <div class="top"><h1>Your dances</h1></div>
+  <ul id="list"></ul>
+  <button class="outline push" id="addDance">+ Add a dance</button>
+</section>
+
+<!-- P2: add a dance -->
+<section class="screen" id="add" data-screen hidden>
+  <div class="top"><button class="back" aria-label="Back">‹</button><h1>Add a dance</h1></div>
+  <div>
+    <label class="label" for="link">Paste a video link</label>
+    <div class="row" style="flex-wrap: nowrap; margin-top: 8px">
+      <input type="url" id="link" class="grow" placeholder="tiktok.com/@…">
+      <button class="chip" id="fetchLink" style="height: 44px; background: var(--ink); color: var(--bg); font-weight: 600">Go</button>
+    </div>
+    <p class="hint" style="margin-top: 8px">TikTok, YouTube or Instagram.</p>
+  </div>
+  <label class="outline" style="display: flex; align-items: center; justify-content: center; height: 56px; box-sizing: border-box; font-size: 15px; cursor: pointer">
+    Upload a video file<input type="file" id="file" accept="video/*" hidden>
+  </label>
   <progress id="uploadProgress" hidden></progress>
-  <p id="uploadStatus"></p>
+  <p id="uploadStatus" class="hint"></p>
 </section>
 
-<section id="adjust" hidden>
-  <p id="detected"></p>
-  <div class="stage"><video id="video" controls playsinline></video><div id="overlay"></div></div>
-  <p id="steps">Step:
-    <button data-step="-1">−1 s</button><button data-step="-0.1">−0.1</button><button data-step="-0.01">−0.01</button>
-    <button data-step="0.01">+0.01</button><button data-step="0.1">+0.1</button><button data-step="1">+1 s</button>
-    <span id="clock"></span></p>
-
-  <fieldset><legend>Dance</legend>
-    <label>Name <input id="title"></label>
-    <label>Difficulty <select id="difficulty"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select></label>
-  </fieldset>
-
-  <fieldset><legend>Trim</legend>
-    <label>Start (s) <input type="number" id="trimStart" step="0.01"></label>
-    <button id="trimStartHere">Start here</button>
-    <label>End (s) <input type="number" id="trimEnd" step="0.01"></label>
-    <button id="trimEndHere">End here</button>
-  </fieldset>
-
-  <fieldset><legend>First beat</legend>
-    <label>Time (s) <input type="number" id="firstBeat" step="0.01"></label>
-    <button data-nudge="-0.05">−0.05</button><button data-nudge="-0.01">−0.01</button>
-    <button data-nudge="0.01">+0.01</button><button data-nudge="0.05">+0.05</button>
-    <button id="firstBeatHere">Count 1 is here</button>
-  </fieldset>
-
-  <fieldset><legend>Tempo</legend>
-    <label>BPM <input type="number" id="bpm" step="0.1" min="1"></label>
-    <button id="halve">½×</button><button id="double">2×</button>
-  </fieldset>
-
-  <fieldset><legend>Sections</legend>
-    <label>Section <input type="number" id="sectionN" min="1" value="2" step="1"></label>
-    <label>at (s) <input type="number" id="sectionTime" step="0.001"></label>
-    <button id="sectionHere">Starts here</button>
-    <button id="sectionAt">Starts at time</button>
-    <button id="clearSections">Clear nudges</button>
-    <p id="sectionsInfo"></p>
-  </fieldset>
-
-  <p id="problem" class="error"></p>
-  <button id="ready">Ready</button>
-  <progress id="cutProgress" hidden></progress>
-  <p id="readyStatus"></p>
+<!-- P3: trim -->
+<section class="screen" id="trim" data-screen hidden>
+  <div class="top"><button class="back" aria-label="Back">‹</button><h1>Trim</h1></div>
+  <div class="stage"><video id="trimVideo" controls playsinline></video></div>
+  <div class="trim">
+    <div class="track" id="track">
+      <div class="sel" id="sel"></div>
+      <div class="playhead" id="playhead"></div>
+      <div class="handle" id="startHandle" aria-label="Trim start"></div>
+      <div class="handle" id="endHandle" aria-label="Trim end"></div>
+    </div>
+    <div class="times mono"><div id="startLabel"></div><div id="endLabel"></div></div>
+  </div>
+  <div class="row tight">
+    <button class="chip" data-step="-1">−1 s</button><button class="chip" data-step="-0.1">−0.1</button><button class="chip" data-step="-0.01">−0.01</button>
+    <button class="chip" data-step="0.01">+0.01</button><button class="chip" data-step="0.1">+0.1</button><button class="chip" data-step="1">+1 s</button>
+    <span class="mono clock"></span>
+  </div>
+  <div class="row">
+    <button class="chip" id="danceStartsHere">Dance starts here</button>
+    <button class="chip" id="trimEndHere">End here</button>
+  </div>
+  <p class="hint">Drag the handles, or scrub the video and press a button. Put the start where the moves begin; then play it, and the counts should land on the music's beat.</p>
+  <button class="primary push" id="toReady">Split into sections</button>
 </section>
 
-<h2>Ready dances</h2>
-<ul id="list"></ul>
+<!-- P4: ready to learn -->
+<section class="screen" id="ready" data-screen hidden>
+  <div class="top"><button class="back" aria-label="Back">‹</button><h1>Ready to learn</h1></div>
+  <p id="detected" class="hint"></p>
+  <div class="row" style="flex-wrap: nowrap">
+    <input id="title" class="grow" aria-label="Name" placeholder="Name">
+    <select id="difficulty" aria-label="Difficulty"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select>
+  </div>
+  <div class="stage"><video id="previewVideo" controls playsinline></video><div class="overlay" id="previewOverlay"></div></div>
+  <button class="chip" id="playPreview" style="align-self: flex-start">▶ Preview the counts</button>
+  <div class="mono" id="summary"></div>
+  <div class="sections" id="sections"></div>
+  <button class="chip" id="toAdjust" style="align-self: flex-start">Adjust section starts</button>
+  <div class="push" style="display: flex; flex-direction: column; gap: 10px">
+    <p id="problem" class="error hint"></p>
+    <progress id="cutProgress" hidden></progress>
+    <p id="readyStatus" class="hint" style="text-align: center"></p>
+    <button class="primary" id="readyBtn">Ready</button>
+    <button class="chip" id="toLibrary" style="border: 0; font-weight: 600; height: 48px">Back to your dances</button>
+  </div>
+</section>
+
+<!-- Adjust section starts -->
+<section class="screen" id="adjust" data-screen hidden>
+  <div class="top"><button class="back" aria-label="Back">‹</button><h1>Adjust section starts</h1></div>
+  <div class="stage"><video id="adjustVideo" controls playsinline></video><div class="overlay" id="overlay"></div></div>
+  <div class="row tight">
+    <button class="chip" data-step="-1">−1 s</button><button class="chip" data-step="-0.1">−0.1</button><button class="chip" data-step="-0.01">−0.01</button>
+    <button class="chip" data-step="0.01">+0.01</button><button class="chip" data-step="0.1">+0.1</button><button class="chip" data-step="1">+1 s</button>
+    <span class="mono clock"></span>
+  </div>
+
+  <div class="group">
+    <h2>First beat (count 1)</h2>
+    <div class="row">
+      <input type="number" id="firstBeat" step="0.01" aria-label="First beat time in seconds">
+      <button class="chip" data-nudge="-0.05">−0.05</button><button class="chip" data-nudge="-0.01">−0.01</button>
+      <button class="chip" data-nudge="0.01">+0.01</button><button class="chip" data-nudge="0.05">+0.05</button>
+    </div>
+    <button class="chip" id="firstBeatHere" style="align-self: flex-start">Count 1 is here</button>
+  </div>
+
+  <div class="group">
+    <h2>Tempo (beats per minute)</h2>
+    <div class="row">
+      <input type="number" id="bpm" step="0.1" min="1" aria-label="Beats per minute">
+      <button class="chip" id="halve">½×</button><button class="chip" id="double">2×</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <h2>Sections</h2>
+    <div class="row">
+      <label>Section <input type="number" id="sectionN" min="1" value="2" step="1"></label>
+      <label>at (s) <input type="number" id="sectionTime" step="0.001"></label>
+    </div>
+    <div class="row">
+      <button class="chip" id="sectionHere">Starts here</button>
+      <button class="chip" id="sectionAt">Starts at time</button>
+      <button class="chip" id="clearSections">Clear nudges</button>
+    </div>
+    <p id="sectionsInfo" class="hint"></p>
+  </div>
+
+  <p id="problem2" class="error hint"></p>
+  <button class="primary push" id="adjustDone">Done</button>
+</section>
+
 <script type="module" src="/app.js"></script>
 </body>
 </html>

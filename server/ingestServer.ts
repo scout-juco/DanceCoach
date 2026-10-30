@@ -5,6 +5,9 @@
  *     201 { package, confidence }   the draft: detected bpm and first beat, whole video as the trim
  *   PUT /dances/<id>          body = the adjusted package (JSON); validates, cuts the clips, marks it ready
  *     200 { package }               the package as stored (its video name is always the server's)
+ *   POST /dances/link         body = { url } (JSON): fetches the video with yt-dlp, then as an upload
+ *     201 { package, confidence }   the same draft; its source is the link
+ *   DELETE /dances/<id>       removes the dance and its files (200 { deleted: true })
  *   GET /dances               the ready dances: [{ id, title, difficulty }]
  *   GET /dances/<id>/package  a ready dance's package
  *   GET /dances/<id>/clips/<name>  one of its clips, named <video>_<clip id>.mp4
@@ -28,7 +31,7 @@ import { DancePackage, loadDancePackage } from "../DanceCoachLens/Assets/Scripts
 import { cutClips } from "../scripts/cutClips"
 import { clipAssetName, planClips } from "../DanceCoachLens/Assets/Scripts/Core/ClipPlan"
 import { detectBeats } from "./detectBeats"
-import { decodeAudio, probeVideo, UploadError } from "./media"
+import { decodeAudio, fetchWithYtDlp, probeVideo, UploadError, VideoFetcher } from "./media"
 
 const MAX_UPLOAD_BYTES = 1024 ** 3
 const MAX_PACKAGE_BYTES = 1024 ** 2
@@ -37,6 +40,8 @@ const ID_PATTERN = /^[0-9a-f]{12}$/
 export interface IngestOptions {
   /** Where each dance's folder goes. */
   storageDir: string
+  /** Gets the video behind a link into a folder. Defaults to yt-dlp; tests fake it. */
+  fetchVideo?: VideoFetcher
 }
 
 export interface Draft {
@@ -50,34 +55,66 @@ function send(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body))
 }
 
-/** Stores an upload under a new dance id and builds its draft package. */
-async function createDraft(req: IncomingMessage, name: string, storageDir: string): Promise<Draft> {
+/** Makes a dance folder, fills it with `store`, and builds its draft package. Keeps nothing on failure. */
+async function createDraft(
+  storageDir: string,
+  source: string,
+  store: (dir: string) => Promise<{ original: string; title: string }>,
+): Promise<Draft> {
   const id = randomBytes(6).toString("hex")
   const dir = join(storageDir, id)
-  const ext = extname(name).toLowerCase().replace(/[^.a-z0-9]/g, "") || ".mp4"
-  const original = join(dir, `original${ext}`)
   await mkdir(dir, { recursive: true })
   try {
-    await pipeline(req, createWriteStream(original))
+    const { original, title } = await store(dir)
     const info = await probeVideo(original)
     if (!info.hasAudio) throw new UploadError("That video has no sound, so we can't find the beat. Try one with the music in it.")
     const guess = detectBeats(await decodeAudio(original))
     const pkg = loadDancePackage({
       id,
-      title: name.replace(/\.[^.]+$/, "") || "Untitled dance",
+      title: title || "Untitled dance",
       difficulty: "Beginner",
       // Unique per dance, so clips from many dances sit side by side.
-      video: `${id}${ext}`,
+      video: `${id}${extname(original)}`,
       trim: { start: 0, end: info.durationSec },
       bpm: guess.bpm,
       firstBeatSec: guess.firstBeatSec,
-      source: "upload",
+      source,
     })
     return { package: pkg, confidence: guess.confidence }
   } catch (err) {
     await rm(dir, { recursive: true, force: true })
     throw err
   }
+}
+
+/** Stores an upload under a new dance id and builds its draft package. */
+function draftFromUpload(req: IncomingMessage, name: string, storageDir: string): Promise<Draft> {
+  return createDraft(storageDir, "upload", async (dir) => {
+    const ext = extname(name).toLowerCase().replace(/[^.a-z0-9]/g, "") || ".mp4"
+    const original = join(dir, `original${ext}`)
+    await pipeline(req, createWriteStream(original))
+    return { original, title: name.replace(/\.[^.]+$/, "") }
+  })
+}
+
+/** Fetches the video behind a link and builds its draft package; the link is the package's source. */
+async function draftFromLink(body: string, options: IngestOptions): Promise<Draft> {
+  let link: URL
+  try {
+    link = new URL(String(JSON.parse(body).url).trim())
+    if (link.protocol !== "http:" && link.protocol !== "https:") throw new Error()
+  } catch {
+    throw new UploadError("That doesn't look like a link. Paste the address of the video, or upload the file instead.")
+  }
+  const fetchVideo = options.fetchVideo ?? fetchWithYtDlp
+  return createDraft(options.storageDir, link.href, async (dir) => {
+    try {
+      return await fetchVideo(link.href, dir)
+    } catch (err) {
+      if (err instanceof UploadError) throw err
+      throw new UploadError("We couldn't get a video from that link. It may be private or from a site we can't read. Try uploading the file instead.")
+    }
+  })
 }
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -119,6 +156,13 @@ async function saveDance(id: string, body: string, storageDir: string): Promise<
     throw new UploadError((err as Error).message)
   }
   const dir = join(storageDir, id)
+  // Editing a ready dance's name or difficulty keeps its timing, so its clips are still right.
+  const before = await readReady(storageDir, id)
+  const timing = (p: DancePackage) => JSON.stringify([p.video, p.trim, p.bpm, p.firstBeatSec, p.sections])
+  if (before && timing(before) === timing(pkg) && (await exists(join(dir, "clips")))) {
+    await writeFile(join(dir, "package.json"), JSON.stringify(pkg, null, 2))
+    return pkg
+  }
   const staging = join(dir, "clips.tmp")
   await rm(staging, { recursive: true, force: true })
   try {
@@ -127,9 +171,11 @@ async function saveDance(id: string, body: string, storageDir: string): Promise<
     await rm(staging, { recursive: true, force: true })
     throw err
   }
+  // The old clips and package keep being served while the new ones are cut; the swap is the last, quick step.
+  await writeFile(join(dir, "package.json.tmp"), JSON.stringify(pkg, null, 2))
   await rm(join(dir, "clips"), { recursive: true, force: true })
   await rename(staging, join(dir, "clips"))
-  await writeFile(join(dir, "package.json"), JSON.stringify(pkg, null, 2))
+  await rename(join(dir, "package.json.tmp"), join(dir, "package.json"))
   return pkg
 }
 
@@ -193,8 +239,11 @@ export function createIngestServer(options: IngestOptions): Server {
         if (Number(req.headers["content-length"] ?? 0) > MAX_UPLOAD_BYTES) {
           return send(res, 413, { error: "That video is too big (1 GB at most)." })
         }
-        const draft = await createDraft(req, url.searchParams.get("name") ?? "dance.mp4", options.storageDir)
+        const draft = await draftFromUpload(req, url.searchParams.get("name") ?? "dance.mp4", options.storageDir)
         return send(res, 201, draft)
+      }
+      if (req.method === "POST" && url.pathname === "/dances/link") {
+        return send(res, 201, await draftFromLink(await readBody(req), options))
       }
       if (req.method === "GET" && url.pathname === "/") {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
@@ -213,6 +262,11 @@ export function createIngestServer(options: IngestOptions): Server {
         if (req.method === "PUT" && !what) {
           const pkg = await saveDance(id, await readBody(req), options.storageDir)
           return send(res, 200, { package: pkg })
+        }
+        if (req.method === "DELETE" && !what) {
+          if (!ID_PATTERN.test(id) || !(await exists(join(options.storageDir, id)))) throw new NotFoundError("There's no such dance.")
+          await rm(join(options.storageDir, id), { recursive: true, force: true })
+          return send(res, 200, { deleted: true })
         }
         if (req.method === "GET" && what === "original") {
           const original = await findOriginal(options.storageDir, id)

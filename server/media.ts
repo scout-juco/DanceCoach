@@ -1,5 +1,7 @@
 /** ffmpeg and ffprobe on the PATH: what is in an uploaded file, and its audio decoded for beat detection. */
 import { execFile } from "node:child_process"
+import { readdir } from "node:fs/promises"
+import { join } from "node:path"
 import { promisify } from "node:util"
 import { SAMPLE_RATE } from "./detectBeats"
 
@@ -40,4 +42,20 @@ export async function decodeAudio(file: string): Promise<Float32Array> {
   )
   // Copy so the samples are aligned for a Float32Array view.
   return new Float32Array(stdout.buffer.slice(stdout.byteOffset, stdout.byteOffset + stdout.length - (stdout.length % 4)))
+}
+
+/** Gets the video behind a link into `dir` as original.<ext>, and says what it is called. Throws if it can't. */
+export type VideoFetcher = (url: string, dir: string) => Promise<{ original: string; title: string }>
+
+/** Personal-use fetch of a TikTok, YouTube or Instagram link with yt-dlp, run as a Python module (python -m yt_dlp) since the yt-dlp.exe launcher can be blocked by Windows policy. */
+export const fetchWithYtDlp: VideoFetcher = async (url, dir) => {
+  const { stdout } = await run(
+    "python",
+    ["-m", "yt_dlp", "--no-playlist", "--max-filesize", "1G", "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b", "--merge-output-format", "mp4",
+      "-o", join(dir, "original.%(ext)s"), "--print", "title", "--no-simulate", "--", url],
+    { timeout: 10 * 60_000 },
+  )
+  const file = (await readdir(dir)).find((f) => f.startsWith("original.") && !f.endsWith(".part"))
+  if (!file) throw new Error("yt-dlp saved nothing")
+  return { original: join(dir, file), title: stdout.trim().split(/\r?\n/)[0] }
 }

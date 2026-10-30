@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -15,7 +15,15 @@ const fixture = join(work, "clicks.mp4")
 const silent = join(work, "silent.mp4")
 const notVideo = join(work, "notes.txt")
 const storage = join(work, "storage")
-const server = createIngestServer({ storageDir: storage })
+// The link path with yt-dlp faked: links containing "private" fail, everything else yields the fixture.
+const server = createIngestServer({
+  storageDir: storage,
+  fetchVideo: async (url, dir) => {
+    if (url.includes("private")) throw new Error("yt-dlp: video unavailable")
+    copyFileSync(fixture, join(dir, "original.mp4"))
+    return { original: join(dir, "original.mp4"), title: "Linked Dance" }
+  },
+})
 let base = ""
 
 beforeAll(async () => {
@@ -74,6 +82,39 @@ describe("POST /dances", () => {
   })
 })
 
+describe("POST /dances/link", () => {
+  const link = (url: unknown) => fetch(`${base}/dances/link`, { method: "POST", body: JSON.stringify({ url }) })
+
+  it("returns the same kind of draft as an upload, with the link as its source", async () => {
+    const res = await link("https://www.tiktok.com/@dancer/video/123")
+    expect(res.status).toBe(201)
+    const { package: pkg } = await res.json()
+    expect(() => loadDancePackage(pkg)).not.toThrow()
+    expect(pkg.source).toBe("https://www.tiktok.com/@dancer/video/123")
+    expect(pkg.title).toBe("Linked Dance")
+    expect(Math.abs(pkg.bpm - 120)).toBeLessThanOrEqual(1)
+    // The adjust page can preview it, and Ready works as for an upload.
+    expect((await fetch(`${base}/dances/${pkg.id}/original`)).status).toBe(200)
+    expect((await fetch(`${base}/dances/${pkg.id}`, { method: "PUT", body: JSON.stringify(pkg) })).status).toBe(200)
+  }, 120_000)
+
+  it("suggests an upload when the link can't be fetched, and keeps nothing", async () => {
+    const before = readdirSync(storage).length
+    const res = await link("https://www.instagram.com/private/reel/1")
+    expect(res.status).toBe(422)
+    expect((await res.json()).error).toMatch(/uploading the file/)
+    expect(readdirSync(storage).length).toBe(before)
+  })
+
+  it("refuses something that isn't a link", async () => {
+    for (const bad of ["not a link", "file:///etc/passwd", 42]) {
+      const res = await link(bad)
+      expect(res.status).toBe(422)
+      expect((await res.json()).error).toMatch(/link/)
+    }
+  })
+})
+
 describe("saving, listing and serving a dance", () => {
   const draft = async () => (await (await upload(fixture, "Save Me.mp4")).json()).package
   const save = (id: string, pkg: unknown) => fetch(`${base}/dances/${id}`, { method: "PUT", body: JSON.stringify(pkg) })
@@ -102,6 +143,50 @@ describe("saving, listing and serving a dance", () => {
     }
     expect(new Set(plan.map((c) => clipAssetName(served.video, c.id))).size).toBe(plan.length)
     expect(served.video.startsWith(pkg.id)).toBe(true)
+  }, 120_000)
+
+  it("re-saves a ready dance with a new name without cutting its clips again", async () => {
+    const pkg = await draft()
+    await save(pkg.id, pkg)
+    const clips = join(storage, pkg.id, "clips")
+    const marker = join(clips, "marker.txt")
+    writeFileSync(marker, "still here")
+    const renamed = await save(pkg.id, { ...pkg, title: "Renamed", difficulty: "Advanced" })
+    expect(renamed.status).toBe(200)
+    expect(existsSync(marker)).toBe(true) // clips untouched
+    expect(await (await fetch(`${base}/dances`)).json()).toContainEqual({ id: pkg.id, title: "Renamed", difficulty: "Advanced" })
+    // Changing the timing does cut again.
+    await save(pkg.id, { ...pkg, trim: { start: 0, end: 8 } })
+    expect(existsSync(marker)).toBe(false)
+  }, 120_000)
+
+  it("re-saves with a different BPM and serves the new clip set, dropping clips no longer planned", async () => {
+    const pkg = await draft()
+    await save(pkg.id, pkg)
+    const clipNames = async (p: any) => planClips(p).map((c) => `${clipAssetName(p.video, c.id)}.mp4`)
+    const before = await clipNames(pkg)
+    const slower = { ...pkg, bpm: pkg.bpm / 2 }
+    expect((await save(pkg.id, slower)).status).toBe(200)
+    const served = await (await fetch(`${base}/dances/${pkg.id}/package`)).json()
+    expect(served.bpm).toBe(slower.bpm)
+    const after = await clipNames(served)
+    expect(after).not.toEqual(before)
+    expect(readdirSync(join(storage, pkg.id, "clips")).sort()).toEqual([...after].sort())
+    for (const name of after) expect((await fetch(`${base}/dances/${pkg.id}/clips/${name}`)).status).toBe(200)
+    for (const name of before.filter((n) => !after.includes(n))) {
+      expect((await fetch(`${base}/dances/${pkg.id}/clips/${name}`)).status).toBe(404)
+    }
+  }, 180_000)
+
+  it("deletes a dance and its files, and says so when there is nothing to delete", async () => {
+    const pkg = await draft()
+    await save(pkg.id, pkg)
+    expect(await ids()).toContain(pkg.id)
+    expect((await fetch(`${base}/dances/${pkg.id}`, { method: "DELETE" })).status).toBe(200)
+    expect(await ids()).not.toContain(pkg.id)
+    expect(existsSync(join(storage, pkg.id))).toBe(false)
+    expect((await fetch(`${base}/dances/${pkg.id}`, { method: "DELETE" })).status).toBe(404)
+    expect((await fetch(`${base}/dances/..%2F`, { method: "DELETE" })).status).toBe(404)
   }, 120_000)
 
   it("refuses an invalid package with the validation's error, and the dance stays out of the list", async () => {
