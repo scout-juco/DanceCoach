@@ -24,6 +24,7 @@ import { DancePickerPanel } from "./UI/DancePickerPanel"
 import { DancesButton } from "./UI/DancesButton"
 import { panelsFor, PanelId, PLACEMENT, PxRect, SCREENS } from "./UI/Layout"
 import { PopupCard } from "./UI/PopupCard"
+import { PoseLine } from "./UI/PoseLine"
 import { ProgressBar } from "./UI/ProgressBar"
 import { SectionRow } from "./UI/SectionRow"
 import { SegBar } from "./UI/SegBar"
@@ -61,6 +62,10 @@ export class DanceCoach extends BaseScriptComponent {
   @allowUndefined
   @hint("The dance's clips, cut by `npm run clips` (git-ignored), in any order. Without them, counts run on a stand-in clock.")
   videoClips: Texture[]
+
+  @input
+  @hint("The dance's Pose stills, cut by `npm run stills` (git-ignored), in any order. Without them, Pose can't open on the test dance.")
+  poseStills: Texture[]
 
   // The spoken counts in Audio/Counts, made by scripts/makeCountVoice.ps1. One slot each
   // rather than an array, so tooling can assign them; with any missing, counts stay silent.
@@ -107,6 +112,7 @@ export class DanceCoach extends BaseScriptComponent {
   private countTracks: AudioTrackAsset[] = []
   private countIn: CountInPanel
   private progress: ProgressBar
+  private poseLine: PoseLine
   private segBar: SegBar
   private banner: Banner
   private sections: SectionRow
@@ -132,7 +138,7 @@ export class DanceCoach extends BaseScriptComponent {
 
   onAwake() {
     const onClipReady = () => this.videoWindow.fitVideo()
-    const bundled = new BundledDanceSource(this.videoClips, onClipReady)
+    const bundled = new BundledDanceSource(this.videoClips, onClipReady, this.poseStills)
     this.picker = new DancePicker(this.remoteSource(onClipReady), bundled)
     this.picker.onLoaded = (loaded) => this.beginDance(loaded)
     const saved = decodePlacement(global.persistentStorageSystem.store.getString(PLACEMENT_KEY))
@@ -222,6 +228,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.countIn = childObject("CountIn", this.getSceneObject()).createComponent(CountInPanel.getTypeName()) as CountInPanel
     this.countIn.setup(this.camera, this.videoWindow)
     this.progress = childObject("Progress", plane).createComponent(ProgressBar.getTypeName()) as ProgressBar
+    this.poseLine = childObject("PoseLine", plane).createComponent(PoseLine.getTypeName()) as PoseLine
     this.segBar = childObject("SegBar", plane).createComponent(SegBar.getTypeName()) as SegBar
     this.banner = childObject("Banner", plane).createComponent(Banner.getTypeName()) as Banner
     this.sections = childObject("Sections", plane).createComponent(SectionRow.getTypeName()) as SectionRow
@@ -376,6 +383,13 @@ export class DanceCoach extends BaseScriptComponent {
     this.callCount(this.controller.view)
   }
 
+  /** In Pose the window shows the step's still instead of the video; in Playthrough, the video. */
+  private showStill() {
+    const pose = this.poseView
+    const stills = this.loaded ? this.loaded.stills : null
+    this.videoWindow.setStill(pose && stills && stills[pose.section - 1] ? stills[pose.section - 1][pose.step] ?? null : null)
+  }
+
   private render(view: ViewState) {
     const panels = panelsFor(view)
     if (panels !== this.panels) {
@@ -383,7 +397,9 @@ export class DanceCoach extends BaseScriptComponent {
       this.videoWindow.setRect(panels.video!)
       this.resize.setRect(panels.video!)
     }
-    this.videoWindow.render(view)
+    this.showStill()
+    this.videoWindow.render(view, this.poseView)
+    this.poseLine.render(view, this.poseView)
     this.resize.render(view)
     this.countIn.render(view)
     this.progress.render(view)

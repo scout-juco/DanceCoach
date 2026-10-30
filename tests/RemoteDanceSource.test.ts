@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { clipAssetName, planClips } from "../DanceCoachLens/Assets/Scripts/Core/ClipPlan"
 import { RemoteClip, RemoteDanceSource, RemoteTransport } from "../DanceCoachLens/Assets/Scripts/Core/RemoteDanceSource"
 import { VIDEO_STATUS, VideoPlayer } from "../DanceCoachLens/Assets/Scripts/Core/VideoDriver"
+import { stillNames } from "../DanceCoachLens/Assets/Scripts/Core/StillPlan"
 import { makeDance } from "./fixtures"
 
 const BASE = "https://dance.example"
@@ -12,7 +13,7 @@ function fakePlayer(): VideoPlayer {
 }
 
 /** A fake fetch: serves the given JSON by URL and makes a texture named after each clip file. */
-function fakeTransport(json: Record<string, unknown>, failClip?: string) {
+function fakeTransport(json: Record<string, unknown>, failClip?: string, failStill?: string) {
   const requested: string[] = []
   const transport: RemoteTransport<string> = {
     getJson: async (url) => {
@@ -24,6 +25,11 @@ function fakeTransport(json: Record<string, unknown>, failClip?: string) {
       requested.push(url)
       if (failClip && url.endsWith(failClip)) throw new Error("download failed")
       return { player: fakePlayer(), texture: url.split("/").pop()! }
+    },
+    loadStill: async (url) => {
+      requested.push(url)
+      if (failStill && url.endsWith(failStill)) throw new Error("still download failed")
+      return url.split("/").pop()!
     },
   }
   return { transport, requested }
@@ -70,5 +76,29 @@ describe("RemoteDanceSource", () => {
   it("rejects when any clip fails to download", async () => {
     const { transport } = fakeTransport(served, `${clipAssetName(dance.video, "s2")}.mp4`)
     await expect(new RemoteDanceSource(BASE, transport).load(dance.id)).rejects.toThrow(/download failed/)
+  })
+  describe("stills", () => {
+    const withStills = makeDance({ id: dance.id, video: dance.video })
+    const pkg = { ...withStills, stills: stillNames(withStills) }
+    const json = { ...served, [`${BASE}/dances/${dance.id}/package`]: pkg }
+
+    it("downloads every still the package lists, grouped by section and step", async () => {
+      const { transport, requested } = fakeTransport(json)
+      const loaded = await new RemoteDanceSource(BASE, transport).load(dance.id)
+      expect(loaded.stills).toEqual(pkg.stills)
+      expect(loaded.stills!.length).toBe(3)
+      expect(loaded.stills![0]).toHaveLength(16)
+      expect(requested).toContain(`${BASE}/dances/${dance.id}/stills/${pkg.stills[1][3]}`)
+    })
+
+    it("has no stills for a dance whose package lists none", async () => {
+      const loaded = await new RemoteDanceSource(BASE, fakeTransport(served).transport).load(dance.id)
+      expect(loaded.stills).toBeNull()
+    })
+
+    it("rejects when any still fails to download", async () => {
+      const { transport } = fakeTransport(json, undefined, pkg.stills[2][15])
+      await expect(new RemoteDanceSource(BASE, transport).load(dance.id)).rejects.toThrow(/still download failed/)
+    })
   })
 })

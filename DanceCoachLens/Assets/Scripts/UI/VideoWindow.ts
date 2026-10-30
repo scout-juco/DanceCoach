@@ -9,6 +9,7 @@
  */
 import { RoundedRectangle, TextureMode } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { ViewState } from "../Core/PlaybackController"
+import { PoseView, stepCountLabel } from "../Core/PoseController"
 import { panelCm, pxToCm, PxRect } from "./Layout"
 import { RADII, SPACING, TYPE } from "./Theme"
 import { childObject, isMultiSection, makeRect, makeText, setRectSize, themeColor } from "./Visuals"
@@ -49,6 +50,9 @@ export class VideoWindow extends BaseScriptComponent {
   private lastChips = "-"
   private scrim = false
   private fitPending = false
+  // The clip on show, and the still that stands in for it in Pose (null in Playthrough).
+  private video: Texture | null = null
+  private still: Texture | null = null
 
   onAwake() {
     this.frameObject = childObject("Video", this.sceneObject)
@@ -81,6 +85,19 @@ export class VideoWindow extends BaseScriptComponent {
 
   /** Shows a video texture in the window, cropped to fill its height. */
   setVideo(texture: Texture) {
+    this.video = texture
+    if (!this.still) this.show(texture)
+  }
+
+  /** Shows a still in place of the video (Pose), or the video again for null. */
+  setStill(texture: Texture | null) {
+    if (texture === this.still) return
+    this.still = texture
+    const shown = texture ?? this.video
+    if (shown) this.show(shown)
+  }
+
+  private show(texture: Texture) {
     this.frame.useTexture = true
     this.frame.texture = texture
     this.fitVideo()
@@ -95,7 +112,8 @@ export class VideoWindow extends BaseScriptComponent {
     if (!this.frame.texture) return
     // A clip that hasn't prepared yet reports an aspect of NaN, which would blank the window;
     // keep the last fit (every clip has the same aspect) and fit again once it's known.
-    const aspect = (this.frame.texture.control as VideoTextureProvider).getAspect()
+    const texture = this.frame.texture
+    const aspect = this.still ? texture.getWidth() / texture.getHeight() : (texture.control as VideoTextureProvider).getAspect()
     this.fitPending = !(aspect > 0)
     if (this.fitPending) return
     this.frame.textureMode = "Fill Height" as TextureMode
@@ -127,7 +145,7 @@ export class VideoWindow extends BaseScriptComponent {
     this.lastChips = "-"
   }
 
-  render(view: ViewState) {
+  render(view: ViewState, pose: PoseView | null = null) {
     if (this.fitPending) this.fitVideo()
     const mirror = view.settings.mirror ? -1 : 1
     this.frameObject.getTransform().setLocalScale(new vec3(mirror, 1, 1))
@@ -140,7 +158,8 @@ export class VideoWindow extends BaseScriptComponent {
 
     // The count, if counts are on; never during a count-in, whose 5, 6, 7, 8 shows beside the video.
     // In a multi-section run the section playing shows under the count.
-    const count = !view.countIn && view.settings.counts && view.count > 0 ? String(view.count) : ""
+    // In Pose the badge always shows the step's count, whatever the Counts setting.
+    const count = pose ? stepCountLabel(pose.step) : !view.countIn && view.settings.counts && view.count > 0 ? String(view.count) : ""
     const sub = count !== "" && isMultiSection(view) && (view.screen === "B" || view.screen === "F" || view.screen === "PV") ? `SEC ${view.runSection}` : ""
     const badge = `${count}|${sub}`
     this.badgeObject.enabled = count !== ""

@@ -1,6 +1,6 @@
 /**
  * The Lens's network for RemoteDanceSource: JSON over the Internet Module's fetch, and clips
- * downloaded by the Remote Media Module and turned into video textures.
+ * and stills downloaded by the Remote Media Module and turned into video and image textures.
  */
 import { RemoteClip, RemoteTransport } from "../Scripts/Core/RemoteDanceSource"
 
@@ -20,6 +20,13 @@ export class LensTransport implements RemoteTransport<Texture> {
     const response = await this.internet.fetch(url)
     if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`)
     return response.json()
+  }
+
+  loadStill(url: string): Promise<Texture> {
+    return new Promise((resolve, reject) => {
+      const resource = this.internet.makeResourceFromUrl(url)
+      this.media.loadResourceAsImageTexture(resource, resolve, (error) => reject(new Error(`Couldn't load ${url}: ${error}`)))
+    })
   }
 
   loadClip(url: string): Promise<RemoteClip<Texture>> {

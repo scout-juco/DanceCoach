@@ -14,7 +14,7 @@ function fakeSource(dances: DancePackage[]): DanceSource<never> {
     load: async (name) => {
       const dance = copies.find((d) => d.id === name)
       if (!dance) throw new Error(`No dance named "${name}"`)
-      return { dance, clips: null }
+      return { dance, clips: null, stills: null }
     },
   }
 }

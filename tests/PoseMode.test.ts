@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { LOOKBACK_TOAST, PlaybackController, ViewState } from "../DanceCoachLens/Assets/Scripts/Core/PlaybackController"
-import { PoseController } from "../DanceCoachLens/Assets/Scripts/Core/PoseController"
+import { PoseController, scrubLabel, stepCountLabel } from "../DanceCoachLens/Assets/Scripts/Core/PoseController"
 import { makeDance } from "./fixtures"
 
 // The fixture: 120 bpm (a count is 0.5 s, a section 4 s), first beat at 1 s, sections at 1, 5 and 9 s.
@@ -136,7 +136,19 @@ describe("Mode button: Playthrough's controls in Pose", () => {
 describe("PoseController", () => {
   it("opens on screen D for the section it's given", () => {
     const pose = new PoseController()
-    expect(pose.enter(3)).toEqual({ screen: "D", section: 3 })
-    expect(pose.tick(1)).toEqual({ screen: "D", section: 3 })
+    expect(pose.enter(3)).toEqual({ screen: "D", section: 3, step: 0 })
+    expect(pose.tick(1)).toEqual({ screen: "D", section: 3, step: 0 })
+  })
+
+  it("opens on count 1, whichever section it was left on", () => {
+    const pose = new PoseController()
+    pose.enter(2)
+    expect(pose.enter(3).step).toBe(0)
+  })
+
+  it("labels a step's count and the scrub line", () => {
+    expect([0, 1, 2, 9, 15].map(stepCountLabel)).toEqual(["1", "1&", "2", "5&", "8&"])
+    expect(scrubLabel({ screen: "D", section: 2, step: 0 })).toBe("SECTION 2 · COUNT 1")
+    expect(scrubLabel({ screen: "D", section: 2, step: 9 })).toBe("SECTION 2 · COUNT 5&")
   })
 })
