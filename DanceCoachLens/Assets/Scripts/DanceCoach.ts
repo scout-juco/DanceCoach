@@ -24,6 +24,7 @@ import { DancePickerPanel } from "./UI/DancePickerPanel"
 import { DancesButton } from "./UI/DancesButton"
 import { panelsFor, PanelId, PLACEMENT, PxRect, SCREENS } from "./UI/Layout"
 import { PopupCard } from "./UI/PopupCard"
+import { PoseBar, PoseBarCommand } from "./UI/PoseBar"
 import { PoseLine } from "./UI/PoseLine"
 import { ProgressBar } from "./UI/ProgressBar"
 import { SectionRow } from "./UI/SectionRow"
@@ -113,6 +114,7 @@ export class DanceCoach extends BaseScriptComponent {
   private countIn: CountInPanel
   private progress: ProgressBar
   private poseLine: PoseLine
+  private poseBar: PoseBar
   private segBar: SegBar
   private banner: Banner
   private sections: SectionRow
@@ -229,6 +231,8 @@ export class DanceCoach extends BaseScriptComponent {
     this.countIn.setup(this.camera, this.videoWindow)
     this.progress = childObject("Progress", plane).createComponent(ProgressBar.getTypeName()) as ProgressBar
     this.poseLine = childObject("PoseLine", plane).createComponent(PoseLine.getTypeName()) as PoseLine
+    this.poseBar = childObject("PoseBar", plane).createComponent(PoseBar.getTypeName()) as PoseBar
+    this.poseBar.onPress = (command) => this.pressPoseBar(command)
     this.segBar = childObject("SegBar", plane).createComponent(SegBar.getTypeName()) as SegBar
     this.banner = childObject("Banner", plane).createComponent(Banner.getTypeName()) as Banner
     this.sections = childObject("Sections", plane).createComponent(SectionRow.getTypeName()) as SectionRow
@@ -327,6 +331,20 @@ export class DanceCoach extends BaseScriptComponent {
     }
   }
 
+  /** A Pose bar button: any use keeps the bar open a while longer. Half counts, ‹, › and Play from here are placeholders. */
+  private pressPoseBar(command: PoseBarCommand) {
+    if (!this.poseView) return
+    this.poseView = this.pose.use()
+    switch (command) {
+      case "mode":
+        return this.switchMode(this.controller.tapMode())
+      case "mirror":
+        return this.render(this.controller.toggleMirror())
+      default:
+        print(`DanceCoach: Pose bar ${command} isn't built yet`)
+    }
+  }
+
   /** After the mode button: enters the Pose controller when the mode becomes Pose, and leaves it when it's Playthrough again. */
   private switchMode(view: ViewState) {
     if (view.mode === "Pose" && !this.poseView) {
@@ -374,6 +392,7 @@ export class DanceCoach extends BaseScriptComponent {
   private advance(videoTimeSec: number, dt: number) {
     if (this.poseView) {
       // The video only holds the section's start frame; Pose moves on real time.
+      if (this.poseLine.aimed || this.poseBar.aimed) this.pose.aim()
       this.poseView = this.pose.tick(dt)
       this.render(this.controller.view)
       return
@@ -390,7 +409,9 @@ export class DanceCoach extends BaseScriptComponent {
     this.videoWindow.setStill(pose && stills && stills[pose.section - 1] ? stills[pose.section - 1][pose.step] ?? null : null)
   }
 
-  private render(view: ViewState) {
+  private render(playView: ViewState) {
+    // In Pose the Pose controller says which screen is up: D, or E with the bar open.
+    const view = this.poseView ? { ...playView, screen: this.poseView.screen } : playView
     const panels = panelsFor(view)
     if (panels !== this.panels) {
       this.panels = panels
@@ -400,6 +421,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.showStill()
     this.videoWindow.render(view, this.poseView)
     this.poseLine.render(view, this.poseView)
+    this.poseBar.render(view, this.poseView)
     this.resize.render(view)
     this.countIn.render(view)
     this.progress.render(view)

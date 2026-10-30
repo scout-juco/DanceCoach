@@ -37,6 +37,7 @@
     count7: false
     count8: false
     internetModule: false
+    poseStills: false
     remoteMediaModule: false
     serverUrl: false
     videoClips: false
@@ -56,6 +57,8 @@
       videoWindow: !<MappingBased.AssignableType> 00000000-0000-0000-0000-000000000000
       alwaysFirstLook: false
       videoClips: !<reference.Texture[]>
+        []
+      poseStills: !<reference.Texture[]>
         []
       serverUrl: "http://localhost:8787"
       internetModule: !<reference.InternetModule> 00000000-0000-0000-0000-000000000000
@@ -77,6 +80,7 @@
     - // @input AssignableType videoWindow
     - '// @input bool alwaysFirstLook {"hint":"Developer: play the first look on every open, as if it had never been seen"}'
     - "// @input Asset.Texture[] videoClips {\"hint\":\"The dance's clips, cut by `npm run clips` (git-ignored), in any order. Without them, counts run on a stand-in clock.\"}"
+    - "// @input Asset.Texture[] poseStills {\"hint\":\"The dance's Pose stills, cut by `npm run stills` (git-ignored), in any order. Without them, Pose can't open on the test dance.\"}"
     - "// @input string serverUrl = \"http://localhost:8787\" {\"hint\":\"The ingest server's address (https on the glasses), with no trailing path, e.g. https://dance.example. Dances are listed from it.\"}"
     - '// @input Asset.InternetModule internetModule {"hint":"The Internet Module asset: fetches the dance list and packages. Without it, the bundled test dance is offered."}'
     - '// @input Asset.RemoteMediaModule remoteMediaModule {"hint":"The Remote Media Module asset: turns downloaded clips into video textures."}'

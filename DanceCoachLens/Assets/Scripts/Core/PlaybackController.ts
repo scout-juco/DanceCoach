@@ -36,7 +36,7 @@ import { CountClock, LEAD_IN_COUNTS } from "./CountClock"
 import { DancePackage } from "./DancePackage"
 
 /** Screen IDs from the clickable prototype. */
-export type ScreenId = "PV" | "BI" | "B0" | "B" | "F" | "C" | "C2" | "G" | "D"
+export type ScreenId = "PV" | "BI" | "B0" | "B" | "F" | "C" | "C2" | "G" | "D" | "E"
 
 export type RunKind = "section" | "top" | "full"
 

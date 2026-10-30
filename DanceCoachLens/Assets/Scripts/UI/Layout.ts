@@ -12,7 +12,7 @@ import { Placement } from "../Core/WindowPlacement"
 /** [x, y, width, height] in prototype pixels. */
 export type PxRect = [number, number, number, number]
 
-export type PanelId = "video" | "progress" | "segBar" | "banner" | "sections" | "controls" | "poseLine" | "toast" | "skip" | "popup"
+export type PanelId = "video" | "progress" | "segBar" | "banner" | "sections" | "controls" | "poseLine" | "poseBar" | "toast" | "skip" | "popup"
 
 export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // First look plays like From the top (the preview has no PV frame): its banner, the segmented bar,
@@ -31,6 +31,8 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // Pose: the frozen video, the thin scrub line with its label under it and, left of the video's bottom corner,
   // a bar with only the mode button for now. The Pose bar (screen E) replaces that bar in a later M3 ticket.
   D: { video: [790, 40, 340, 604], poseLine: [790, 662, 340, 6], controls: [580, 560, 0, 84] },
+  // Pose, open: the video shrinks to Clip ended's size and the Pose bar sits below it.
+  E: { video: [790, 40, 300, 533], poseBar: [520, 590, 740, 128] },
 }
 
 /** A Full run plays on B with From the top's segmented bar in place of the progress bar. */

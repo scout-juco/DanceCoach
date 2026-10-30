@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { LOOKBACK_TOAST, PlaybackController, ViewState } from "../DanceCoachLens/Assets/Scripts/Core/PlaybackController"
-import { PoseController, scrubLabel, stepCountLabel } from "../DanceCoachLens/Assets/Scripts/Core/PoseController"
+import { POSE_BAR_HIDE_SEC, PoseController, scrubLabel, stepCountLabel } from "../DanceCoachLens/Assets/Scripts/Core/PoseController"
 import { makeDance } from "./fixtures"
 
 // The fixture: 120 bpm (a count is 0.5 s, a section 4 s), first beat at 1 s, sections at 1, 5 and 9 s.
@@ -150,5 +150,68 @@ describe("PoseController", () => {
     expect([0, 1, 2, 9, 15].map(stepCountLabel)).toEqual(["1", "1&", "2", "5&", "8&"])
     expect(scrubLabel({ screen: "D", section: 2, step: 0 })).toBe("SECTION 2 · COUNT 1")
     expect(scrubLabel({ screen: "D", section: 2, step: 9 })).toBe("SECTION 2 · COUNT 5&")
+  })
+})
+
+describe("Pose bar: expands on aim, collapses when idle", () => {
+  const opened = (section = 2) => {
+    const pose = new PoseController()
+    pose.enter(section)
+    return pose
+  }
+
+  it("stays on screen D until the scrub line is aimed at", () => {
+    const pose = opened()
+    expect(pose.tick(10).screen).toBe("D")
+  })
+
+  it("expands to screen E when aimed at, keeping the section and step", () => {
+    const pose = opened(3)
+    expect(pose.aim()).toEqual({ screen: "E", section: 3, step: 0 })
+  })
+
+  it("collapses after the delay with nothing aimed at it", () => {
+    const pose = opened()
+    pose.aim()
+    expect(pose.tick(POSE_BAR_HIDE_SEC - 0.1).screen).toBe("E")
+    expect(pose.tick(0.1).screen).toBe("D")
+  })
+
+  it("stays open while it keeps being aimed at", () => {
+    const pose = opened()
+    for (let t = 0; t < 10; t += 0.1) {
+      pose.aim()
+      expect(pose.tick(0.1).screen).toBe("E")
+    }
+    expect(pose.tick(POSE_BAR_HIDE_SEC).screen).toBe("D")
+  })
+
+  it("starts the wait again when a control is used", () => {
+    const pose = opened()
+    pose.aim()
+    pose.tick(POSE_BAR_HIDE_SEC - 0.5)
+    pose.use()
+    expect(pose.tick(POSE_BAR_HIDE_SEC - 0.5).screen).toBe("E")
+    expect(pose.tick(0.5).screen).toBe("D")
+  })
+
+  it("starts the wait again each time it expands", () => {
+    const pose = opened()
+    pose.aim()
+    pose.tick(POSE_BAR_HIDE_SEC)
+    expect(pose.view.screen).toBe("D")
+    pose.aim()
+    expect(pose.tick(POSE_BAR_HIDE_SEC - 0.1).screen).toBe("E")
+  })
+
+  it("opens collapsed whenever Pose is entered", () => {
+    const pose = opened()
+    pose.aim()
+    expect(pose.enter(2).screen).toBe("D")
+    expect(pose.tick(POSE_BAR_HIDE_SEC).screen).toBe("D")
+  })
+
+  it("has a delay of a few seconds", () => {
+    expect(POSE_BAR_HIDE_SEC).toBe(3)
   })
 })
