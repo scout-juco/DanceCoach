@@ -1,5 +1,5 @@
 /**
- * SettingsStore: speed, mirror and counts as a string for Lens persistent storage,
+ * SettingsStore: speed, mirror, counts and half counts as a string for Lens persistent storage,
  * and the keys each dance's "first look seen" and "Finish routine unlocked" flags are saved under.
  *
  * Pure: the Lens reads and writes the string; this only encodes and validates it,
@@ -19,7 +19,7 @@ export const finishReadyKey = (danceId: string) => `danceCoach.finishReady.${dan
 const SPEEDS: Speed[] = [0.5, 0.75, 1]
 
 export function encodeSettings(settings: Settings): string {
-  return JSON.stringify({ speed: settings.speed, mirror: settings.mirror, counts: settings.counts })
+  return JSON.stringify({ speed: settings.speed, mirror: settings.mirror, counts: settings.counts, halfCounts: settings.halfCounts })
 }
 
 /** Reads saved settings; anything missing or invalid takes its default. */
@@ -35,5 +35,6 @@ export function decodeSettings(raw: string | null | undefined): Settings {
     speed: SPEEDS.indexOf(data.speed) >= 0 ? data.speed : DEFAULT_SETTINGS.speed,
     mirror: typeof data.mirror === "boolean" ? data.mirror : DEFAULT_SETTINGS.mirror,
     counts: typeof data.counts === "boolean" ? data.counts : DEFAULT_SETTINGS.counts,
+    halfCounts: typeof data.halfCounts === "boolean" ? data.halfCounts : DEFAULT_SETTINGS.halfCounts,
   }
 }

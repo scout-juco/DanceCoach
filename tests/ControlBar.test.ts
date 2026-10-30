@@ -84,10 +84,10 @@ describe("Mirror and Counts", () => {
   it("toggle, and carry into the next run", () => {
     const pc = new PlaybackController(makeDance())
     runSection(pc, 1)
-    expect(pc.toggleMirror().settings).toMatchObject({ mirror: true, counts: true })
-    expect(pc.toggleCounts().settings).toMatchObject({ mirror: true, counts: false })
+    expect(pc.toggleMirror().settings).toMatchObject({ mirror: true, counts: true, halfCounts: false })
+    expect(pc.toggleCounts().settings).toMatchObject({ mirror: true, counts: false, halfCounts: false })
     const v = runSection(pc, 2)
-    expect(v.settings).toEqual({ speed: 1, mirror: true, counts: false })
+    expect(v.settings).toEqual({ speed: 1, mirror: true, counts: false, halfCounts: false })
     expect(pc.toggleMirror().settings.mirror).toBe(false)
   })
 
@@ -101,7 +101,7 @@ describe("Mirror and Counts", () => {
 
 describe("Saved settings", () => {
   it("round-trip through the store", () => {
-    const settings = { speed: 0.75 as const, mirror: true, counts: false }
+    const settings = { speed: 0.75 as const, mirror: true, counts: false, halfCounts: false }
     expect(decodeSettings(encodeSettings(settings))).toEqual(settings)
   })
 
@@ -111,13 +111,13 @@ describe("Saved settings", () => {
     pc.toggleMirror()
     const saved = encodeSettings(pc.view.settings)
     const next = new PlaybackController(makeDance(), { settings: decodeSettings(saved) })
-    expect(next.view.settings).toEqual({ speed: 0.5, mirror: true, counts: true })
+    expect(next.view.settings).toEqual({ speed: 0.5, mirror: true, counts: true, halfCounts: false })
     expect(next.tapSection(2).video.rate).toBe(0.5)
   })
 
   it("fall back to the defaults when nothing is saved or the data is bad", () => {
-    expect(decodeSettings("")).toEqual({ speed: 1, mirror: false, counts: true })
-    expect(decodeSettings("not json")).toEqual({ speed: 1, mirror: false, counts: true })
-    expect(decodeSettings('{"speed":2,"mirror":"yes","counts":false}')).toEqual({ speed: 1, mirror: false, counts: false })
+    expect(decodeSettings("")).toEqual({ speed: 1, mirror: false, counts: true, halfCounts: false })
+    expect(decodeSettings("not json")).toEqual({ speed: 1, mirror: false, counts: true, halfCounts: false })
+    expect(decodeSettings('{"speed":2,"mirror":"yes","counts":false}')).toEqual({ speed: 1, mirror: false, counts: false, halfCounts: false })
   })
 })

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest"
+import { AND_CALL, CountCaller } from "../DanceCoachLens/Assets/Scripts/Core/CountCaller"
+import { decodeSettings, encodeSettings } from "../DanceCoachLens/Assets/Scripts/Core/SettingsStore"
 import { LOOKBACK_TOAST, PlaybackController, ViewState } from "../DanceCoachLens/Assets/Scripts/Core/PlaybackController"
 import { POSE_BAR_HIDE_SEC, PoseController, scrubLabel, stepCountLabel } from "../DanceCoachLens/Assets/Scripts/Core/PoseController"
 import { makeDance } from "./fixtures"
@@ -124,7 +126,7 @@ describe("Mode button: Playthrough's controls in Pose", () => {
   })
 
   it("keeps mirror, speed and counts through Pose and back", () => {
-    const settings = { speed: 0.75 as const, mirror: true, counts: false }
+    const settings = { speed: 0.75 as const, mirror: true, counts: false, halfCounts: true }
     const pc = new PlaybackController(makeDance(), { settings })
     runSection(pc, 2)
     expect(pc.tapMode().settings).toEqual(settings)
@@ -136,8 +138,8 @@ describe("Mode button: Playthrough's controls in Pose", () => {
 describe("PoseController", () => {
   it("opens on screen D for the section it's given", () => {
     const pose = new PoseController()
-    expect(pose.enter(3)).toEqual({ screen: "D", section: 3, step: 0 })
-    expect(pose.tick(1)).toEqual({ screen: "D", section: 3, step: 0 })
+    expect(pose.enter(3)).toEqual({ screen: "D", section: 3, step: 0, halfCounts: false, stepId: 0 })
+    expect(pose.tick(1)).toEqual({ screen: "D", section: 3, step: 0, halfCounts: false, stepId: 0 })
   })
 
   it("opens on count 1, whichever section it was left on", () => {
@@ -148,8 +150,8 @@ describe("PoseController", () => {
 
   it("labels a step's count and the scrub line", () => {
     expect([0, 1, 2, 9, 15].map(stepCountLabel)).toEqual(["1", "1&", "2", "5&", "8&"])
-    expect(scrubLabel({ screen: "D", section: 2, step: 0 })).toBe("SECTION 2 Â· COUNT 1")
-    expect(scrubLabel({ screen: "D", section: 2, step: 9 })).toBe("SECTION 2 Â· COUNT 5&")
+    expect(scrubLabel({ screen: "D", section: 2, step: 0, halfCounts: false, stepId: 0 })).toBe("SECTION 2 Â· COUNT 1")
+    expect(scrubLabel({ screen: "D", section: 2, step: 9, halfCounts: false, stepId: 0 })).toBe("SECTION 2 Â· COUNT 5&")
   })
 })
 
@@ -167,7 +169,7 @@ describe("Pose bar: expands on aim, collapses when idle", () => {
 
   it("expands to screen E when aimed at, keeping the section and step", () => {
     const pose = opened(3)
-    expect(pose.aim()).toEqual({ screen: "E", section: 3, step: 0 })
+    expect(pose.aim()).toEqual({ screen: "E", section: 3, step: 0, halfCounts: false, stepId: 0 })
   })
 
   it("collapses after the delay with nothing aimed at it", () => {
@@ -213,5 +215,203 @@ describe("Pose bar: expands on aim, collapses when idle", () => {
 
   it("has a delay of a few seconds", () => {
     expect(POSE_BAR_HIDE_SEC).toBe(3)
+  })
+})
+
+/** Opens Pose on section n of a dance with `sections` sections. */
+const posed = (sections: number, section = 1, halfCounts = false) => {
+  const pose = new PoseController()
+  pose.enter(section, sections, halfCounts)
+  return pose
+}
+
+describe("Pose steps: ‹ and ›", () => {
+  it("steps by whole counts: count 1, 2, 3 …", () => {
+    const pose = posed(3)
+    expect(pose.stepForward().step).toBe(2)
+    expect(pose.stepForward().step).toBe(4)
+    expect(stepCountLabel(pose.view.step)).toBe("3")
+    expect(pose.stepBack().step).toBe(2)
+  })
+
+  it("steps by half-counts with Half counts on", () => {
+    const pose = posed(3, 1, true)
+    const labels = [pose.view, pose.stepForward(), pose.stepForward(), pose.stepForward()].map((v) => stepCountLabel(v.step))
+    expect(labels).toEqual(["1", "1&", "2", "2&"])
+    expect(stepCountLabel(pose.stepBack().step)).toBe("2")
+  })
+
+  it("steps past 8 into count 1 of the next section", () => {
+    const pose = posed(3, 1)
+    for (let i = 0; i < 7; i++) pose.stepForward()
+    expect(pose.view).toMatchObject({ section: 1, step: 14 })
+    expect(pose.stepForward()).toMatchObject({ section: 2, step: 0 })
+  })
+
+  it("steps past 8& into the next section's 1 with Half counts on", () => {
+    const pose = posed(3, 1, true)
+    for (let i = 0; i < 15; i++) pose.stepForward()
+    expect(pose.view).toMatchObject({ section: 1, step: 15 })
+    expect(pose.stepForward()).toMatchObject({ section: 2, step: 0 })
+  })
+
+  it("steps back from count 1 to the last count of the previous section", () => {
+    const pose = posed(3, 2)
+    expect(pose.stepBack()).toMatchObject({ section: 1, step: 14 })
+    expect(stepCountLabel(pose.view.step)).toBe("8")
+  })
+
+  it("steps back from 1 to 8& of the previous section with Half counts on", () => {
+    const pose = posed(3, 3, true)
+    expect(pose.stepBack()).toMatchObject({ section: 2, step: 15 })
+  })
+
+  it("does nothing before the routine's first count", () => {
+    const pose = posed(6)
+    const before = pose.view
+    expect(pose.stepBack()).toBe(before)
+    expect(pose.view.stepId).toBe(0)
+  })
+
+  it("does nothing after the routine's last count, in a 3- and a 6-section dance", () => {
+    for (const sections of [3, 6]) {
+      const pose = posed(sections, sections)
+      for (let i = 0; i < 7; i++) pose.stepForward()
+      expect(pose.view).toMatchObject({ section: sections, step: 14 })
+      const end = pose.view
+      expect(pose.stepForward()).toBe(end)
+    }
+  })
+
+  it("does nothing after 8& with Half counts on", () => {
+    const pose = posed(3, 3, true)
+    for (let i = 0; i < 20; i++) pose.stepForward()
+    expect(pose.view).toMatchObject({ section: 3, step: 15 })
+  })
+
+  it("walks a 6-section routine forward and back, across every boundary", () => {
+    const pose = posed(6)
+    for (let i = 0; i < 100; i++) pose.stepForward()
+    expect(pose.view).toMatchObject({ section: 6, step: 14 })
+    const forward = pose.view.stepId
+    expect(forward).toBe(6 * 8 - 1)
+    for (let i = 0; i < 100; i++) pose.stepBack()
+    expect(pose.view).toMatchObject({ section: 1, step: 0 })
+    expect(pose.view.stepId - forward).toBe(6 * 8 - 1)
+  })
+
+  it("keeps the bar open: a step starts the wait again", () => {
+    const pose = posed(3)
+    pose.aim()
+    pose.tick(POSE_BAR_HIDE_SEC - 0.5)
+    pose.stepForward()
+    expect(pose.tick(POSE_BAR_HIDE_SEC - 0.5).screen).toBe("E")
+    expect(pose.tick(0.5).screen).toBe("D")
+  })
+})
+
+describe("Pose: Half counts", () => {
+  it("opens with the saved choice", () => {
+    expect(posed(3, 1, true).view.halfCounts).toBe(true)
+    expect(posed(3, 1, false).view.halfCounts).toBe(false)
+  })
+
+  it("turning it off on an \"&\" moves to the count before it", () => {
+    const pose = posed(3, 1, true)
+    pose.stepForward()
+    pose.stepForward()
+    pose.stepForward()
+    expect(stepCountLabel(pose.view.step)).toBe("2&")
+    expect(pose.setHalfCounts(false)).toMatchObject({ step: 2, halfCounts: false })
+  })
+
+  it("turning it off or on at a whole count stays put", () => {
+    const pose = posed(3, 1, true)
+    pose.stepForward()
+    pose.stepForward()
+    expect(pose.setHalfCounts(false).step).toBe(2)
+    expect(pose.setHalfCounts(true).step).toBe(2)
+  })
+
+  it("steps by whole counts again once off", () => {
+    const pose = posed(3, 1, true)
+    pose.setHalfCounts(false)
+    expect(pose.stepForward().step).toBe(2)
+  })
+
+  it("is saved with the other settings", () => {
+    const pc = new PlaybackController(makeDance())
+    expect(pc.view.settings.halfCounts).toBe(false)
+    const saved = encodeSettings(pc.toggleHalfCounts().settings)
+    expect(decodeSettings(saved)).toMatchObject({ halfCounts: true })
+    expect(decodeSettings('{"speed":1,"mirror":false,"counts":true}').halfCounts).toBe(false)
+    expect(decodeSettings('{"halfCounts":"yes"}').halfCounts).toBe(false)
+  })
+
+  it("is kept through Pose and back", () => {
+    const pc = new PlaybackController(makeDance())
+    runSection(pc, 2)
+    pc.tapMode()
+    expect(pc.toggleHalfCounts().settings.halfCounts).toBe(true)
+    expect(pc.tapMode().settings.halfCounts).toBe(true)
+  })
+})
+
+describe("Leaving Pose after stepping into another section", () => {
+  it("lands on Clip ended for the section Pose was on", () => {
+    const pc = new PlaybackController(makeDance())
+    runSection(pc, 1)
+    pc.tapMode()
+    expect(pc.tapMode(3)).toMatchObject({ mode: "Playthrough", screen: "C", section: 3, runSection: 3 })
+  })
+})
+
+describe("CountCaller in Pose", () => {
+  it("calls each step's count once, however often the view is read", () => {
+    const pose = posed(3)
+    const caller = new CountCaller()
+    expect(caller.nextStep(pose.view)).toBe(0)
+    expect(caller.nextStep(pose.stepForward())).toBe(2)
+    expect(caller.nextStep(pose.view)).toBe(0)
+    expect(caller.nextStep(pose.stepForward())).toBe(3)
+    expect(caller.nextStep(pose.stepBack())).toBe(2)
+  })
+
+  it("calls \"&\" with the and clip on a half-count", () => {
+    const pose = posed(3, 1, true)
+    const caller = new CountCaller()
+    expect(caller.nextStep(pose.stepForward())).toBe(AND_CALL)
+    expect(caller.nextStep(pose.stepForward())).toBe(2)
+    expect(caller.nextStep(pose.stepForward())).toBe(AND_CALL)
+  })
+
+  it("calls the same count again when stepping back and forth over it", () => {
+    const pose = posed(3)
+    const caller = new CountCaller()
+    expect(caller.nextStep(pose.stepForward())).toBe(2)
+    expect(caller.nextStep(pose.stepBack())).toBe(1)
+    expect(caller.nextStep(pose.stepForward())).toBe(2)
+  })
+
+  it("calls 1 and 8 across a section boundary", () => {
+    const pose = posed(3, 1)
+    const caller = new CountCaller()
+    for (let i = 0; i < 7; i++) caller.nextStep(pose.stepForward())
+    expect(caller.nextStep(pose.stepForward())).toBe(1)
+    expect(caller.nextStep(pose.stepBack())).toBe(8)
+  })
+
+  it("says nothing at the ends of the routine", () => {
+    const pose = posed(3, 1)
+    const caller = new CountCaller()
+    expect(caller.nextStep(pose.stepBack())).toBe(0)
+  })
+
+  it("says nothing on entering, and starts over when Pose opens again", () => {
+    const pose = posed(3)
+    const caller = new CountCaller()
+    caller.nextStep(pose.stepForward())
+    expect(caller.nextStep(pose.enter(2, 3))).toBe(0)
+    expect(caller.nextStep(pose.stepForward())).toBe(2)
   })
 })

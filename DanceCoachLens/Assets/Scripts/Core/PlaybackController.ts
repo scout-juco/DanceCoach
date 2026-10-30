@@ -75,6 +75,8 @@ export interface Settings {
   speed: Speed
   mirror: boolean
   counts: boolean
+  /** Pose steps by half-counts (on the "&"s too) instead of whole counts. */
+  halfCounts: boolean
 }
 
 export interface Progress {
@@ -85,7 +87,7 @@ export interface Progress {
   settings: Settings
 }
 
-export const DEFAULT_SETTINGS: Settings = { speed: 1, mirror: false, counts: true }
+export const DEFAULT_SETTINGS: Settings = { speed: 1, mirror: false, counts: true, halfCounts: false }
 
 export interface VideoRequest {
   /** Video time to seek to. Apply it only when seekId changes. */
@@ -313,12 +315,18 @@ export class PlaybackController {
     return this.changeSettings((st) => ({ ...st, counts: !st.counts }))
   }
 
+  /** Pose's Half counts toggle; it's saved with the other settings. */
+  toggleHalfCounts(): ViewState {
+    return this.changeSettings((st) => ({ ...st, halfCounts: !st.halfCounts }))
+  }
+
   /**
    * The mode button. On Clip ended it enters Pose on the current section, the video paused on its
    * start. In Pose, Lookback doesn't exist yet, so it says so and comes back to Clip ended for that
-   * section, ready to replay it. Ignored while the controls are locked.
+   * section, ready to replay it; or, if stepping carried Pose into another section, for that one (poseSection).
+   * Ignored while the controls are locked.
    */
-  tapMode(): ViewState {
+  tapMode(poseSection?: number): ViewState {
     const s = this.state
     if (s.controlsLocked) return s
     if (s.mode === "Playthrough") {
@@ -335,14 +343,16 @@ export class PlaybackController {
       return this.state
     }
     this.toastLeft = TOAST_SEC
+    const n = poseSection ?? s.section
     this.state = {
       ...s,
+      section: n,
       mode: "Playthrough",
       screen: s.finishReady ? "C2" : "C",
       runKind: "section",
-      runSection: s.section,
-      runStop: s.section,
-      count: this.lastCount(s.section),
+      runSection: n,
+      runStop: n,
+      count: this.lastCount(n),
       sectionProgress: 1,
       runProgress: 1,
       toast: LOOKBACK_TOAST,

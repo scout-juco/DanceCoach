@@ -17,9 +17,9 @@ New-Item -ItemType Directory -Force $outDir | Out-Null
 $trim = "silenceremove=start_periods=1:start_threshold=-40dB,areverse,silenceremove=start_periods=1:start_threshold=-40dB,areverse"
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "count_trim.wav"
 
-for ($n = 1; $n -le 8; $n++) {
+foreach ($n in 1..8 + "and") {
   $in = Get-ChildItem $InDir -Filter "$n.*" | Select-Object -First 1
-  if (-not $in) { throw "No $n.* in $InDir" }
+  if (-not $in) { if ($n -eq "and") { continue } throw "No $n.* in $InDir" }
   ffmpeg -v error -y -i $in.FullName -af $trim -ar 44100 -ac 1 $tmp
   $info = ffmpeg -hide_banner -i $tmp -af volumedetect -f null - 2>&1 | Out-String
   $max = [double]([regex]::Match($info, "max_volume: (-?[\d.]+) dB").Groups[1].Value)

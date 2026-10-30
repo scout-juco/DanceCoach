@@ -4,18 +4,21 @@
 # so the number lands on the beat.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/makeCountVoice.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts/makeCountVoice.ps1 -Only and   (just the "and", leaving the numbers alone)
 
 param(
   [string]$Voice = "Microsoft Zira Desktop",
   # 5 keeps every word under a count (0.4 s) at 150 bpm.
-  [int]$Rate = 5
+  [int]$Rate = 5,
+  # Make only this word's clip (e.g. "and"); the default is all of them.
+  [string]$Only = ""
 )
 
 Add-Type -AssemblyName System.Speech
 $outDir = Join-Path $PSScriptRoot "..\DanceCoachLens\Assets\Audio\Counts"
 New-Item -ItemType Directory -Force $outDir | Out-Null
 
-$words = "one", "two", "three", "four", "five", "six", "seven", "eight"
+$words = "one", "two", "three", "four", "five", "six", "seven", "eight", "and"
 $sampleRate = 44100
 # Quieter than this (out of 32767) counts as silence.
 $threshold = 600
@@ -26,6 +29,7 @@ $synth.Rate = $Rate
 $format = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo($sampleRate, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)
 
 for ($i = 0; $i -lt $words.Length; $i++) {
+  if ($Only -and $words[$i] -ne $Only) { continue }
   $stream = New-Object System.IO.MemoryStream
   $synth.SetOutputToAudioStream($stream, $format)
   $synth.Speak($words[$i])
@@ -45,7 +49,8 @@ for ($i = 0; $i -lt $words.Length; $i++) {
   $data = New-Object byte[] $len
   [Array]::Copy($pcm, $first * 2, $data, 0, $len)
 
-  $path = Join-Path $outDir ("count{0}.wav" -f ($i + 1))
+  $name = if ($words[$i] -eq "and") { "countand.wav" } else { "count{0}.wav" -f ($i + 1) }
+  $path = Join-Path $outDir $name
   $w = New-Object System.IO.BinaryWriter([System.IO.File]::Create($path))
   $w.Write([Text.Encoding]::ASCII.GetBytes("RIFF")); $w.Write([int](36 + $len)); $w.Write([Text.Encoding]::ASCII.GetBytes("WAVE"))
   $w.Write([Text.Encoding]::ASCII.GetBytes("fmt ")); $w.Write([int]16); $w.Write([int16]1); $w.Write([int16]1)

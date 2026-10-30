@@ -54,7 +54,7 @@ describe("PlaybackController: Section 1 without 4 counts of footage before it st
   })
 
   it("counts in at the current speed", () => {
-    const pc = new PlaybackController(makeDance(), { settings: { speed: 0.5, mirror: false, counts: true } })
+    const pc = new PlaybackController(makeDance(), { settings: { speed: 0.5, mirror: false, counts: true, halfCounts: false } })
     pc.tapSection(1)
     expect(holdPose(pc, 0.9).countIn!.number).toBe(5)
     expect(holdPose(pc, 0.2).countIn!.number).toBe(6)
@@ -166,7 +166,7 @@ describe("PlaybackController: a section run", () => {
   })
 
   it("keeps saved progress and speed", () => {
-    const pc = new PlaybackController(makeDance(), { doneSections: [1], settings: { speed: 0.5, mirror: true, counts: true } })
+    const pc = new PlaybackController(makeDance(), { doneSections: [1], settings: { speed: 0.5, mirror: true, counts: true, halfCounts: false } })
     expect(pc.tapSection(2).video.rate).toBe(0.5)
     expect(pc.view).toMatchObject({ doneSections: [1], settings: { mirror: true } })
   })

@@ -2,7 +2,7 @@
  * PoseBar: the Pose bar (screen E), the thin scrub line opened up.
  *
  * The scrub bar marked 1 & 2 & â€¦ 8 &, then the mode button, Mirror, Half counts, â€¹ and â€º
- * and Play from here. Mirror and the mode button work; the rest are placeholders until their tickets.
+ * and Play from here. Mirror, Half counts, ‹ and › and the mode button work; Play from here is a placeholder until its ticket.
  * A shallow view: render() shows the Pose view, placed by the screen's poseBar panel in Layout.SCREENS.
  * `aimed` says whether the hand ray is on the bar, so the Lens can keep it open.
  */
@@ -60,6 +60,9 @@ export class PoseBar extends BaseScriptComponent {
   private modeName: Text
   private modeNext: Text
   private mirrorState: Text
+  private halfState: Text
+  private backLabel: Text
+  private forwardLabel: Text
   private placed = ""
   private lastKey = ""
 
@@ -122,7 +125,7 @@ export class PoseBar extends BaseScriptComponent {
       this.layout(box)
     }
     const st = view.settings
-    const key = `${pose.step}|${view.mode}|${st.mirror}`
+    const key = `${pose.step}|${view.mode}|${st.mirror}|${pose.halfCounts}`
     if (key === this.lastKey) return
     this.lastKey = key
 
@@ -138,6 +141,11 @@ export class PoseBar extends BaseScriptComponent {
     this.modeNext.text = `NEXT: ${MODES[(m + 1) % MODES.length].toUpperCase()}`
     this.buttons.find((b) => b.command === "mirror")!.rect.backgroundColor = themeColor(st.mirror ? "on" : "panel")
     this.mirrorState.text = st.mirror ? "on" : "off"
+    this.buttons.find((b) => b.command === "halfCounts")!.rect.backgroundColor = themeColor(pose.halfCounts ? "on" : "panel")
+    this.halfState.text = pose.halfCounts ? "on" : "off"
+    // The steps' size: a count, or half of one.
+    this.backLabel.text = pose.halfCounts ? "‹ ½" : "‹ 1"
+    this.forwardLabel.text = pose.halfCounts ? "½ ›" : "1 ›"
   }
 
   private layout(box: PxRect) {

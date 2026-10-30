@@ -11,7 +11,7 @@ import { DancePackage } from "./Core/DancePackage"
 import { DancePicker } from "./Core/DancePicker"
 import { DanceSource, LoadedDance } from "./Core/DanceSource"
 import { RemoteDanceSource } from "./Core/RemoteDanceSource"
-import { CountCaller } from "./Core/CountCaller"
+import { AND_CALL, CountCaller } from "./Core/CountCaller"
 import { PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
 import { PoseController, PoseView } from "./Core/PoseController"
 import { decodeSettings, encodeSettings, finishReadyKey, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
@@ -92,6 +92,7 @@ export class DanceCoach extends BaseScriptComponent {
   @input @allowUndefined count6: AudioTrackAsset
   @input @allowUndefined count7: AudioTrackAsset
   @input @allowUndefined count8: AudioTrackAsset
+  @input @allowUndefined countAnd: AudioTrackAsset
 
   // Where the dance comes from; the Lens never imports a dance directly. The picker lists the
   // server's dances (or the bundled test dance, offline) and hands over the one chosen.
@@ -109,7 +110,7 @@ export class DanceCoach extends BaseScriptComponent {
   private poseView: PoseView | null = null
   private caller = new CountCaller()
   private voice: AudioComponent | null = null
-  // countTracks[n] says n; empty without the spoken counts.
+  // countTracks[n] says n, and countTracks[AND_CALL] says "and"; empty without the spoken counts.
   private countTracks: AudioTrackAsset[] = []
   private countIn: CountInPanel
   private progress: ProgressBar
@@ -288,6 +289,8 @@ export class DanceCoach extends BaseScriptComponent {
       return
     }
     this.countTracks = tracks
+    if (this.countAnd) this.countTracks[AND_CALL] = this.countAnd
+    else print('DanceCoach: Count And isn't assigned; the "&" steps in Pose stay silent')
     this.voice = this.getSceneObject().createComponent("Component.AudioComponent") as AudioComponent
     // The word has to land on the beat.
     this.voice.playbackMode = Audio.PlaybackMode.LowLatency
@@ -295,8 +298,12 @@ export class DanceCoach extends BaseScriptComponent {
 
   /** Says the count when a new one starts; a new word cuts off the one before. */
   private callCount(view: ViewState) {
-    const n = this.caller.next(view)
-    if (n === 0 || !this.voice) return
+    this.say(this.caller.next(view))
+  }
+
+  /** Says a number (1–8) or "and" (AND_CALL); 0 is nothing. */
+  private say(n: number) {
+    if (n === 0 || !this.voice || !this.countTracks[n]) return
     if (this.voice.isPlaying()) this.voice.stop(false)
     this.voice.audioTrack = this.countTracks[n]
     this.voice.play(1)
@@ -337,9 +344,17 @@ export class DanceCoach extends BaseScriptComponent {
     this.poseView = this.pose.use()
     switch (command) {
       case "mode":
-        return this.switchMode(this.controller.tapMode())
+        return this.switchMode(this.controller.tapMode(this.poseView.section))
       case "mirror":
         return this.render(this.controller.toggleMirror())
+      case "halfCounts":
+        this.poseView = this.pose.setHalfCounts(this.controller.toggleHalfCounts().settings.halfCounts)
+        return this.render(this.controller.view)
+      case "back":
+      case "forward":
+        this.poseView = command === "back" ? this.pose.stepBack() : this.pose.stepForward()
+        // The still changes at once; the count is said once, on the next frame.
+        return this.render(this.controller.view)
       default:
         print(`DanceCoach: Pose bar ${command} isn't built yet`)
     }
@@ -349,7 +364,7 @@ export class DanceCoach extends BaseScriptComponent {
   private switchMode(view: ViewState) {
     if (view.mode === "Pose" && !this.poseView) {
       print(`DanceCoach: Pose on Section ${view.section}`)
-      this.poseView = this.pose.enter(view.section)
+      this.poseView = this.pose.enter(view.section, view.sectionCount, view.settings.halfCounts)
     } else if (view.mode !== "Pose" && this.poseView) {
       print(`DanceCoach: back to Playthrough on Section ${view.section}`)
       this.poseView = null
@@ -395,6 +410,7 @@ export class DanceCoach extends BaseScriptComponent {
       if (this.poseLine.aimed || this.poseBar.aimed) this.pose.aim()
       this.poseView = this.pose.tick(dt)
       this.render(this.controller.view)
+      this.say(this.caller.nextStep(this.poseView))
       return
     }
     this.render(this.controller.tick(videoTimeSec, dt))

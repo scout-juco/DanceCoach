@@ -43,7 +43,7 @@ describe("CountCaller", () => {
   })
 
   it("calls only the count-in when Counts is off", () => {
-    const pc = new PlaybackController(makeDance(), { ...seen, settings: { speed: 1, mirror: false, counts: false } })
+    const pc = new PlaybackController(makeDance(), { ...seen, settings: { speed: 1, mirror: false, counts: false, halfCounts: false } })
     const caller = new CountCaller()
     pc.tapSection(2)
     expect(calls(pc, caller, 3, 9.1)).toEqual([5, 6, 7, 8])

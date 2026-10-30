@@ -24,7 +24,7 @@ describe("First look", () => {
   })
 
   it.each([0.5, 0.75] as const)("plays at 1× even when the saved speed is %s×, and keeps that speed for practice", (speed) => {
-    const pc = new PlaybackController(makeDance(), { settings: { speed, mirror: false, counts: true } })
+    const pc = new PlaybackController(makeDance(), { settings: { speed, mirror: false, counts: true, halfCounts: false } })
     expect(pc.open().video.rate).toBe(1)
     expect(pc.view.settings.speed).toBe(speed)
     play(pc, 1, 13.1)

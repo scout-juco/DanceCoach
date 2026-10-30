@@ -159,7 +159,7 @@ describe("Full", () => {
   })
 
   it("plays at the current speed", () => {
-    const pc = new PlaybackController(makeDance(), { settings: { speed: 0.5, mirror: false, counts: true } })
+    const pc = new PlaybackController(makeDance(), { settings: { speed: 0.5, mirror: false, counts: true, halfCounts: false } })
     expect(pc.tapSection("full").video.rate).toBe(0.5)
   })
 
