@@ -290,7 +290,7 @@ export class DanceCoach extends BaseScriptComponent {
     }
     this.countTracks = tracks
     if (this.countAnd) this.countTracks[AND_CALL] = this.countAnd
-    else print('DanceCoach: Count And isn't assigned; the "&" steps in Pose stay silent')
+    else print(`DanceCoach: Count And isn't assigned; the "&" steps in Pose stay silent`)
     this.voice = this.getSceneObject().createComponent("Component.AudioComponent") as AudioComponent
     // The word has to land on the beat.
     this.voice.playbackMode = Audio.PlaybackMode.LowLatency
@@ -301,7 +301,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.say(this.caller.next(view))
   }
 
-  /** Says a number (1–8) or "and" (AND_CALL); 0 is nothing. */
+  /** Says a number (1â€“8) or "and" (AND_CALL); 0 is nothing. */
   private say(n: number) {
     if (n === 0 || !this.voice || !this.countTracks[n]) return
     if (this.voice.isPlaying()) this.voice.stop(false)

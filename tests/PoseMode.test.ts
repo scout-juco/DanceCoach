@@ -225,8 +225,8 @@ const posed = (sections: number, section = 1, halfCounts = false) => {
   return pose
 }
 
-describe("Pose steps: ‹ and ›", () => {
-  it("steps by whole counts: count 1, 2, 3 …", () => {
+describe("Pose steps: â€¹ and â€º", () => {
+  it("steps by whole counts: count 1, 2, 3 â€¦", () => {
     const pose = posed(3)
     expect(pose.stepForward().step).toBe(2)
     expect(pose.stepForward().step).toBe(4)

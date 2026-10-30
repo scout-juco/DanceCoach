@@ -12,7 +12,7 @@
  * M3-04: aiming at the scrub line expands it into the Pose bar (screen E). The bar collapses back to
  * screen D once POSE_BAR_HIDE_SEC pass with nothing aimed at it; using any control on it starts that wait again.
  *
- * M3-05: ‹ and › step the still by a count, or by a half-count with Half counts on. Steps cross section
+ * M3-05: â€¹ and â€º step the still by a count, or by a half-count with Half counts on. Steps cross section
  * boundaries both ways and stop at the routine's first and last count. Each step says its count once
  * (see stepId, and CountCaller).
  */

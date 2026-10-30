@@ -18,7 +18,7 @@ export class CountCaller {
   private lastKey = ""
   private lastStepId = 0
 
-  /** Given Pose's view each frame, returns what its latest step says (1–8, or AND_CALL), once; 0 for nothing new. */
+  /** Given Pose's view each frame, returns what its latest step says (1â€“8, or AND_CALL), once; 0 for nothing new. */
   nextStep(pose: PoseView): number {
     if (pose.stepId === this.lastStepId) return 0
     this.lastStepId = pose.stepId

@@ -2,7 +2,7 @@
  * PoseBar: the Pose bar (screen E), the thin scrub line opened up.
  *
  * The scrub bar marked 1 & 2 & â€¦ 8 &, then the mode button, Mirror, Half counts, â€¹ and â€º
- * and Play from here. Mirror, Half counts, ‹ and › and the mode button work; Play from here is a placeholder until its ticket.
+ * and Play from here. Mirror, Half counts, â€¹ and â€º and the mode button work; Play from here is a placeholder until its ticket.
  * A shallow view: render() shows the Pose view, placed by the screen's poseBar panel in Layout.SCREENS.
  * `aimed` says whether the hand ray is on the bar, so the Lens can keep it open.
  */
@@ -144,8 +144,8 @@ export class PoseBar extends BaseScriptComponent {
     this.buttons.find((b) => b.command === "halfCounts")!.rect.backgroundColor = themeColor(pose.halfCounts ? "on" : "panel")
     this.halfState.text = pose.halfCounts ? "on" : "off"
     // The steps' size: a count, or half of one.
-    this.backLabel.text = pose.halfCounts ? "‹ ½" : "‹ 1"
-    this.forwardLabel.text = pose.halfCounts ? "½ ›" : "1 ›"
+    this.backLabel.text = pose.halfCounts ? "â€¹ Â½" : "â€¹ 1"
+    this.forwardLabel.text = pose.halfCounts ? "Â½ â€º" : "1 â€º"
   }
 
   private layout(box: PxRect) {
