@@ -99,25 +99,6 @@ describe("Mirror and Counts", () => {
   })
 })
 
-describe("Mode button", () => {
-  it("stays in Playthrough and shows a coming-soon toast for Pose and Lookback", () => {
-    const pc = new PlaybackController(makeDance())
-    expect(pc.view.mode).toBe("Playthrough")
-    expect(pc.view.toast).toBeNull()
-    const v = pc.tapMode()
-    expect(v.mode).toBe("Playthrough")
-    expect(v.screen).toBe("C")
-    expect(v.toast).toMatch(/Pose and Lookback/)
-  })
-
-  it("lets the toast go after a few seconds", () => {
-    const pc = new PlaybackController(makeDance())
-    pc.tapMode()
-    expect(pc.tick(0, 1).toast).not.toBeNull()
-    expect(pc.tick(0, 3).toast).toBeNull()
-  })
-})
-
 describe("Saved settings", () => {
   it("round-trip through the store", () => {
     const settings = { speed: 0.75 as const, mirror: true, counts: false }

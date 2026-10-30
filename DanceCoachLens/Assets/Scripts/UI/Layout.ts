@@ -28,6 +28,9 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   C2: { video: [790, 40, 300, 533], sections: [600, 589, 490, 40], controls: [360, 645, 0, 84], toast: [360, 525, 420, 48] },
   // The pop-up isn't on the board: it opens in front of you (POPUP), so only its size counts.
   G: { video: [790, 40, 340, 604], popup: [0, 0, 640, 248] },
+  // Pose, for now (M3-01): the frozen video and, left of its bottom corner, a bar with only the mode button.
+  // The thin scrub line (poseThin) and the Pose bar (screen E) replace that bar in later M3 tickets.
+  D: { video: [790, 40, 340, 604], controls: [580, 560, 0, 84] },
 }
 
 /** A Full run plays on B with From the top's segmented bar in place of the progress bar. */

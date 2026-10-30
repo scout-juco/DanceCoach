@@ -26,12 +26,17 @@
  * section ends (a section run, From the top or Full; not the first look), then stays unlocked
  * for the dance, and Clip ended becomes C2. No pop-up when the last section ends. Finish
  * routine opens the Routine done pop-up (G) over the dimmed video.
+ *
+ * Milestone 3 / M3-01: the mode lives here. On Clip ended the mode button enters Pose (screen D)
+ * on the current section, with the video paused on its start; PoseController runs Pose from
+ * there. In Pose the mode button says Lookback is coming and comes back to Clip ended for
+ * that section. Playthrough's commands are ignored while in Pose.
  */
 import { CountClock, LEAD_IN_COUNTS } from "./CountClock"
 import { DancePackage } from "./DancePackage"
 
 /** Screen IDs from the clickable prototype. */
-export type ScreenId = "PV" | "BI" | "B0" | "B" | "F" | "C" | "C2" | "G"
+export type ScreenId = "PV" | "BI" | "B0" | "B" | "F" | "C" | "C2" | "G" | "D"
 
 export type RunKind = "section" | "top" | "full"
 
@@ -42,12 +47,12 @@ export type CountInKind = "startingPose" | "leadIn"
 /** What a section tile runs: a section, or the whole routine. */
 export type SectionTap = number | "full"
 
-/** The practice modes, in the order the mode button cycles through them. Only Playthrough exists yet. */
+/** The practice modes, in the order the mode button cycles through them. Lookback doesn't exist yet. */
 export const MODES = ["Playthrough", "Pose", "Lookback"] as const
 
 export type Mode = (typeof MODES)[number]
 
-export const COMING_SOON_TOAST = "Pose and Lookback are coming soon"
+export const LOOKBACK_TOAST = "Lookback is coming soon"
 
 export const finishLockedToast = (lastSection: number) => `Finish routine unlocks after you finish Section ${lastSection}`
 
@@ -259,7 +264,7 @@ export class PlaybackController {
 
   private startRun(kind: RunKind, section: number, stop: number): ViewState {
     const s = this.state
-    if (s.controlsLocked) return s
+    if (!this.canPlay()) return s
     const first = kind === "section" ? section : 1
     const lead = this.clock.leadIn(first)
     const start = this.clock.sectionStart(first)
@@ -295,7 +300,7 @@ export class PlaybackController {
   /** Sets the speed for every run from the next one on. Ignored while the controls are locked. */
   setSpeed(speed: Speed): ViewState {
     const s = this.state
-    if (s.controlsLocked) return s
+    if (!this.canPlay()) return s
     this.state = { ...s, settings: { ...s.settings, speed }, video: { ...s.video, rate: speed } }
     return this.state
   }
@@ -308,13 +313,51 @@ export class PlaybackController {
     return this.changeSettings((st) => ({ ...st, counts: !st.counts }))
   }
 
-  /** The mode button: Pose and Lookback don't exist yet, so it says so and stays in Playthrough. */
+  /**
+   * The mode button. On Clip ended it enters Pose on the current section, the video paused on its
+   * start. In Pose, Lookback doesn't exist yet, so it says so and comes back to Clip ended for that
+   * section, ready to replay it. Ignored while the controls are locked.
+   */
   tapMode(): ViewState {
     const s = this.state
     if (s.controlsLocked) return s
+    if (s.mode === "Playthrough") {
+      const start = this.clock.sectionStart(s.section)
+      this.state = {
+        ...s,
+        mode: "Pose",
+        screen: "D",
+        count: 0,
+        and: false,
+        toast: null,
+        video: { ...s.video, seekTo: start, seekId: s.video.seekId + 1, runEnd: this.clock.sectionEnd(s.section), playing: false, holdFrame: false, dim: false },
+      }
+      return this.state
+    }
     this.toastLeft = TOAST_SEC
-    this.state = { ...s, toast: COMING_SOON_TOAST }
+    this.state = {
+      ...s,
+      mode: "Playthrough",
+      screen: s.finishReady ? "C2" : "C",
+      runKind: "section",
+      runSection: s.section,
+      runStop: s.section,
+      count: this.lastCount(s.section),
+      sectionProgress: 1,
+      runProgress: 1,
+      toast: LOOKBACK_TOAST,
+    }
     return this.state
+  }
+
+  /** Runs, speed and Finish routine work only on Playthrough's unlocked screens. */
+  private canPlay(): boolean {
+    return !this.state.controlsLocked && this.state.mode === "Playthrough"
+  }
+
+  /** The last count of section n: 8, or less for a partial last section that ends with the footage. */
+  private lastCount(n: number): number {
+    return this.clock.countIn(n, this.clock.sectionEnd(n) - 1e-3).count
   }
 
   /**
@@ -323,7 +366,7 @@ export class PlaybackController {
    */
   finish(): ViewState {
     const s = this.state
-    if (s.controlsLocked) return s
+    if (!this.canPlay()) return s
     if (!s.finishReady) {
       this.toastLeft = TOAST_SEC
       this.state = { ...s, toast: finishLockedToast(this.clock.sectionCount) }
@@ -453,8 +496,8 @@ export class PlaybackController {
     this.state = {
       ...s,
       screen: finishReady ? "C2" : "C",
-      // The last count reached: 8, or less for a partial last section that ends with the footage.
-      count: this.clock.countIn(s.runStop, this.clock.sectionEnd(s.runStop) - 1e-3).count,
+      // The last count reached.
+      count: this.lastCount(s.runStop),
       and: false,
       countIn: null,
       runSection: s.runStop,

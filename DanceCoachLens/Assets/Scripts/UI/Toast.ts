@@ -1,5 +1,5 @@
 /**
- * Toast: a short message in a pill, such as "Pose and Lookback are coming soon".
+ * Toast: a short message in a pill, such as "Lookback is coming soon".
  *
  * A shallow view: render() shows the view state's toast, placed by the screen's toast
  * panel in Layout.SCREENS. Hidden when there's no toast or the screen has no place for one.

@@ -13,6 +13,7 @@ import { DanceSource, LoadedDance } from "./Core/DanceSource"
 import { RemoteDanceSource } from "./Core/RemoteDanceSource"
 import { CountCaller } from "./Core/CountCaller"
 import { PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
+import { PoseController, PoseView } from "./Core/PoseController"
 import { decodeSettings, encodeSettings, finishReadyKey, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
 import { ClipPlayer, VideoDriver } from "./Core/VideoDriver"
 import { decodePlacement, encodePlacement, Placement, PLACEMENT_KEY } from "./Core/WindowPlacement"
@@ -97,6 +98,9 @@ export class DanceCoach extends BaseScriptComponent {
   private loaded: LoadedDance<Texture>
   private dance: DancePackage
   private controller: PlaybackController
+  // Runs Pose while the controller's mode is Pose; poseView is null in Playthrough.
+  private pose = new PoseController()
+  private poseView: PoseView | null = null
   private caller = new CountCaller()
   private voice: AudioComponent | null = null
   // countTracks[n] says n; empty without the spoken counts.
@@ -172,6 +176,7 @@ export class DanceCoach extends BaseScriptComponent {
     // Saved again only when the first look ends.
     this.savedFirstLook = firstLookSeen
     this.savedSettings = this.controller.view.settings
+    this.poseView = null
     this.caller = new CountCaller()
     this.fakeTime = 0
     this.fakeSeekId = -1
@@ -190,6 +195,7 @@ export class DanceCoach extends BaseScriptComponent {
     print("DanceCoach: back to the dance list")
     if (this.driver) this.driver.stop()
     this.driver = null
+    this.poseView = null
     if (this.voice && this.voice.isPlaying()) this.voice.stop(false)
     // Closes the count-in and the pop-up, which aren't on the window.
     this.render({ ...this.controller.view, countIn: null, popup: null })
@@ -306,12 +312,24 @@ export class DanceCoach extends BaseScriptComponent {
       case "counts":
         return this.render(c.toggleCounts())
       case "mode":
-        return this.render(c.tapMode())
+        return this.switchMode(c.tapMode())
       case "finish":
         return this.render(c.finish())
       default:
         return this.render(c.setSpeed(command))
     }
+  }
+
+  /** After the mode button: enters the Pose controller when the mode becomes Pose, and leaves it when it's Playthrough again. */
+  private switchMode(view: ViewState) {
+    if (view.mode === "Pose" && !this.poseView) {
+      print(`DanceCoach: Pose on Section ${view.section}`)
+      this.poseView = this.pose.enter(view.section)
+    } else if (view.mode !== "Pose" && this.poseView) {
+      print(`DanceCoach: back to Playthrough on Section ${view.section}`)
+      this.poseView = null
+    }
+    this.render(view)
   }
 
   private update() {
@@ -330,8 +348,7 @@ export class DanceCoach extends BaseScriptComponent {
     const view = this.controller.view
     if (!this.driver) {
       this.applyFakeVideo(view.video, dt)
-      this.render(this.controller.tick(this.fakeTime, dt))
-      this.callCount(this.controller.view)
+      this.advance(this.fakeTime, dt)
       return
     }
     // Until a seek has landed, the video's time isn't the run's time yet.
@@ -343,7 +360,18 @@ export class DanceCoach extends BaseScriptComponent {
     }
     // The video's aspect is known once a seek has landed, whether or not onPlaybackReady fired.
     if (wasBusy) this.videoWindow.fitVideo()
-    this.render(this.controller.tick(this.driver.time, dt))
+    this.advance(this.driver.time, dt)
+  }
+
+  /** One frame on from the video's time: the Pose controller ticks in Pose, the playback controller otherwise. */
+  private advance(videoTimeSec: number, dt: number) {
+    if (this.poseView) {
+      // The video only holds the section's start frame; Pose moves on real time.
+      this.poseView = this.pose.tick(dt)
+      this.render(this.controller.view)
+      return
+    }
+    this.render(this.controller.tick(videoTimeSec, dt))
     // Only from ticks: a run's 5 waits until its seek has landed and the video is really there.
     this.callCount(this.controller.view)
   }
