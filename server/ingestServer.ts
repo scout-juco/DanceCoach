@@ -11,13 +11,14 @@
  *   GET /dances               the ready dances: [{ id, title, difficulty }]
  *   GET /dances/<id>/package  a ready dance's package
  *   GET /dances/<id>/clips/<name>  one of its clips, named <video>_<clip id>.mp4
+ *   GET /dances/<id>/stills/<name> one of its stills (a JPEG per half-count), as listed in the package's stills
  *   GET /dances/<id>/original the uploaded video (supports Range, so the adjust page can seek)
  *   GET /                     the adjust page; GET /app.js is its script, bundled from server/page
  *     4xx { error }                 a readable reason
  *
  * The original is kept at <storage>/<id>/original<ext>. Detection is only a starting guess.
  * A dance is ready once <storage>/<id>/package.json exists; it is written only after every
- * clip is cut (into <id>/clips), so a failed save never leaves a half-ready dance.
+ * clip and still is cut (into <id>/clips and <id>/stills), so a failed save never leaves a half-ready dance.
  */
 import { randomBytes } from "node:crypto"
 import { createReadStream, createWriteStream } from "node:fs"
@@ -29,7 +30,9 @@ import { fileURLToPath } from "node:url"
 import { pipeline } from "node:stream/promises"
 import { DancePackage, loadDancePackage } from "../DanceCoachLens/Assets/Scripts/Core/DancePackage"
 import { cutClips } from "../scripts/cutClips"
+import { cutStills } from "../scripts/cutStills"
 import { clipAssetName, planClips } from "../DanceCoachLens/Assets/Scripts/Core/ClipPlan"
+import { stillNames } from "../DanceCoachLens/Assets/Scripts/Core/StillPlan"
 import { detectBeats } from "./detectBeats"
 import { decodeAudio, fetchWithYtDlp, probeVideo, UploadError, VideoFetcher } from "./media"
 
@@ -155,26 +158,32 @@ async function saveDance(id: string, body: string, storageDir: string): Promise<
   } catch (err) {
     throw new UploadError((err as Error).message)
   }
+  pkg = { ...pkg, stills: stillNames(pkg) }
   const dir = join(storageDir, id)
-  // Editing a ready dance's name or difficulty keeps its timing, so its clips are still right.
+  // Editing a ready dance's name or difficulty keeps its timing, so its clips and stills are still right.
   const before = await readReady(storageDir, id)
   const timing = (p: DancePackage) => JSON.stringify([p.video, p.trim, p.bpm, p.firstBeatSec, p.sections])
-  if (before && timing(before) === timing(pkg) && (await exists(join(dir, "clips")))) {
-    await writeFile(join(dir, "package.json"), JSON.stringify(pkg, null, 2))
-    return pkg
-  }
-  const staging = join(dir, "clips.tmp")
-  await rm(staging, { recursive: true, force: true })
+  const same = before !== null && timing(before) === timing(pkg)
+  // A dance made ready before Pose has clips but no stills; saving it again adds them.
+  const cut = [
+    { name: "clips", run: cutClips, needed: !(same && (await exists(join(dir, "clips")))) },
+    { name: "stills", run: cutStills, needed: !(same && (await exists(join(dir, "stills")))) },
+  ].filter((c) => c.needed)
+  const stagingOf = (name: string) => join(dir, `${name}.tmp`)
+  const clearStaging = () => Promise.all(cut.map((c) => rm(stagingOf(c.name), { recursive: true, force: true })))
+  await clearStaging()
   try {
-    cutClips(pkg, original, staging)
+    for (const c of cut) c.run(pkg, original, stagingOf(c.name))
   } catch (err) {
-    await rm(staging, { recursive: true, force: true })
+    await clearStaging()
     throw err
   }
-  // The old clips and package keep being served while the new ones are cut; the swap is the last, quick step.
+  // The old files and package keep being served while the new ones are cut; the swap is the last, quick step.
   await writeFile(join(dir, "package.json.tmp"), JSON.stringify(pkg, null, 2))
-  await rm(join(dir, "clips"), { recursive: true, force: true })
-  await rename(staging, join(dir, "clips"))
+  for (const c of cut) {
+    await rm(join(dir, c.name), { recursive: true, force: true })
+    await rename(stagingOf(c.name), join(dir, c.name))
+  }
   await rename(join(dir, "package.json.tmp"), join(dir, "package.json"))
   return pkg
 }
@@ -256,9 +265,9 @@ export function createIngestServer(options: IngestOptions): Server {
       if (req.method === "GET" && url.pathname === "/dances") {
         return send(res, 200, await listReady(options.storageDir))
       }
-      const route = url.pathname.match(/^\/dances\/([^/]+)(?:\/(package|original|clips\/([^/]+)))?$/)
+      const route = url.pathname.match(/^\/dances\/([^/]+)(?:\/(package|original|clips\/([^/]+)|stills\/([^/]+)))?$/)
       if (route) {
-        const [, id, what, clipFile] = route
+        const [, id, what, clipFile, stillFile] = route
         if (req.method === "PUT" && !what) {
           const pkg = await saveDance(id, await readBody(req), options.storageDir)
           return send(res, 200, { package: pkg })
@@ -279,6 +288,13 @@ export function createIngestServer(options: IngestOptions): Server {
             const file = join(options.storageDir, id, "clips", clipFile)
             if (names.includes(clipFile) && (await exists(file))) {
               res.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": (await stat(file)).size })
+              return void createReadStream(file).pipe(res)
+            }
+          }
+          if (pkg && stillFile && (pkg.stills ?? []).some((names) => names.includes(stillFile))) {
+            const file = join(options.storageDir, id, "stills", stillFile)
+            if (await exists(file)) {
+              res.writeHead(200, { "Content-Type": "image/jpeg", "Content-Length": (await stat(file)).size })
               return void createReadStream(file).pipe(res)
             }
           }

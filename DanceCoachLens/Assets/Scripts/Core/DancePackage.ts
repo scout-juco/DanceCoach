@@ -35,9 +35,17 @@ export interface DancePackage {
   /** Only for manual nudges; otherwise sections are derived from bpm and firstBeatSec. */
   sections?: SectionNudge[]
   focus?: FocusRect
+  /**
+   * The still of every half-count, per section: STILLS_PER_SECTION file names in order
+   * (count 1, 1&, 2, … 8&). Only dances made ready since Pose have them; see Core/StillPlan.ts.
+   */
+  stills?: string[][]
   /** Where the tutorial came from (for credit; not shown in Milestone 1). */
   source: string
 }
+
+/** 8 counts, each with its "&". */
+export const STILLS_PER_SECTION = 16
 
 const isNum = (v: unknown): v is number => typeof v === "number" && isFinite(v)
 const isStr = (v: unknown): v is string => typeof v === "string" && v.length > 0
@@ -68,6 +76,13 @@ export function loadDancePackage(raw: unknown): DancePackage {
   if (p.focus !== undefined) {
     const f = p.focus
     if (![f.x, f.y, f.w, f.h].every(isNum)) fail("focus needs numeric x, y, w, h")
+  }
+  if (p.stills !== undefined) {
+    if (!Array.isArray(p.stills) || p.stills.length === 0) fail("stills must be a list with one entry per section")
+    p.stills.forEach((names, i) => {
+      if (!Array.isArray(names) || names.length !== STILLS_PER_SECTION) fail(`stills[${i}] must list ${STILLS_PER_SECTION} file names`)
+      if (!names.every(isStr)) fail(`stills[${i}] must hold only file names`)
+    })
   }
   return p as DancePackage
 }
