@@ -3,7 +3,7 @@
  *
  * The scrub bar marked 1 & 2 & … 8 &, then the mode button, Mirror, Half counts, ‹ and ›
  * and Play from here. Mirror, Half counts, ‹ and › and the mode button work, and pinching and dragging the scrub bar
- * calls onScrub / onScrubEnd; Play from here is a placeholder until its ticket.
+ * calls onScrub / onScrubEnd.
  * A shallow view: render() shows the Pose view, placed by the screen's poseBar panel in Layout.SCREENS.
  * `aimed` says whether the hand ray is on the bar, so the Lens can keep it open.
  */

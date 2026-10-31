@@ -349,7 +349,7 @@ export class DanceCoach extends BaseScriptComponent {
     }
   }
 
-  /** A Pose bar button: any use keeps the bar open a while longer. Half counts, ‹, › and Play from here are placeholders. */
+  /** A Pose bar button: any use keeps the bar open a while longer. */
   private pressPoseBar(command: PoseBarCommand) {
     if (!this.poseView) return
     this.poseView = this.pose.use()
@@ -366,8 +366,9 @@ export class DanceCoach extends BaseScriptComponent {
         this.poseView = command === "back" ? this.pose.stepBack() : this.pose.stepForward()
         // The still changes at once; the count is said once, on the next frame.
         return this.render(this.controller.view)
-      default:
-        print(`DanceCoach: Pose bar ${command} isn't built yet`)
+      case "playFromHere":
+        print(`DanceCoach: Play from here, Section ${this.poseView.section} step ${this.poseView.step}`)
+        return this.switchMode(this.controller.playFromHere(this.poseView.section, this.poseView.step))
     }
   }
 

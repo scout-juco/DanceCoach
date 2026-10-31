@@ -24,9 +24,9 @@ const CHIP_PAD = 16
 const BADGE_COUNT_UP = 7
 const BADGE_SUB_DOWN = 24
 
-/** The chips in the video's top-right corner, left to right: the speed during a run, and MIRRORED; in Pose, POSE · FROZEN. */
+/** The chips in the video's top-right corner, left to right: the speed during a run, and MIRRORED; in Pose, POSE · FROZEN, then MIRRORED. */
 function chipLabels(view: ViewState): string[] {
-  if (view.mode === "Pose") return ["POSE · FROZEN"]
+  if (view.mode === "Pose") return view.settings.mirror ? ["POSE · FROZEN", "MIRRORED"] : ["POSE · FROZEN"]
   const running = view.screen === "BI" || view.screen === "B0" || view.screen === "B" || view.screen === "F"
   const chips: string[] = []
   if (running) chips.push(`${view.settings.speed}×`)

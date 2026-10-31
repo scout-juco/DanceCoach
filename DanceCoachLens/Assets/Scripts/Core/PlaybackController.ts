@@ -31,6 +31,10 @@
  * on the current section, with the video paused on its start; PoseController runs Pose from
  * there. In Pose the mode button says Lookback is coming and comes back to Clip ended for
  * that section. Playthrough's commands are ignored while in Pose.
+ *
+ * M3-07: Play from here leaves Pose for Playthrough and runs the section from the frozen count to its end,
+ * counting in with a 5, 6, 7, 8 over the 4 counts before that count (dimmed), or the frozen still without footage that early.
+ * The mirror setting is shared between the two modes.
  */
 import { CountClock, LEAD_IN_COUNTS } from "./CountClock"
 import { DancePackage } from "./DancePackage"
@@ -147,6 +151,8 @@ export class PlaybackController {
   // Video seconds counted through a frozen starting pose (the video isn't moving, so tick's dt drives it).
   private poseElapsed = 0
   private toastLeft = 0
+  // Where the current run starts playing when that isn't its section's start (Play from here); null otherwise.
+  private fromTime: number | null = null
 
   constructor(readonly pkg: DancePackage, progress?: Partial<Progress>) {
     this.clock = new CountClock(pkg)
@@ -264,12 +270,31 @@ export class PlaybackController {
     return this.tapRange(s.section, s.runKind === "section" ? s.runStop : s.section)
   }
 
-  private startRun(kind: RunKind, section: number, stop: number): ViewState {
+  /**
+   * Pose's Play from here: runs section n from the frozen step (0 to 15, a half-count each) to the section's end,
+   * in Playthrough, at the current speed, controls locked, ending on Clip ended. Ignored outside Pose.
+   */
+  playFromHere(section: number, step: number): ViewState {
+    const s = this.state
+    if (s.mode !== "Pose" || s.controlsLocked) return s
+    this.state = { ...s, mode: "Playthrough", toast: null }
+    return this.startRun("section", section, section, this.clock.sectionStart(section) + (step * this.clock.beatSec) / 2)
+  }
+
+  /** The 4 counts before a run's first count: before the frozen count of Play from here, else before its first section. */
+  private leadWindow(first: number): { start: number; end: number } | null {
+    if (this.fromTime === null) return this.clock.leadIn(first)
+    const start = this.fromTime - LEAD_IN_COUNTS * this.clock.beatSec
+    return start < -EPS ? null : { start: Math.max(start, 0), end: this.fromTime }
+  }
+
+  private startRun(kind: RunKind, section: number, stop: number, from: number | null = null): ViewState {
     const s = this.state
     if (!this.canPlay()) return s
+    this.fromTime = from
     const first = kind === "section" ? section : 1
-    const lead = this.clock.leadIn(first)
-    const start = this.clock.sectionStart(first)
+    const lead = this.leadWindow(first)
+    const start = from ?? this.clock.sectionStart(first)
     this.poseElapsed = 0
     this.state = {
       ...s,
@@ -448,7 +473,7 @@ export class PlaybackController {
 
   private tickLeadIn(t: number): ViewState {
     const s = this.state
-    const lead = this.clock.leadIn(s.runSection)!
+    const lead = this.leadWindow(s.runSection)!
     if (t >= lead.end - EPS) {
       this.startPlaying()
       return this.tickRun(t)
@@ -465,8 +490,7 @@ export class PlaybackController {
     this.state = {
       ...s,
       screen: s.runKind === "top" ? "F" : "B",
-      count: 1,
-      and: false,
+      ...(this.fromTime === null ? { count: 1, and: false } : this.clock.countIn(s.runSection, this.fromTime)),
       countIn: null,
       video: { ...s.video, playing: true, dim: false },
     }
@@ -476,7 +500,7 @@ export class PlaybackController {
   private tickRun(t: number): ViewState {
     const s = this.state
     const first = s.runKind === "section" ? s.section : 1
-    const start = this.clock.sectionStart(first)
+    const start = this.fromTime ?? this.clock.sectionStart(first)
     const end = this.clock.sectionEnd(s.runStop)
     if (t >= end - EPS) return this.endRun()
     const n = Math.min(Math.max(this.clock.sectionAt(t), first), s.runStop)

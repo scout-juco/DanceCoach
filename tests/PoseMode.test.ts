@@ -484,3 +484,108 @@ describe("Pose: scrubbing the bar", () => {
     expect(caller.nextStep(pose.scrubEnd())).toBe(5)
   })
 })
+
+describe("Pose: Mirror", () => {
+  it("is the same setting as Playthrough's, and carries between modes", () => {
+    const pc = new PlaybackController(makeDance())
+    pc.tapMode()
+    expect(pc.toggleMirror().settings.mirror).toBe(true)
+    expect(pc.view.mode).toBe("Pose")
+    pc.tapMode()
+    expect(pc.view.settings.mirror).toBe(true)
+    pc.tapMode()
+    expect(pc.view.settings.mirror).toBe(true)
+  })
+
+  it("is kept into a Play from here run", () => {
+    const pc = new PlaybackController(makeDance())
+    pc.tapMode()
+    pc.toggleMirror()
+    expect(pc.playFromHere(1, 4).settings.mirror).toBe(true)
+  })
+})
+
+describe("Pose: Play from here", () => {
+  /** Pose on section n, stepped to `step`, then Play from here. */
+  function playFrom(n: number, step: number, speed: 0.5 | 0.75 | 1 = 1) {
+    const pc = new PlaybackController(makeDance())
+    pc.setSpeed(speed)
+    runSection(pc, n)
+    pc.tapMode()
+    return { pc, v: pc.playFromHere(n, step) }
+  }
+
+  it("leaves Pose for Playthrough with the controls locked, at the current speed", () => {
+    const { v } = playFrom(2, 4, 0.5)
+    expect(v).toMatchObject({ mode: "Playthrough", controlsLocked: true, section: 2, runSection: 2, runStop: 2, runKind: "section", toast: null })
+    expect(v.video.rate).toBe(0.5)
+  })
+
+  it("counts in over the 4 counts before the frozen count, dimmed", () => {
+    // Section 2 starts at 5 s; count 3 is at 6 s; the 4 counts before it are 4 s to 6 s.
+    const { pc, v } = playFrom(2, 4)
+    expect(v).toMatchObject({ screen: "B0", countIn: { number: 5, kind: "leadIn" } })
+    expect(v.video).toMatchObject({ seekTo: 4, playing: true, dim: true, runEnd: 9 })
+    expect(pc.tick(4.1).countIn).toEqual({ number: 5, kind: "leadIn" })
+    expect(pc.tick(4.6).countIn).toEqual({ number: 6, kind: "leadIn" })
+    expect(pc.tick(5.1).countIn).toEqual({ number: 7, kind: "leadIn" })
+    expect(pc.tick(5.6).countIn).toEqual({ number: 8, kind: "leadIn" })
+  })
+
+  it("plays from the frozen count: count 3 first, then on to the section's end", () => {
+    const { pc } = playFrom(2, 4)
+    expect(pc.tick(6.01)).toMatchObject({ screen: "B", countIn: null, count: 3, and: false, controlsLocked: true })
+    expect(pc.view.video).toMatchObject({ playing: true, dim: false })
+    expect(pc.tick(7.3)).toMatchObject({ count: 5, and: true })
+    expect(pc.tick(8.9)).toMatchObject({ screen: "B", count: 8 })
+  })
+
+  it("ends on Clip ended for the section, unlocked", () => {
+    const { pc } = playFrom(2, 4)
+    for (let t = 4; t <= 9.1; t += 0.05) pc.tick(t, 0.05)
+    expect(pc.view).toMatchObject({ screen: "C", controlsLocked: false, mode: "Playthrough", section: 2, count: 8 })
+    expect(pc.view.doneSections).toContain(2)
+  })
+
+  it("starts a half-count step at its \"&\"", () => {
+    // Step 5 is 2&, at 5 + 5 × 0.25 = 6.25 s.
+    const { pc, v } = playFrom(2, 5)
+    expect(v.video.seekTo).toBe(4.25)
+    expect(pc.tick(6.3)).toMatchObject({ screen: "B", count: 3, and: true })
+  })
+
+  it("counts in from the frozen still when there's no footage that early", () => {
+    // Section 1 starts at 1 s: only 2 s of footage before count 1, short of 4 counts.
+    const { pc, v } = playFrom(1, 2)
+    expect(v).toMatchObject({ screen: "BI", countIn: { number: 5, kind: "startingPose" } })
+    expect(v.video).toMatchObject({ seekTo: 1.5, playing: false, dim: false })
+    const after = holdPose(pc, 2.01)
+    expect(after).toMatchObject({ screen: "B", countIn: null, count: 2 })
+    expect(pc.view.video.playing).toBe(true)
+  })
+
+  it("from count 1 of Section 1 counts in like tapping it", () => {
+    const { v } = playFrom(1, 0)
+    expect(v).toMatchObject({ screen: "BI", countIn: { number: 5, kind: "startingPose" } })
+  })
+
+  it("leads in from the previous section's last counts for count 1 of a later section", () => {
+    const { v } = playFrom(3, 0)
+    expect(v).toMatchObject({ screen: "B0" })
+    expect(v.video.seekTo).toBe(9 - 2)
+  })
+
+  it("is ignored outside Pose", () => {
+    const pc = new PlaybackController(makeDance())
+    runSection(pc, 2)
+    expect(pc.playFromHere(2, 4)).toMatchObject({ screen: "C", mode: "Playthrough" })
+  })
+
+  it("replay afterwards runs the whole section again", () => {
+    const { pc } = playFrom(2, 4)
+    for (let t = 4; t <= 9.1; t += 0.05) pc.tick(t, 0.05)
+    const v = pc.replay()
+    expect(v.video.seekTo).toBe(3)
+    expect(v.countIn).toEqual({ number: 5, kind: "leadIn" })
+  })
+})
