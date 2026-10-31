@@ -100,9 +100,9 @@ export class PoseBar extends BaseScriptComponent {
     this.mirrorState = this.label(mirror.object, TYPE.chip, "ink", 0, 8)
     const half = this.button("halfCounts", BUTTON_W.toggle)
     this.label(half.object, TYPE.chip, "ink", 0, -8).text = "Half counts"
-    this.label(half.object, TYPE.chip, "muted", 0, 8).text = "off"
-    this.label(this.button("back", BUTTON_W.step).object, TYPE.button, "ink", 0, 0).text = "‹ 1"
-    this.label(this.button("forward", BUTTON_W.step).object, TYPE.button, "ink", 0, 0).text = "1 ›"
+    this.halfState = this.label(half.object, TYPE.chip, "ink", 0, 8)
+    this.backLabel = this.label(this.button("back", BUTTON_W.step).object, TYPE.button, "ink", 0, 0)
+    this.forwardLabel = this.label(this.button("forward", BUTTON_W.step).object, TYPE.button, "ink", 0, 0)
     const play = this.button("playFromHere", BUTTON_W.play)
     play.rect.backgroundColor = themeColor("active")
     play.rect.borderColor = themeColor("active")
