@@ -234,6 +234,17 @@ export class DanceCoach extends BaseScriptComponent {
     this.poseLine = childObject("PoseLine", plane).createComponent(PoseLine.getTypeName()) as PoseLine
     this.poseBar = childObject("PoseBar", plane).createComponent(PoseBar.getTypeName()) as PoseBar
     this.poseBar.onPress = (command) => this.pressPoseBar(command)
+    // The still follows the drag at once; the count is said once, on the frame after it lets go.
+    this.poseBar.onScrub = (fraction) => {
+      if (!this.poseView) return
+      this.poseView = this.pose.scrub(fraction)
+      this.render(this.controller.view)
+    }
+    this.poseBar.onScrubEnd = () => {
+      if (!this.poseView) return
+      this.poseView = this.pose.scrubEnd()
+      this.render(this.controller.view)
+    }
     this.segBar = childObject("SegBar", plane).createComponent(SegBar.getTypeName()) as SegBar
     this.banner = childObject("Banner", plane).createComponent(Banner.getTypeName()) as Banner
     this.sections = childObject("Sections", plane).createComponent(SectionRow.getTypeName()) as SectionRow

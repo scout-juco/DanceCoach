@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { AND_CALL, CountCaller } from "../DanceCoachLens/Assets/Scripts/Core/CountCaller"
 import { decodeSettings, encodeSettings } from "../DanceCoachLens/Assets/Scripts/Core/SettingsStore"
 import { LOOKBACK_TOAST, PlaybackController, ViewState } from "../DanceCoachLens/Assets/Scripts/Core/PlaybackController"
-import { POSE_BAR_HIDE_SEC, PoseController, scrubLabel, stepCountLabel } from "../DanceCoachLens/Assets/Scripts/Core/PoseController"
+import { POSE_BAR_HIDE_SEC, PoseController, scrubLabel, scrubStep, stepCountLabel } from "../DanceCoachLens/Assets/Scripts/Core/PoseController"
 import { makeDance } from "./fixtures"
 
 // The fixture: 120 bpm (a count is 0.5 s, a section 4 s), first beat at 1 s, sections at 1, 5 and 9 s.
@@ -413,5 +413,74 @@ describe("CountCaller in Pose", () => {
     caller.nextStep(pose.stepForward())
     expect(caller.nextStep(pose.enter(2, 3))).toBe(0)
     expect(caller.nextStep(pose.stepForward())).toBe(2)
+  })
+})
+
+describe("Pose: scrubbing the bar", () => {
+  it("maps a drag to the section's 8 stops, snapping to the nearest", () => {
+    const steps = [0, 0.124, 0.126, 0.5, 0.874, 0.876, 1].map((f) => scrubStep(f, false))
+    expect(steps).toEqual([0, 0, 2, 8, 12, 14, 14])
+    // Each count's stop is centred on its label.
+    for (let i = 0; i < 8; i++) expect(scrubStep((i + 0.5) / 8, false)).toBe(i * 2)
+  })
+
+  it("maps a drag to 16 stops with Half counts on", () => {
+    for (let i = 0; i < 16; i++) expect(scrubStep((i + 0.5) / 16, true)).toBe(i)
+    expect(scrubStep(0.03, true)).toBe(0)
+    expect(scrubStep(0.04, true)).toBe(0)
+    expect(scrubStep(0.07, true)).toBe(1)
+  })
+
+  it("clamps a drag past either end of the bar", () => {
+    expect(scrubStep(-0.4, false)).toBe(0)
+    expect(scrubStep(1.7, false)).toBe(14)
+    expect(scrubStep(-0.4, true)).toBe(0)
+    expect(scrubStep(1.7, true)).toBe(15)
+  })
+
+  it("moves the step within the current section as the drag goes", () => {
+    const pose = posed(3, 2)
+    expect(pose.scrub(0.5)).toMatchObject({ section: 2, step: 8 })
+    expect(pose.scrub(0.9)).toMatchObject({ section: 2, step: 14 })
+    expect(pose.scrub(0.1)).toMatchObject({ section: 2, step: 0 })
+  })
+
+  it("uses half-counts when Half counts is on", () => {
+    const pose = posed(3, 1, true)
+    expect(pose.scrub(0.3)).toMatchObject({ step: 4 })
+    expect(pose.scrub(0.34)).toMatchObject({ step: 5 })
+  })
+
+  it("keeps the bar open", () => {
+    const pose = posed(3)
+    pose.aim()
+    pose.tick(POSE_BAR_HIDE_SEC - 0.1)
+    pose.scrub(0.5)
+    expect(pose.tick(POSE_BAR_HIDE_SEC - 0.1).screen).toBe("E")
+  })
+
+  it("calls nothing while dragging, and the landing count once on release", () => {
+    const pose = posed(3)
+    const caller = new CountCaller()
+    for (const f of [0.1, 0.3, 0.5, 0.7]) expect(caller.nextStep(pose.scrub(f))).toBe(0)
+    expect(caller.nextStep(pose.scrubEnd())).toBe(6)
+    expect(caller.nextStep(pose.view)).toBe(0)
+  })
+
+  it("calls \"&\" on release when it lands on a half-count", () => {
+    const pose = posed(3, 1, true)
+    const caller = new CountCaller()
+    pose.scrub(0.34)
+    expect(caller.nextStep(pose.scrubEnd())).toBe(AND_CALL)
+  })
+
+  it("calls the count again after a drag lands where it started", () => {
+    const pose = posed(3)
+    const caller = new CountCaller()
+    pose.scrub(0.5)
+    expect(caller.nextStep(pose.scrubEnd())).toBe(5)
+    pose.scrub(0.1)
+    pose.scrub(0.5)
+    expect(caller.nextStep(pose.scrubEnd())).toBe(5)
   })
 })

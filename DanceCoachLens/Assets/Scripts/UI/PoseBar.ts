@@ -2,11 +2,13 @@
  * PoseBar: the Pose bar (screen E), the thin scrub line opened up.
  *
  * The scrub bar marked 1 & 2 & … 8 &, then the mode button, Mirror, Half counts, ‹ and ›
- * and Play from here. Mirror, Half counts, ‹ and › and the mode button work; Play from here is a placeholder until its ticket.
+ * and Play from here. Mirror, Half counts, ‹ and › and the mode button work, and pinching and dragging the scrub bar
+ * calls onScrub / onScrubEnd; Play from here is a placeholder until its ticket.
  * A shallow view: render() shows the Pose view, placed by the screen's poseBar panel in Layout.SCREENS.
  * `aimed` says whether the hand ray is on the bar, so the Lens can keep it open.
  */
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
+import { InteractorEvent } from "SpectaclesInteractionKit.lspkg/Core/Interactor/InteractorEvent"
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { STILLS_PER_SECTION } from "../Core/DancePackage"
 import { MODES, ViewState } from "../Core/PlaybackController"
@@ -26,6 +28,8 @@ const HIT_DEPTH = 1
 const SCRUB_X = 14
 const SCRUB_Y = 16
 const SCRUB_H = 12
+// The grab area is taller than the line, to be easy to pinch.
+const SCRUB_HIT_H = 40
 const HANDLE = { w: 22, h: 28 }
 const LABEL_Y = 48
 const BUTTONS_Y = 62
@@ -47,7 +51,14 @@ export class PoseBar extends BaseScriptComponent {
   /** Called when a button is pinched. */
   onPress: (command: PoseBarCommand) => void = () => {}
 
+  /** Called while the scrub bar is pinched, with how far along it the hand is (0 to 1). */
+  onScrub: (fraction: number) => void = () => {}
+  /** Called when the scrub bar is let go. */
+  onScrubEnd: () => void = () => {}
+
   private hovered = 0
+  private scrubObject: SceneObject
+  private scrubWidthCm = 1
   private bar: RoundedRectangle
   private barObject: SceneObject
   private track: RoundedRectangle
@@ -78,6 +89,13 @@ export class PoseBar extends BaseScriptComponent {
     this.bar.borderSize = pxToCm(1)
     this.bar.borderColor = themeColor("stroke")
     this.hoverable(this.barObject, 1, 1)
+    // The scrub bar's grab area: pinch anywhere along it and drag.
+    this.scrubObject = childObject("Scrub", this.sceneObject)
+    const scrub = this.hoverable(this.scrubObject, 1, 1)
+    scrub.onTriggerStart.add((e) => this.scrubTo(e))
+    scrub.onTriggerUpdate.add((e) => this.scrubTo(e))
+    scrub.onTriggerEnd.add(() => this.onScrubEnd())
+    scrub.onTriggerCanceled.add(() => this.onScrubEnd())
     this.trackObject = childObject("Track", this.sceneObject)
     this.track = makeRect(this.trackObject, "on", 2)
     this.fillObject = childObject("Fill", this.sceneObject)
@@ -154,6 +172,9 @@ export class PoseBar extends BaseScriptComponent {
     place(this.barObject, pointInPanelCm(box, w / 2, h / 2), Z_BAR)
     setRectSize(this.bar, w, h, RADII.bar)
     this.setHitBox(this.barObject, w, h)
+    place(this.scrubObject, pointInPanelCm(box, w / 2, SCRUB_Y + SCRUB_H / 2), Z_CONTROL + 3 * Z_LABEL)
+    this.setHitBox(this.scrubObject, sw, SCRUB_HIT_H)
+    this.scrubWidthCm = pxToCm(sw)
     place(this.trackObject, pointInPanelCm(box, w / 2, SCRUB_Y + SCRUB_H / 2), Z_CONTROL)
     setRectSize(this.track, sw, SCRUB_H, SCRUB_H / 2)
     this.labels.forEach(({ object }, i) => place(object, pointInPanelCm(box, SCRUB_X + (i + 0.5) * (sw / STILLS_PER_SECTION), LABEL_Y), Z_CONTROL))
@@ -164,6 +185,14 @@ export class PoseBar extends BaseScriptComponent {
       // A wider gap before ‹ ›, like the prototype's divider.
       if (b.command === "halfCounts") x += BUTTON_GAP
     }
+  }
+
+  /** Where along the scrub bar the pinch is, from the ray's point on the bar's plane. */
+  private scrubTo(e: InteractorEvent) {
+    const p = e.interactor.planecastPoint
+    if (!p) return
+    const local = this.scrubObject.getTransform().getInvertedWorldTransform().multiplyPoint(p)
+    this.onScrub(local.x / this.scrubWidthCm + 0.5)
   }
 
   private setHitBox(object: SceneObject, wPx: number, hPx: number) {

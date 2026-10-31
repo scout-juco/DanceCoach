@@ -15,6 +15,9 @@
  * M3-05: ‹ and › step the still by a count, or by a half-count with Half counts on. Steps cross section
  * boundaries both ways and stop at the routine's first and last count. Each step says its count once
  * (see stepId, and CountCaller).
+ *
+ * M3-06: dragging along the scrub bar snaps to the nearest count (or half-count) in the current section;
+ * the count is called once, when the drag lets go.
  */
 
 import { STILLS_PER_SECTION } from "./DancePackage"
@@ -38,6 +41,14 @@ export interface PoseView {
 /** A step's count as the badge shows it: 1, 1&, 2, … */
 export function stepCountLabel(step: number): string {
   return `${Math.floor(step / 2) + 1}${step % 2 ? "&" : ""}`
+}
+
+/** The step nearest a point `fraction` (0 to 1) along the scrub bar: its 8 (or 16 with Half counts) stops are evenly spaced. */
+export function scrubStep(fraction: number, halfCounts: boolean): number {
+  const f = Math.min(Math.max(fraction, 0), 1)
+  const stops = halfCounts ? STILLS_PER_SECTION : STILLS_PER_SECTION / 2
+  const stop = Math.min(Math.floor(f * stops), stops - 1)
+  return halfCounts ? stop : stop * 2
 }
 
 /** The thin scrub line's label, e.g. "SECTION 2 · COUNT 5&". */
@@ -84,6 +95,24 @@ export class PoseController {
   /** One count (or half-count) back, into the previous section before its first; nothing before the routine's first. */
   stepBack(): PoseView {
     return this.step(-1)
+  }
+
+  /**
+   * The scrub bar is being dragged, `fraction` (0 to 1) of the way along it: the still and badge snap to the nearest
+   * count, or half-count with Half counts on. Says nothing; the count is called by scrubEnd, once.
+   */
+  scrub(fraction: number): PoseView {
+    this.idleSec = 0
+    const s = this.state
+    this.state = { ...s, step: scrubStep(fraction, s.halfCounts) }
+    return this.state
+  }
+
+  /** The drag was let go: the stop it landed on is called once. */
+  scrubEnd(): PoseView {
+    this.idleSec = 0
+    this.state = { ...this.state, stepId: this.state.stepId + 1 }
+    return this.state
   }
 
   /** Half counts on or off. Off while on an "&" moves to the count before it. */
