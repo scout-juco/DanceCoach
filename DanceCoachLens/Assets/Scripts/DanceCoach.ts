@@ -181,7 +181,7 @@ export class DanceCoach extends BaseScriptComponent {
     const firstLookSeen = this.savedFirstLook && !this.alwaysFirstLook
     if (this.savedFirstLook && !firstLookSeen) print("DanceCoach: playing the first look again (Always First Look is on)")
     this.savedFinishReady = store.getBool(finishReadyKey(this.dance.id))
-    this.controller = new PlaybackController(this.dance, { settings, firstLookSeen, finishReady: this.savedFinishReady })
+    this.controller = new PlaybackController(this.dance, { settings, firstLookSeen, finishReady: this.savedFinishReady }, !!loaded.stills)
     // Saved again only when the first look ends.
     this.savedFirstLook = firstLookSeen
     this.savedSettings = this.controller.view.settings

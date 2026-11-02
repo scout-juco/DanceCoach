@@ -58,6 +58,8 @@ export type Mode = (typeof MODES)[number]
 
 export const LOOKBACK_TOAST = "Lookback is coming soon"
 
+export const NO_STILLS_TOAST = "This dance has no poses yet: re-save it on the adjust page"
+
 export const finishLockedToast = (lastSection: number) => `Finish routine unlocks after you finish Section ${lastSection}`
 
 /** The pop-ups, which open in front of the dancer rather than on the video board. */
@@ -154,7 +156,8 @@ export class PlaybackController {
   // Where the current run starts playing when that isn't its section's start (Play from here); null otherwise.
   private fromTime: number | null = null
 
-  constructor(readonly pkg: DancePackage, progress?: Partial<Progress>) {
+  /** hasStills is false for a dance with no stills (made Ready before M3): Pose can't open on it. */
+  constructor(readonly pkg: DancePackage, progress?: Partial<Progress>, private readonly hasStills = true) {
     this.clock = new CountClock(pkg)
     const settings = { ...DEFAULT_SETTINGS, ...(progress && progress.settings) }
     this.state = {
@@ -355,6 +358,11 @@ export class PlaybackController {
     const s = this.state
     if (s.controlsLocked) return s
     if (s.mode === "Playthrough") {
+      if (!this.hasStills) {
+        this.toastLeft = TOAST_SEC
+        this.state = { ...s, toast: NO_STILLS_TOAST }
+        return this.state
+      }
       const start = this.clock.sectionStart(s.section)
       this.state = {
         ...s,

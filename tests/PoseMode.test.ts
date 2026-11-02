@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { AND_CALL, CountCaller } from "../DanceCoachLens/Assets/Scripts/Core/CountCaller"
 import { decodeSettings, encodeSettings } from "../DanceCoachLens/Assets/Scripts/Core/SettingsStore"
-import { LOOKBACK_TOAST, PlaybackController, ViewState } from "../DanceCoachLens/Assets/Scripts/Core/PlaybackController"
+import { LOOKBACK_TOAST, NO_STILLS_TOAST, PlaybackController, TOAST_SEC, ViewState } from "../DanceCoachLens/Assets/Scripts/Core/PlaybackController"
 import { POSE_BAR_HIDE_SEC, PoseController, scrubLabel, scrubStep, stepCountLabel } from "../DanceCoachLens/Assets/Scripts/Core/PoseController"
 import { makeDance } from "./fixtures"
 
@@ -587,5 +587,70 @@ describe("Pose: Play from here", () => {
     const v = pc.replay()
     expect(v.video.seekTo).toBe(3)
     expect(v.countIn).toEqual({ number: 5, kind: "leadIn" })
+  })
+})
+
+describe("Dances without stills", () => {
+  it("shows the toast and stays in Playthrough", () => {
+    const pc = new PlaybackController(makeDance(), undefined, false)
+    runSection(pc, 2)
+    const v = pc.tapMode()
+    expect(v).toMatchObject({ mode: "Playthrough", screen: "C", section: 2, toast: NO_STILLS_TOAST, controlsLocked: false })
+    expect(v.video.playing).toBe(false)
+  })
+
+  it("lets the toast time out, and the section replay as before", () => {
+    const pc = new PlaybackController(makeDance(), undefined, false)
+    runSection(pc, 2)
+    pc.tapMode()
+    expect(pc.tick(pc.view.video.seekTo, TOAST_SEC + 0.1).toast).toBeNull()
+    expect(pc.replay()).toMatchObject({ mode: "Playthrough", section: 2 })
+  })
+
+  it("enters Pose once the dance has stills", () => {
+    const pc = new PlaybackController(makeDance(), undefined, true)
+    runSection(pc, 2)
+    expect(pc.tapMode()).toMatchObject({ mode: "Pose", toast: null })
+  })
+})
+
+describe("Pose edges", () => {
+  it("steps through all 16 half-counts of a short last section", () => {
+    const dance = makeDance({ trim: { start: 0, end: 11 } })
+    const pc = new PlaybackController(dance)
+    expect(pc.clock.sectionCount).toBe(3)
+    runSection(pc, 3)
+    const v = pc.tapMode()
+    const pose = new PoseController()
+    pose.enter(v.section, v.sectionCount, true)
+    for (let i = 0; i < 15; i++) pose.stepForward()
+    expect(pose.view).toMatchObject({ section: 3, step: 15 })
+    expect(pose.stepForward()).toBe(pose.view)
+    expect(pose.view.step).toBe(15)
+  })
+
+  it("steps and stops correctly in a one-section dance", () => {
+    const dance = makeDance({ trim: { start: 0, end: 5 } })
+    const pc = new PlaybackController(dance)
+    expect(pc.clock.sectionCount).toBe(1)
+    runSection(pc, 1)
+    const v = pc.tapMode()
+    const pose = new PoseController()
+    pose.enter(v.section, v.sectionCount)
+    expect(pose.stepBack().step).toBe(0)
+    for (let i = 0; i < 7; i++) pose.stepForward()
+    expect(pose.view.step).toBe(14)
+    pose.stepForward()
+    expect(pose.view).toMatchObject({ section: 1, step: 14 })
+    expect(pc.tapMode()).toMatchObject({ mode: "Playthrough", section: 1 })
+  })
+
+  it("opens another dance in Playthrough, even after leaving the old one in Pose", () => {
+    const first = new PlaybackController(makeDance())
+    runSection(first, 2)
+    expect(first.tapMode().mode).toBe("Pose")
+    const second = new PlaybackController(makeDance({ id: "other" }))
+    expect(second.view.mode).toBe("Playthrough")
+    expect(second.open()).toMatchObject({ mode: "Playthrough", section: 1 })
   })
 })
