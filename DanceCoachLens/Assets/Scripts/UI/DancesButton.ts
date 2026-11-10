@@ -9,8 +9,8 @@ import { PxRect, pointInPanelCm, pxToCm } from "./Layout"
 import { RADII, TYPE } from "./Theme"
 import { childObject, makeRect, makeText, place, setRectSize, themeColor } from "./Visuals"
 
-// Prototype px on the board: left of the video (which starts at x 790), above the toast.
-const BOX: PxRect = [360, 40, 120, 36]
+// Prototype px on the board: left of the video (which starts at x 790) and of Lookback's look panel (x 470), above the toast.
+const BOX: PxRect = [340, 40, 120, 36]
 const Z = 0.2
 // Collider depth, in cm.
 const HIT_DEPTH = 1

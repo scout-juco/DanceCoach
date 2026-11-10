@@ -23,6 +23,7 @@ import { CountInPanel } from "./UI/CountInPanel"
 import { DancePickerPanel } from "./UI/DancePickerPanel"
 import { DancesButton } from "./UI/DancesButton"
 import { panelsFor, PanelId, PLACEMENT, PxRect, SCREENS } from "./UI/Layout"
+import { LookPanel } from "./UI/LookPanel"
 import { PopupCard } from "./UI/PopupCard"
 import { PoseBar, PoseBarCommand } from "./UI/PoseBar"
 import { PoseLine } from "./UI/PoseLine"
@@ -116,6 +117,7 @@ export class DanceCoach extends BaseScriptComponent {
   private progress: ProgressBar
   private poseLine: PoseLine
   private poseBar: PoseBar
+  private lookPanel: LookPanel
   private segBar: SegBar
   private banner: Banner
   private sections: SectionRow
@@ -135,6 +137,9 @@ export class DanceCoach extends BaseScriptComponent {
   // Where you stood and faced (flat) when the window was placed; placements are saved relative to it.
   private originPos: vec3
   private originLook: vec3
+  private originSet = false
+  // Once you've dragged or resized the window it stays where you put it, instead of re-placing when a dance loads.
+  private userMoved = false
   private savedSettings: Settings | null = null
   private savedFirstLook = false
   private savedFinishReady = false
@@ -162,7 +167,7 @@ export class DanceCoach extends BaseScriptComponent {
         })
       return {
         list: () => logged(`listing dances from ${this.serverUrl}`, remote.list()),
-        load: (name) => logged(`loading ${name}`, remote.load(name)),
+        load: (name, onProgress) => logged(`loading ${name}`, remote.load(name, onProgress)),
       }
     }
     print("DanceCoach: Internet Module, Remote Media Module or Server Url isn't set; offering the bundled test dance")
@@ -181,7 +186,7 @@ export class DanceCoach extends BaseScriptComponent {
     const firstLookSeen = this.savedFirstLook && !this.alwaysFirstLook
     if (this.savedFirstLook && !firstLookSeen) print("DanceCoach: playing the first look again (Always First Look is on)")
     this.savedFinishReady = store.getBool(finishReadyKey(this.dance.id))
-    this.controller = new PlaybackController(this.dance, { settings, firstLookSeen, finishReady: this.savedFinishReady }, !!loaded.stills)
+    this.controller = new PlaybackController(this.dance, { settings, firstLookSeen, finishReady: this.savedFinishReady }, !!loaded.stills, !!loaded.fromServer)
     // Saved again only when the first look ends.
     this.savedFirstLook = firstLookSeen
     this.savedSettings = this.controller.view.settings
@@ -196,6 +201,11 @@ export class DanceCoach extends BaseScriptComponent {
     this.panels = null
     this.pickerPanel.render(null)
     this.showWindow(true)
+    // The window was placed at boot, while tracking settled and a dance was being picked: place it again in front of where you're facing now.
+    if (!this.userMoved) {
+      this.placeLeft = PLACE_SETTLE_SEC
+      this.originSet = false
+    }
     this.render(this.controller.open())
   }
 
@@ -245,6 +255,7 @@ export class DanceCoach extends BaseScriptComponent {
       this.poseView = this.pose.scrubEnd()
       this.render(this.controller.view)
     }
+    this.lookPanel = childObject("LookPanel", plane).createComponent(LookPanel.getTypeName()) as LookPanel
     this.segBar = childObject("SegBar", plane).createComponent(SegBar.getTypeName()) as SegBar
     this.banner = childObject("Banner", plane).createComponent(Banner.getTypeName()) as Banner
     this.sections = childObject("Sections", plane).createComponent(SectionRow.getTypeName()) as SectionRow
@@ -266,6 +277,7 @@ export class DanceCoach extends BaseScriptComponent {
     const grab = childObject("Grab", plane).createComponent(WindowGrab.getTypeName()) as WindowGrab
     grab.setup(this.windowRoot, SCREENS.C.video)
     grab.onMoving = () => {
+      this.userMoved = true
       this.stopPlacing()
       this.faceCamera()
     }
@@ -276,7 +288,10 @@ export class DanceCoach extends BaseScriptComponent {
     // Pinch a top corner of the video to resize the window.
     this.resize = childObject("Resize", plane).createComponent(WindowResize.getTypeName()) as WindowResize
     this.resize.setup(this.windowRoot)
-    this.resize.onResizing = () => this.stopPlacing()
+    this.resize.onResizing = () => {
+      this.userMoved = true
+      this.stopPlacing()
+    }
     this.resize.onResized = () => this.savePlacement()
     this.dancesButton = childObject("Dances", plane).createComponent(DancesButton.getTypeName()) as DancesButton
     this.dancesButton.onPress = () => this.leaveDance()
@@ -450,6 +465,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.videoWindow.render(view, this.poseView)
     this.poseLine.render(view, this.poseView)
     this.poseBar.render(view, this.poseView)
+    this.lookPanel.render(view)
     this.resize.render(view)
     this.countIn.render(view)
     this.progress.render(view)
@@ -512,8 +528,9 @@ export class DanceCoach extends BaseScriptComponent {
 
   /** Stops re-placing the window and remembers where you are now, as the origin placements are saved against. */
   private stopPlacing() {
-    if (this.originPos) return
     this.placeLeft = 0
+    if (this.originSet) return
+    this.originSet = true
     this.originPos = this.camera.getTransform().getWorldPosition()
     this.originLook = this.lookFlat()
   }

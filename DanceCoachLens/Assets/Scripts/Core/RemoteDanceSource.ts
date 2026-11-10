@@ -31,6 +31,11 @@ export interface RemoteTransport<T> {
   loadStill(url: string): Promise<T>
 }
 
+/** How many downloads run at once: a dance has dozens of stills and the glasses drop requests when they're all started together. */
+export const MAX_CONCURRENT_DOWNLOADS = 4
+/** How many times a failed download is tried again before the load fails. */
+export const DOWNLOAD_RETRIES = 2
+
 export class RemoteDanceSource<T> implements DanceSource<T> {
   private readonly base: string
 
@@ -50,13 +55,48 @@ export class RemoteDanceSource<T> implements DanceSource<T> {
     })
   }
 
-  async load(name: string): Promise<LoadedDance<T>> {
+  async load(name: string, onProgress: (fraction: number) => void = () => {}): Promise<LoadedDance<T>> {
     const dir = `${this.base}/dances/${encodeURIComponent(name)}`
+    onProgress(0)
     const dance = loadDancePackage(await this.transport.getJson(`${dir}/package`))
     const clips = planClips(dance)
-    const downloaded = await Promise.all(clips.map((clip) => this.transport.loadClip(`${dir}/clips/${clipAssetName(dance.video, clip.id)}.mp4`)))
+    // The package, every clip and every still each count once.
+    const total = 1 + clips.length + (dance.stills ? dance.stills.reduce((n, names) => n + names.length, 0) : 0)
+    let done = 1
+    onProgress(done / total)
+    const queue = new DownloadQueue(() => onProgress(++done / total))
+    const downloaded = await Promise.all(clips.map((clip) => queue.run(() => this.transport.loadClip(`${dir}/clips/${clipAssetName(dance.video, clip.id)}.mp4`))))
     const players: ClipPlayer[] = downloaded.map((d, i) => ({ clip: clips[i], player: d.player }))
-    const stills = dance.stills ? await Promise.all(dance.stills.map((names) => Promise.all(names.map((n) => this.transport.loadStill(`${dir}/stills/${encodeURIComponent(n)}`))))) : null
-    return { dance, clips: { players, textures: downloaded.map((d) => d.texture) }, stills }
+    const stills = dance.stills ? await Promise.all(dance.stills.map((names) => Promise.all(names.map((n) => queue.run(() => this.transport.loadStill(`${dir}/stills/${encodeURIComponent(n)}`)))))) : null
+    return { dance, clips: { players, textures: downloaded.map((d) => d.texture) }, stills, fromServer: true }
+  }
+}
+
+/** Runs downloads a few at a time, trying each again if it fails. */
+class DownloadQueue {
+  private active = 0
+  private waiting: (() => void)[] = []
+
+  /** @param onDone called as each download succeeds */
+  constructor(private readonly onDone: () => void = () => {}) {}
+
+  async run<R>(task: () => Promise<R>): Promise<R> {
+    while (this.active >= MAX_CONCURRENT_DOWNLOADS) await new Promise<void>((resolve) => this.waiting.push(resolve))
+    this.active++
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const result = await task()
+          this.onDone()
+          return result
+        } catch (err) {
+          if (attempt >= DOWNLOAD_RETRIES) throw err
+        }
+      }
+    } finally {
+      this.active--
+      const next = this.waiting.shift()
+      if (next) next()
+    }
   }
 }

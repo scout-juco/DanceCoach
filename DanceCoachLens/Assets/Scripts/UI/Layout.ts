@@ -12,7 +12,7 @@ import { Placement } from "../Core/WindowPlacement"
 /** [x, y, width, height] in prototype pixels. */
 export type PxRect = [number, number, number, number]
 
-export type PanelId = "video" | "progress" | "segBar" | "banner" | "sections" | "controls" | "poseLine" | "poseBar" | "toast" | "skip" | "popup"
+export type PanelId = "video" | "progress" | "segBar" | "banner" | "sections" | "controls" | "poseLine" | "poseBar" | "lookPanel" | "attempts" | "toast" | "skip" | "popup"
 
 export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // First look plays like From the top (the preview has no PV frame): its banner, the segmented bar,
@@ -33,6 +33,8 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   D: { video: [790, 40, 340, 604], poseLine: [790, 662, 340, 6], controls: [580, 560, 0, 84] },
   // Pose, open: the video shrinks to Clip ended's size and the Pose bar sits below it.
   E: { video: [790, 40, 300, 533], poseBar: [520, 590, 740, 128] },
+  // Lookback, no takes: the look panel (a little smaller than the video, top-aligned with it) beside the video, the ATTEMPTS row under them and the bar under that.
+  I: { video: [790, 40, 300, 533], lookPanel: [500, 40, 270, 480], attempts: [470, 583, 620, 52], controls: [470, 645, 0, 84], toast: [470, 525, 420, 48] },
 }
 
 /** A Full run plays on B with From the top's segmented bar in place of the progress bar. */

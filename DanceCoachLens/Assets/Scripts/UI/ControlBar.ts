@@ -4,6 +4,7 @@
  * Mode button (Playthrough · NEXT: POSE), Replay section, From the top, speed (0.5× / 0.75× / 1×),
  * Mirror, Counts and Finish routine. A pinch on a control calls onPress with its command.
  * In Pose (for now) the bar holds only the mode button (Pose · NEXT: LOOKBACK).
+ * In Lookback it holds the mode button, speed, Mirror and Counts.
  * Replay section is the filled button until Finish routine unlocks; then Finish routine is.
  * A shallow view: render() shows the view state, placed by the screen's controls panel
  * in Layout.SCREENS. It's hidden on screens without one, so it can't be pressed mid-run.
@@ -11,7 +12,7 @@
  */
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
-import { MODES, Speed, ViewState } from "../Core/PlaybackController"
+import { MODES, Mode, Speed, ViewState } from "../Core/PlaybackController"
 import { panelsFor, pointInPanelCm, pxToCm, PxRect, SCREENS } from "./Layout"
 import { ColorToken, RADII, SPACING, TYPE } from "./Theme"
 import { childObject, makeRect, makeText, makeTopIcon, place, setRectSize, themeColor } from "./Visuals"
@@ -126,7 +127,7 @@ export class ControlBar extends BaseScriptComponent {
     }
     if (view.screen !== this.screen) {
       this.screen = view.screen
-      this.layout(box, view.mode === "Pose")
+      this.layout(box, view.mode)
     }
     const st = view.settings
     const key = `${view.mode}|${st.speed}|${st.mirror}|${st.counts}|${view.finishReady}|${view.sectionCount}`
@@ -164,16 +165,17 @@ export class ControlBar extends BaseScriptComponent {
     this.finishSub.text = ready ? "✓ ALL SECTIONS" : `AFTER SEC ${view.sectionCount}`
   }
 
-  /** Sizes the bar to its controls and lays them out left to right from the panel's top-left. In Pose only the mode button shows. */
-  private layout(box: PxRect, pose: boolean) {
+  /** Sizes the bar to its controls and lays them out left to right from the panel's top-left. In Pose only the mode button shows; in Lookback, it, speed, Mirror and Counts. */
+  private layout(box: PxRect, mode: Mode) {
     const H = this.itemHeight()
     const pad = SPACING.barPad
     const all = [this.mode, this.replay, this.top, this.speedBox, ...this.toggles.map((t) => t.control), this.finish]
     const c = SPACING.control
     const allWidths = [c.mode, c.replay, c.top, c.speed, c.toggle, c.toggle, c.finish]
-    all.forEach((item, i) => (item.object.enabled = !pose || i === 0))
-    const items = pose ? all.slice(0, 1) : all
-    const widths = pose ? allWidths.slice(0, 1) : allWidths
+    const shown = mode === "Pose" ? [0] : mode === "Lookback" ? [0, 3, 4, 5] : all.map((_, i) => i)
+    all.forEach((item, i) => (item.object.enabled = shown.indexOf(i) >= 0))
+    const items = shown.map((i) => all[i])
+    const widths = shown.map((i) => allWidths[i])
     const w = 2 * pad + widths.reduce((a, b) => a + b, 0) + SPACING.controlGap * (items.length - 1)
     const h = box[3]
     place(this.barObject, pointInPanelCm(box, w / 2, h / 2), Z_BAR)

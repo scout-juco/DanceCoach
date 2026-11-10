@@ -30,11 +30,13 @@ export interface LoadedDance<T> {
   clips: DanceClips<T> | null
   /** The still of every half-count, as stills[section - 1][step] (see StillPlan). Null when the dance has none; Pose can't open then. */
   stills: T[][] | null
+  /** The dance came from the server, so Lookback can record against it. Absent for the bundled test dance. */
+  fromServer?: boolean
 }
 
 export interface DanceSource<T> {
   /** Rejects if the dances can't be listed (a remote source that can't be reached). */
   list(): Promise<DanceListing[]>
-  /** Rejects if there is no dance with this name, or it can't be loaded. */
-  load(name: string): Promise<LoadedDance<T>>
+  /** Rejects if there is no dance with this name, or it can't be loaded. onProgress is told how much is in, 0 to 1. */
+  load(name: string, onProgress?: (fraction: number) => void): Promise<LoadedDance<T>>
 }

@@ -29,8 +29,11 @@
  *
  * Milestone 3 / M3-01: the mode lives here. On Clip ended the mode button enters Pose (screen D)
  * on the current section, with the video paused on its start; PoseController runs Pose from
- * there. In Pose the mode button says Lookback is coming and comes back to Clip ended for
- * that section. Playthrough's commands are ignored while in Pose.
+ * there. Playthrough's commands are ignored while in Pose.
+ *
+ * M4-02: the mode button cycles Playthrough → Pose → Lookback → Playthrough. Lookback opens on screen I
+ * (a placeholder until the later M4 tickets) on the current section; its mode button comes back to Clip ended
+ * for that section. A dance without stills skips Pose; a dance from the bundled source can't enter Lookback.
  *
  * M3-07: Play from here leaves Pose for Playthrough and runs the section from the frozen count to its end,
  * counting in with a 5, 6, 7, 8 over the 4 counts before that count (dimmed), or the frozen still without footage that early.
@@ -40,7 +43,7 @@ import { CountClock, LEAD_IN_COUNTS } from "./CountClock"
 import { DancePackage } from "./DancePackage"
 
 /** Screen IDs from the clickable prototype. */
-export type ScreenId = "PV" | "BI" | "B0" | "B" | "F" | "C" | "C2" | "G" | "D" | "E"
+export type ScreenId = "PV" | "BI" | "B0" | "B" | "F" | "C" | "C2" | "G" | "D" | "E" | "I"
 
 export type RunKind = "section" | "top" | "full"
 
@@ -51,12 +54,12 @@ export type CountInKind = "startingPose" | "leadIn"
 /** What a section tile runs: a section, or the whole routine. */
 export type SectionTap = number | "full"
 
-/** The practice modes, in the order the mode button cycles through them. Lookback doesn't exist yet. */
+/** The practice modes, in the order the mode button cycles through them. */
 export const MODES = ["Playthrough", "Pose", "Lookback"] as const
 
 export type Mode = (typeof MODES)[number]
 
-export const LOOKBACK_TOAST = "Lookback is coming soon"
+export const NO_SERVER_TOAST = "Lookback needs the dance server"
 
 export const NO_STILLS_TOAST = "This dance has no poses yet: re-save it on the adjust page"
 
@@ -156,8 +159,11 @@ export class PlaybackController {
   // Where the current run starts playing when that isn't its section's start (Play from here); null otherwise.
   private fromTime: number | null = null
 
-  /** hasStills is false for a dance with no stills (made Ready before M3): Pose can't open on it. */
-  constructor(readonly pkg: DancePackage, progress?: Partial<Progress>, private readonly hasStills = true) {
+  /**
+   * hasStills is false for a dance with no stills (made Ready before M3): Pose can't open on it.
+   * canLookback is false for a dance from the bundled source, which has no server to record against.
+   */
+  constructor(readonly pkg: DancePackage, progress?: Partial<Progress>, private readonly hasStills = true, private readonly canLookback = true) {
     this.clock = new CountClock(pkg)
     const settings = { ...DEFAULT_SETTINGS, ...(progress && progress.settings) }
     this.state = {
@@ -330,7 +336,7 @@ export class PlaybackController {
   /** Sets the speed for every run from the next one on. Ignored while the controls are locked. */
   setSpeed(speed: Speed): ViewState {
     const s = this.state
-    if (!this.canPlay()) return s
+    if (s.controlsLocked || s.mode === "Pose") return s
     this.state = { ...s, settings: { ...s.settings, speed }, video: { ...s.video, rate: speed } }
     return this.state
   }
@@ -349,34 +355,44 @@ export class PlaybackController {
   }
 
   /**
-   * The mode button. On Clip ended it enters Pose on the current section, the video paused on its
-   * start. In Pose, Lookback doesn't exist yet, so it says so and comes back to Clip ended for that
-   * section, ready to replay it; or, if stepping carried Pose into another section, for that one (poseSection).
-   * Ignored while the controls are locked.
+   * The mode button cycles Playthrough → Pose → Lookback → Playthrough, each on the current section (or, from Pose,
+   * the section stepping carried it to: poseSection). Pose and Lookback open with the video paused on the section's start;
+   * Playthrough lands on Clip ended, ready to replay it. A dance without stills skips Pose with a toast, and a bundled
+   * dance can't enter Lookback (a toast, and Playthrough). Ignored while the controls are locked.
    */
   tapMode(poseSection?: number): ViewState {
     const s = this.state
     if (s.controlsLocked) return s
-    if (s.mode === "Playthrough") {
-      if (!this.hasStills) {
-        this.toastLeft = TOAST_SEC
-        this.state = { ...s, toast: NO_STILLS_TOAST }
-        return this.state
-      }
-      const start = this.clock.sectionStart(s.section)
-      this.state = {
-        ...s,
-        mode: "Pose",
-        screen: "D",
-        count: 0,
-        and: false,
-        toast: null,
-        video: { ...s.video, seekTo: start, seekId: s.video.seekId + 1, runEnd: this.clock.sectionEnd(s.section), playing: false, holdFrame: false, dim: false },
-      }
-      return this.state
-    }
-    this.toastLeft = TOAST_SEC
     const n = poseSection ?? s.section
+    if (s.mode === "Playthrough") {
+      if (this.hasStills) return this.enter("Pose", "D", n)
+      return this.canLookback ? this.enter("Lookback", "I", n, NO_STILLS_TOAST) : this.toast(NO_STILLS_TOAST)
+    }
+    if (s.mode === "Pose" && this.canLookback) return this.enter("Lookback", "I", n)
+    return this.toLanded(n, s.mode === "Pose" ? NO_SERVER_TOAST : null)
+  }
+
+  /** Opens Pose or Lookback on section n, the video paused on its start. */
+  private enter(mode: Mode, screen: ScreenId, n: number, toast: string | null = null): ViewState {
+    const s = this.state
+    if (toast) this.toastLeft = TOAST_SEC
+    this.state = {
+      ...s,
+      mode,
+      screen,
+      section: n,
+      count: 0,
+      and: false,
+      toast,
+      video: { ...s.video, seekTo: this.clock.sectionStart(n), seekId: s.video.seekId + 1, runEnd: this.clock.sectionEnd(n), playing: false, holdFrame: false, dim: false },
+    }
+    return this.state
+  }
+
+  /** Back to Playthrough on Clip ended for section n. */
+  private toLanded(n: number, toast: string | null): ViewState {
+    const s = this.state
+    if (toast) this.toastLeft = TOAST_SEC
     this.state = {
       ...s,
       section: n,
@@ -388,8 +404,14 @@ export class PlaybackController {
       count: this.lastCount(n),
       sectionProgress: 1,
       runProgress: 1,
-      toast: LOOKBACK_TOAST,
+      toast,
     }
+    return this.state
+  }
+
+  private toast(message: string): ViewState {
+    this.toastLeft = TOAST_SEC
+    this.state = { ...this.state, toast: message }
     return this.state
   }
 
