@@ -1,11 +1,12 @@
 /**
  * LookPanel: Lookback's look panel and ATTEMPTS row (screens I and L).
  *
- * I (no takes): "LOOKBACK · SECTION n · 0 TAKES" over a "Record lookback" button, greyed out until
- * recording arrives, with "No recordings for this section yet" under it.
+ * I (no takes): "LOOKBACK · SECTION n · 0 TAKES" over a "Record lookback" button (pinching it calls onRecord),
+ * with "No recordings for this section yet" under it.
  * L (takes): the selected take's tile, "TAKE n · 0.75×" on it, over a "Play side by side" button
  * (greyed out until side by side arrives). The ATTEMPTS row ("SECTION n · LOCKED") shows the last four
- * takes, newest on the right, and a + (greyed out); pinching a take calls onSelect with its place in the row.
+ * takes, newest on the right, and a + (it calls onRecord too); pinching a take calls onSelect with its place in the row.
+ * The take just recorded is tagged NEW, and a failed recording leaves its message under the buttons.
  * A shallow view: render() shows the Lookback view, placed by the screen's lookPanel and attempts panels in Layout.SCREENS.
  * Hidden on screens without them.
  */
@@ -31,6 +32,25 @@ const PLUS_W = 52
 const CHIP_GAP = 6
 const TILE_PAD = 12
 
+// How many characters of the note fit across the look panel.
+const NOTE_CHARS = 34
+
+/** Breaks text into lines of at most `max` characters, at spaces. */
+function wrapLines(text: string, max: number): string {
+  const lines: string[] = []
+  let line = ""
+  for (const word of text.split(" ")) {
+    if (line && line.length + 1 + word.length > max) {
+      lines.push(line)
+      line = word
+    } else {
+      line = line ? `${line} ${word}` : word
+    }
+  }
+  if (line) lines.push(line)
+  return lines.join("\n")
+}
+
 interface Label {
   object: SceneObject
   text: Text
@@ -46,6 +66,8 @@ interface Chip {
 export class LookPanel extends BaseScriptComponent {
   /** Called when a take in the ATTEMPTS row is pinched, with its place in the row (0 is the oldest shown). */
   onSelect: (attempt: number) => void = () => {}
+  /** Called when Record lookback or the + is pinched. */
+  onRecord: () => void = () => {}
 
   private look: SceneObject
   private lookRect: RoundedRectangle
@@ -74,8 +96,8 @@ export class LookPanel extends BaseScriptComponent {
     this.head = this.label(this.look, TYPE.chip, "muted", "left")
     this.count = this.label(this.look, TYPE.chip, "muted", "right")
     this.note = this.label(this.look, TYPE.button, "muted")
-    this.record = this.outlined("Record", this.look, RECORD.w, RECORD.h, RADII.control)
-    this.label(this.record, TYPE.button, "soft").text.text = "Record lookback"
+    this.record = this.outlined("Record", this.look, RECORD.w, RECORD.h, RADII.control, () => this.onRecord())
+    this.label(this.record, TYPE.button, "ink").text.text = "Record lookback"
     this.tile = childObject("Tile", this.look)
     this.tileRect = makeRect(this.tile, "video", 2)
     this.tileRect.border = true
@@ -89,8 +111,8 @@ export class LookPanel extends BaseScriptComponent {
     this.attemptsRect = this.panel(this.attempts)
     this.attemptsLabel = this.label(this.attempts, TYPE.chip, "muted", "left")
     for (let i = 0; i < ATTEMPTS_SHOWN; i++) this.chips.push(this.chip(i))
-    this.plus = this.outlined("Plus", this.attempts, PLUS, PLUS, PLUS / 2)
-    this.label(this.plus, TYPE.icon, "soft").text.text = "+"
+    this.plus = this.outlined("Plus", this.attempts, PLUS, PLUS, PLUS / 2, () => this.onRecord())
+    this.label(this.plus, TYPE.icon, "ink").text.text = "+"
     this.sceneObject.enabled = false
   }
 
@@ -112,22 +134,25 @@ export class LookPanel extends BaseScriptComponent {
       this.layoutAttempts(attempts, look.attempts.length)
     }
     const n = look.takes.length
-    const key = `${look.section}|${look.selected}|${look.attempts.map((t) => t.name).join(",")}`
+    const key = `${look.section}|${look.selected}|${look.newTake}|${look.message}|${look.attempts.map((t) => t.name).join(",")}`
     if (key === this.lastKey) return
     this.lastKey = key
     this.head.text.text = `LOOKBACK · SECTION ${look.section}`
     this.count.text.text = `${n} TAKE${n === 1 ? "" : "S"}`
-    this.note.text.text = "No recordings for this section yet"
+    // A failed recording's message takes the note's place, on L too.
+    this.note.object.enabled = !hasTakes || !!look.message
+    this.note.text.text = look.message ? wrapLines(look.message, NOTE_CHARS) : "No recordings for this section yet"
     this.attemptsLabel.text.text = `ATTEMPTS   SECTION ${look.section} · LOCKED`
     const selected = look.selected >= 0 ? look.takes[look.selected] : null
-    this.tileLabel.text.text = selected ? takeLabel(selected) : ""
+    this.tileLabel.text.text = selected ? takeLabel(selected, selected.name === look.newTake) : ""
     this.shown = look.attempts.length
     this.chips.forEach((chip, i) => {
       const take = look.attempts[i]
       chip.object.enabled = !!take
       if (!take) return
       const isSelected = look.takes[look.selected] === take
-      chip.label.text.text = takeLabel(take)
+      // NEW goes under the label: the chip is too narrow for it beside.
+      chip.label.text.text = take.name === look.newTake ? `${takeLabel(take)}\nNEW` : takeLabel(take)
       chip.label.text.textFill.color = themeColor(isSelected ? "ink" : "ink2")
       chip.rect.backgroundColor = themeColor(isSelected ? "video" : "panel")
       chip.rect.borderColor = themeColor(isSelected ? "ink" : "soft")
@@ -143,11 +168,11 @@ export class LookPanel extends BaseScriptComponent {
     this.head.object.getTransform().setLocalPosition(new vec3(-pxToCm(w / 2 - TILE_PAD), pxToCm(h / 2 - 20), Z_ITEM))
     this.count.object.getTransform().setLocalPosition(new vec3(pxToCm(w / 2 - TILE_PAD), pxToCm(h / 2 - 20), Z_ITEM))
     this.record.enabled = !hasTakes
-    this.note.object.enabled = !hasTakes
     this.tile.enabled = hasTakes
     this.play.enabled = hasTakes
     this.record.getTransform().setLocalPosition(new vec3(0, 0, Z_ITEM))
-    this.note.object.getTransform().setLocalPosition(new vec3(0, -pxToCm(RECORD.h / 2 + 24), Z_ITEM))
+    // The note sits under the Record button, or, on L, under the Play button.
+    this.note.object.getTransform().setLocalPosition(new vec3(0, hasTakes ? pxToCm(h / 2 - 36 - (h - 36 - 56) - 56 - PLAY.h / 2 - 22) : -pxToCm(RECORD.h / 2 + 24), Z_ITEM))
     // The tile fills the panel under the heading, leaving room for the Play button below its middle.
     const tileW = w - 2 * TILE_PAD
     const tileH = h - 36 - 56
@@ -209,14 +234,21 @@ export class LookPanel extends BaseScriptComponent {
     return rect
   }
 
-  /** A greyed-out, unpressable button. */
-  private outlined(name: string, parent: SceneObject, w: number, h: number, radius: number): SceneObject {
+  /** An outlined button: pressable with onPress, else greyed out. */
+  private outlined(name: string, parent: SceneObject, w: number, h: number, radius: number, onPress?: () => void): SceneObject {
     const so = childObject(name, parent)
     const rect = makeRect(so, "panel", 2)
     rect.border = true
     rect.borderSize = pxToCm(1)
-    rect.borderColor = themeColor("ghostLine")
+    rect.borderColor = themeColor(onPress ? "ink" : "ghostLine")
     setRectSize(rect, w, h, radius)
+    if (onPress) {
+      const collider = so.createComponent("ColliderComponent") as ColliderComponent
+      collider.fitVisual = false
+      this.setHitBox(so, w, h)
+      const interactable = so.createComponent(Interactable.getTypeName()) as Interactable
+      interactable.onTriggerEnd.add(onPress)
+    }
     return so
   }
 

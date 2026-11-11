@@ -9,6 +9,7 @@
  */
 import { RoundedRectangle, TextureMode } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { ViewState } from "../Core/PlaybackController"
+import { LookbackView } from "../Core/LookbackController"
 import { PoseView, stepCountLabel } from "../Core/PoseController"
 import { panelCm, pxToCm, PxRect } from "./Layout"
 import { RADII, SPACING, TYPE } from "./Theme"
@@ -25,10 +26,10 @@ const BADGE_COUNT_UP = 7
 const BADGE_SUB_DOWN = 24
 
 /** The chips in the video's top-right corner, left to right: the speed during a run, and MIRRORED; in Pose, POSE · FROZEN, then MIRRORED. */
-function chipLabels(view: ViewState): string[] {
+function chipLabels(view: ViewState, look: LookbackView | null): string[] {
   if (view.mode === "Pose") return view.settings.mirror ? ["POSE · FROZEN", "MIRRORED"] : ["POSE · FROZEN"]
-  const running = view.screen === "BI" || view.screen === "B0" || view.screen === "B" || view.screen === "F"
-  const chips: string[] = []
+  const running = view.screen === "BI" || view.screen === "B0" || view.screen === "B" || view.screen === "F" || view.screen === "K"
+  const chips: string[] = look && look.record && look.record.phase === "recording" ? ["● REC"] : []
   if (running) chips.push(`${view.settings.speed}×`)
   if (running && view.settings.mirror) chips.push("MIRRORED")
   return chips
@@ -74,7 +75,7 @@ export class VideoWindow extends BaseScriptComponent {
     subObject.getTransform().setLocalPosition(new vec3(0, -pxToCm(BADGE_SUB_DOWN), 0.05))
     this.badgeSub = makeText(subObject, TYPE.countBadgeSub, "ink2", 2)
 
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
       const object = childObject(`Chip${i}`, this.sceneObject)
       const rect = makeRect(object, "chip", 1)
       const textObject = childObject("ChipText", object)
@@ -145,12 +146,12 @@ export class VideoWindow extends BaseScriptComponent {
     this.lastChips = "-"
   }
 
-  render(view: ViewState, pose: PoseView | null = null) {
+  render(view: ViewState, pose: PoseView | null = null, look: LookbackView | null = null) {
     if (this.fitPending) this.fitVideo()
     const mirror = view.settings.mirror ? -1 : 1
     this.frameObject.getTransform().setLocalScale(new vec3(mirror, 1, 1))
     this.dimObject.enabled = view.video.dim
-    const scrim = view.popup !== null
+    const scrim = view.popup !== null || view.screen === "J"
     if (scrim !== this.scrim) {
       this.scrim = scrim
       this.dim.backgroundColor = themeColor(scrim ? "scrim" : "dim")
@@ -170,7 +171,7 @@ export class VideoWindow extends BaseScriptComponent {
       this.badgeTextObject.getTransform().setLocalPosition(new vec3(0, sub ? pxToCm(BADGE_COUNT_UP) : 0, 0.05))
     }
 
-    const chips = chipLabels(view)
+    const chips = chipLabels(view, look)
     if (chips.join("|") !== this.lastChips) {
       this.lastChips = chips.join("|")
       this.renderChips(chips)

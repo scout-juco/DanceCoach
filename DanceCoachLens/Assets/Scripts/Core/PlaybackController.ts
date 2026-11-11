@@ -43,7 +43,7 @@ import { CountClock, LEAD_IN_COUNTS } from "./CountClock"
 import { DancePackage } from "./DancePackage"
 
 /** Screen IDs from the clickable prototype. */
-export type ScreenId = "PV" | "BI" | "B0" | "B" | "F" | "C" | "C2" | "G" | "D" | "E" | "I" | "L"
+export type ScreenId = "PV" | "BI" | "B0" | "B" | "F" | "C" | "C2" | "G" | "D" | "E" | "I" | "L" | "J" | "K"
 
 export type RunKind = "section" | "top" | "full"
 
@@ -387,6 +387,12 @@ export class PlaybackController {
       video: { ...s.video, seekTo: this.clock.sectionStart(n), seekId: s.video.seekId + 1, runEnd: this.clock.sectionEnd(n), playing: false, holdFrame: false, dim: false },
     }
     return this.state
+  }
+
+  /** Lookback's recording has played the section out: the video goes back, paused, to its start. Ignored outside Lookback. */
+  restartLookback(): ViewState {
+    const s = this.state
+    return s.mode === "Lookback" ? this.enter("Lookback", s.screen, s.section) : s
   }
 
   /** Back to Playthrough on Clip ended for section n. */

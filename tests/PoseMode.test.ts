@@ -84,6 +84,23 @@ describe("Mode button: Pose → Lookback → Playthrough", () => {
     expect(v.video).toMatchObject({ seekTo: pc.clock.sectionStart(2), playing: false, runEnd: pc.clock.sectionEnd(2) })
   })
 
+  it("puts the video back, paused, on the section's start after a recording", () => {
+    const pc = new PlaybackController(makeDance())
+    runSection(pc, 2)
+    pc.tapMode()
+    const before = pc.tapMode()
+    const v = pc.restartLookback()
+    expect(v.video.seekId).toBeGreaterThan(before.video.seekId)
+    expect(v).toMatchObject({ mode: "Lookback", section: 2 })
+    expect(v.video).toMatchObject({ seekTo: pc.clock.sectionStart(2), playing: false })
+  })
+
+  it("ignores restarting Lookback outside Lookback", () => {
+    const pc = new PlaybackController(makeDance())
+    const before = pc.view
+    expect(pc.restartLookback()).toBe(before)
+  })
+
   it("goes back to Clip ended for the same section", () => {
     const pc = new PlaybackController(makeDance())
     runSection(pc, 2)

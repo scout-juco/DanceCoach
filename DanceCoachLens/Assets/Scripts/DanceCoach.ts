@@ -27,6 +27,8 @@ import { DancesButton } from "./UI/DancesButton"
 import { panelsFor, PanelId, PLACEMENT, PxRect, SCREENS } from "./UI/Layout"
 import { LookPanel } from "./UI/LookPanel"
 import { PopupCard } from "./UI/PopupCard"
+import { RecordCountdown } from "./UI/RecordCountdown"
+import { RecordPopup } from "./UI/RecordPopup"
 import { PoseBar, PoseBarCommand } from "./UI/PoseBar"
 import { PoseLine } from "./UI/PoseLine"
 import { ProgressBar } from "./UI/ProgressBar"
@@ -117,6 +119,8 @@ export class DanceCoach extends BaseScriptComponent {
   // The server's takes API; null without a server.
   private takesClient: TakesClient | null = null
   private pollingStatus = false
+  // True while screen K is up: when it ends, the video goes back to the section's start.
+  private recordingShown = false
   private caller = new CountCaller()
   private voice: AudioComponent | null = null
   // countTracks[n] says n, and countTracks[AND_CALL] says "and"; empty without the spoken counts.
@@ -126,6 +130,8 @@ export class DanceCoach extends BaseScriptComponent {
   private poseLine: PoseLine
   private poseBar: PoseBar
   private lookPanel: LookPanel
+  private recordCountdown: RecordCountdown
+  private recordPopup: RecordPopup
   private segBar: SegBar
   private banner: Banner
   private sections: SectionRow
@@ -271,6 +277,15 @@ export class DanceCoach extends BaseScriptComponent {
     this.lookPanel.onSelect = (attempt) => {
       if (!this.lookbackView) return
       this.lookbackView = this.lookback.selectAttempt(attempt)
+      this.render(this.controller.view)
+    }
+    this.lookPanel.onRecord = () => this.tapRecord()
+    this.recordCountdown = childObject("RecordCountdown", plane).createComponent(RecordCountdown.getTypeName()) as RecordCountdown
+    this.recordPopup = childObject("RecordPopup", this.getSceneObject()).createComponent(RecordPopup.getTypeName()) as RecordPopup
+    this.recordPopup.setup(this.camera)
+    this.recordPopup.onYes = () => this.confirmRecord()
+    this.recordPopup.onNo = () => {
+      this.lookbackView = this.lookback.cancel()
       this.render(this.controller.view)
     }
     this.segBar = childObject("SegBar", plane).createComponent(SegBar.getTypeName()) as SegBar
@@ -441,6 +456,78 @@ export class DanceCoach extends BaseScriptComponent {
     this.lookbackView = null
   }
 
+  /** The + or Record lookback: asks "Record lookback?" about a take of this section at the current speed and mirror. */
+  private tapRecord() {
+    if (!this.lookbackView) return
+    const c = this.controller
+    const v = c.view
+    this.lookbackView = this.lookback.tapRecord(v.settings.speed, v.settings.mirror, { start: c.clock.sectionStart(v.section), end: c.clock.sectionEnd(v.section) })
+    this.render(v)
+  }
+
+  /** "Yes, record": arms the take, and the 3, 2, 1 starts once the server has. */
+  private confirmRecord() {
+    if (!this.lookbackView) return
+    this.lookbackView = this.lookback.confirm()
+    this.carryOutRequests()
+    this.render(this.controller.view)
+  }
+
+  /** Does what the Lookback controller has asked of the server, and tells it how each went. */
+  private carryOutRequests() {
+    const client = this.takesClient
+    const dance = this.dance
+    const why = (err: any) => (err && err.message ? err.message : String(err))
+    for (const req of this.lookback.takeRequests()) {
+      if (!client) {
+        this.lookbackView = this.lookback.requestFailed("No dance server is set up")
+        return
+      }
+      print(`DanceCoach: take: ${req.type}`)
+      switch (req.type) {
+        case "arm":
+          client.arm(dance.id, req.params).then(
+            (id) => (this.lookbackView = this.lookback.armed(id)),
+            (err) => {
+              print(`DanceCoach: arming the take failed: ${why(err)}`)
+              this.lookbackView = this.lookback.armFailed(`Couldn't start the take: ${why(err)}`)
+            },
+          )
+          break
+        case "start":
+        case "stop":
+          client[req.type](req.sessionId).catch((err) => {
+            print(`DanceCoach: ${req.type} of the take failed: ${why(err)}`)
+            this.lookbackView = this.lookback.requestFailed(`Couldn't ${req.type} the take: ${why(err)}`)
+          })
+          break
+        case "download":
+          client.loadTake(dance.id, req.take).then(
+            () => (this.lookbackView = this.lookback.downloaded(req.take)),
+            (err) => {
+              print(`DanceCoach: downloading the take failed: ${why(err)}`)
+              this.lookbackView = this.lookback.downloadFailed(`Couldn't download the take: ${why(err)}`)
+            },
+          )
+          break
+      }
+    }
+  }
+
+  /** What the video should do: Lookback plays the section itself while a take is recording; otherwise the controller's request. */
+  private videoRequest(): VideoRequest {
+    const video = this.controller.view.video
+    const record = this.lookbackView ? this.lookbackView.record : null
+    return record && record.phase === "recording" ? { ...video, playing: true, rate: record.speed, holdFrame: false, dim: false } : video
+  }
+
+  /** The playback view with Lookback's screen over it: I or L, J dimmed, or K with the recording's progress. */
+  private lookbackOver(playView: ViewState, look: LookbackView): ViewState {
+    if (look.screen === "J") return { ...playView, screen: "J", video: { ...playView.video, dim: true } }
+    if (look.screen === "K" && look.record) return { ...playView, screen: "K", countIn: null, runProgress: look.record.progress, video: { ...playView.video, dim: false } }
+    return { ...playView, screen: look.screen }
+  }
+
   /** Asks the server whether the phone camera is connected; one request at a time. */
   private pollStatus() {
     const client = this.takesClient
@@ -450,7 +537,8 @@ export class DanceCoach extends BaseScriptComponent {
       (status) => {
         this.pollingStatus = false
         if (!this.lookbackView) return
-        this.lookbackView = this.lookback.phoneStatus(status.phoneConnected)
+        this.lookbackView = this.lookback.recorderStatus(status)
+        this.carryOutRequests()
       },
       (err) => {
         this.pollingStatus = false
@@ -475,13 +563,13 @@ export class DanceCoach extends BaseScriptComponent {
     // Video requests are carried out once a frame, here; a command's request lands on the next frame.
     const view = this.controller.view
     if (!this.driver) {
-      this.applyFakeVideo(view.video, dt)
+      this.applyFakeVideo(this.videoRequest(), dt)
       this.advance(this.fakeTime, dt)
       return
     }
     // Until a seek has landed, the video's time isn't the run's time yet.
     const wasBusy = this.driver.busy
-    this.driver.apply(view.video, dt)
+    this.driver.apply(this.videoRequest(), dt)
     if (this.driver.busy) {
       this.render(view)
       return
@@ -493,7 +581,11 @@ export class DanceCoach extends BaseScriptComponent {
 
   /** One frame on from the video's time: the Pose controller ticks in Pose, the playback controller otherwise. */
   private advance(videoTimeSec: number, dt: number) {
-    if (this.lookback.tick(dt)) this.pollStatus()
+    if (this.lookback.tick(dt, videoTimeSec)) this.pollStatus()
+    if (this.lookbackView) {
+      this.lookbackView = this.lookback.view
+      this.carryOutRequests()
+    }
     if (this.poseView) {
       // The video only holds the section's start frame; Pose moves on real time.
       if (this.poseLine.aimed || this.poseBar.aimed) this.pose.aim()
@@ -515,8 +607,12 @@ export class DanceCoach extends BaseScriptComponent {
   }
 
   private render(playView: ViewState) {
-    // In Pose the Pose controller says which screen is up: D, or E with the bar open. In Lookback, the Lookback controller: I or L.
-    const view = this.poseView ? { ...playView, screen: this.poseView.screen } : this.lookbackView ? { ...playView, screen: this.lookbackView.screen } : playView
+    // Once a recording's screen K is over (saved, or failed), the video goes back, paused, to the section's start.
+    const recording = !!this.lookbackView && this.lookbackView.screen === "K"
+    if (this.recordingShown && !recording) playView = this.controller.restartLookback()
+    this.recordingShown = recording
+    // In Pose the Pose controller says which screen is up: D, or E with the bar open. In Lookback, the Lookback controller: I, L, J or K.
+    const view = this.poseView ? { ...playView, screen: this.poseView.screen } : this.lookbackView ? this.lookbackOver(playView, this.lookbackView) : playView
     const panels = panelsFor(view)
     if (panels !== this.panels) {
       this.panels = panels
@@ -524,10 +620,12 @@ export class DanceCoach extends BaseScriptComponent {
       this.resize.setRect(panels.video!)
     }
     this.showStill()
-    this.videoWindow.render(view, this.poseView)
+    this.videoWindow.render(view, this.poseView, this.lookbackView)
     this.poseLine.render(view, this.poseView)
     this.poseBar.render(view, this.poseView)
     this.lookPanel.render(view, this.lookbackView)
+    this.recordCountdown.render(view, this.lookbackView)
+    this.recordPopup.render(this.lookbackView)
     this.resize.render(view)
     this.countIn.render(view)
     this.progress.render(view)

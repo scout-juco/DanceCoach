@@ -12,7 +12,7 @@ import { Placement } from "../Core/WindowPlacement"
 /** [x, y, width, height] in prototype pixels. */
 export type PxRect = [number, number, number, number]
 
-export type PanelId = "video" | "progress" | "segBar" | "banner" | "sections" | "controls" | "poseLine" | "poseBar" | "lookPanel" | "attempts" | "toast" | "skip" | "popup"
+export type PanelId = "video" | "progress" | "segBar" | "banner" | "sections" | "controls" | "poseLine" | "poseBar" | "lookPanel" | "attempts" | "countdown" | "toast" | "skip" | "popup"
 
 export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // First look plays like From the top (the preview has no PV frame): its banner, the segmented bar,
@@ -37,6 +37,10 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   I: { video: [790, 40, 300, 533], lookPanel: [500, 40, 270, 480], attempts: [470, 583, 620, 52], controls: [470, 645, 0, 84], toast: [470, 525, 420, 48] },
   // Lookback with takes: the same board; the look panel shows the selected take and the ATTEMPTS row the last four.
   L: { video: [790, 40, 300, 533], lookPanel: [500, 40, 270, 480], attempts: [470, 583, 620, 52], controls: [470, 645, 0, 84], toast: [470, 525, 420, 48] },
+  // "Record lookback?" over I or L, with no bar (the board is locked behind it). Like Routine done it opens in front of you, so only its size counts.
+  J: { video: [790, 40, 300, 533], lookPanel: [500, 40, 270, 480], attempts: [470, 583, 620, 52], popup: [0, 0, 440, 330] },
+  // Recording: the 3, 2, 1 beside the video, which grows to Playing's size, with its progress line. No controls: they're locked.
+  K: { countdown: [560, 200, 200, 200], video: [790, 40, 340, 604], progress: [790, 662, 340, 6] },
 }
 
 /** A Full run plays on B with From the top's segmented bar in place of the progress bar. */
@@ -55,6 +59,13 @@ export const POPUP = {
   distanceCm: 100,
   dropCm: 5,
   followDeg: 30,
+}
+
+/** "Record lookback?" opens farther out than Routine done, and is scaled up to stay easy to read there. */
+export const RECORD_POPUP = {
+  distanceCm: 250,
+  dropCm: 5,
+  scale: 1.8,
 }
 
 /** The dance picker opens in front of you like a pop-up, but farther out: its 3:4 card is 480×640 px (72×96 cm). */

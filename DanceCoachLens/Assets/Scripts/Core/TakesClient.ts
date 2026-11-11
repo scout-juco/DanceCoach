@@ -9,10 +9,12 @@
  * The network is injected, so this is pure (no Lens Studio APIs) and Vitest drives it with fake fetch.
  */
 
-/** The two request kinds the takes API needs; RemoteTransport has both. */
+/** The requests the takes API needs; RemoteTransport has them all. */
 export interface TakesTransport {
   getJson(url: string): Promise<unknown>
   postJson(url: string, body: unknown): Promise<unknown>
+  /** Downloads a video; resolves with whatever the transport makes of it (a video texture and its player). */
+  loadClip(url: string): Promise<unknown>
 }
 
 export interface Take {
@@ -103,6 +105,11 @@ export class TakesClient {
 
   async stop(sessionId: string): Promise<void> {
     await this.transport.postJson(`${this.base}/takes/session/${encodeURIComponent(sessionId)}/stop`, {})
+  }
+
+  /** Downloads a take's video like a clip. */
+  loadTake(danceId: string, take: Take): Promise<unknown> {
+    return this.transport.loadClip(this.takeUrl(danceId, take))
   }
 
   /** Where a take's video is, for loadClip. */

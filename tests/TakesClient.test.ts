@@ -19,6 +19,10 @@ function fakeTransport(json: Record<string, unknown>) {
       if (!(url in json)) throw new Error(`HTTP 404 for ${url}`)
       return json[url]
     },
+    loadClip: async (url) => {
+      requests.push({ method: "GET", url })
+      return { url }
+    },
   }
   return { transport, requests }
 }
@@ -88,6 +92,12 @@ describe("TakesClient: requests' shapes", () => {
     await client.start("s9")
     await client.stop("s9")
     expect(requests.map((r) => `${r.method} ${r.url}`)).toEqual([`POST ${BASE}/takes/session/s9/start`, `POST ${BASE}/takes/session/s9/stop`])
+  })
+
+  it("downloads a take like a clip", async () => {
+    const { transport, requests } = fakeTransport({})
+    await new TakesClient(BASE, transport).loadTake("abc", take(3))
+    expect(requests).toEqual([{ method: "GET", url: `${BASE}/dances/abc/takes/s2-t3.mp4` }])
   })
 
   it("points at a take's video", () => {
