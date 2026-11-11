@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dance Coach · Recorder</title>
+<style>
+  :root {
+    color-scheme: light dark; font-family: system-ui, sans-serif;
+    --bg: #fff; --ink: #1f1f1e; --muted: #5e5e5a; --line: #d6d6d2; --soft: #f0f0ed;
+    --err: #c33; --ok: #2a7; --rec: #e22;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1b1a; --ink: #ecece8; --muted: #a3a29c; --line: #3a3a37; --soft: #252523; --err: #f77; --ok: #4c9; --rec: #f55; }
+  }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink); }
+  main { max-width: 480px; margin: 0 auto; padding: 16px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 600; }
+  h2 { margin: 8px 0 0; font-size: 15px; font-weight: 600; }
+  button, select { font: inherit; color: inherit; }
+  select { box-sizing: border-box; height: 48px; padding: 0 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--bg); width: 100%; }
+  button { cursor: pointer; }
+  .chip { height: 40px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); font-size: 14px; }
+  .chip:disabled { opacity: .5; cursor: default; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0; }
+  .error { color: var(--err); } .ok { color: var(--ok); }
+  .stage { position: relative; background: #000; border-radius: 14px; overflow: hidden; aspect-ratio: 3 / 4; }
+  .stage video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .rec { position: absolute; left: 10px; top: 10px; padding: 4px 10px; border-radius: 6px; background: #000a; color: var(--rec); font-weight: 700; }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .status.connected .dot { background: var(--ok); }
+  .status.recording .dot { background: var(--rec); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .grow { flex-grow: 1; min-width: 0; }
+  progress { width: 100%; }
+  .cam { display: flex; flex-direction: column; gap: 14px; }
+  .takes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .takes li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .takes .label { flex-grow: 1; font-size: 15px; }
+  .takes .meta { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Dance Coach recorder</h1>
+  <p id="insecure" class="hint error" hidden>
+    This page can't open the camera because it isn't on a secure (https) address. Open it from the https address your
+    glasses use, not the plain http one, then reload.
+  </p>
+
+  <section id="pick">
+    <label class="hint" for="dance">Dance</label>
+    <select id="dance"></select>
+    <p id="noDances" class="hint" hidden>There are no dances on the server yet. Add one on the adjust page first.</p>
+  </section>
+
+  <section id="cam" class="cam" hidden>
+    <div class="stage">
+      <video id="preview" autoplay muted playsinline></video>
+      <div id="recBadge" class="rec" hidden>● REC</div>
+    </div>
+    <div class="row">
+      <div id="status" class="status grow"><span class="dot"></span><span id="statusText">Opening the camera…</span></div>
+      <button id="flip" class="chip">Front camera</button>
+    </div>
+    <p id="message" class="hint" hidden></p>
+    <progress id="progress" max="1" hidden></progress>
+
+    <h2>Takes for this dance</h2>
+    <p id="noTakes" class="hint">No takes yet.</p>
+    <div id="takeGroups"></div>
+  </section>
+</main>
+<script type="module" src="/record.js"></script>
+</body>
+</html>

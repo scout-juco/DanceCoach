@@ -43,6 +43,10 @@ const BUTTON_H = 44
 const PILL_W = 150
 const PILL_H = 22
 const DOT = 8
+// The loading bar, under the status line.
+const BAR_Y = 150
+const BAR_H = 14
+const BAR_W = W - PAD * 2
 
 /** Beginner, Intermediate, Advanced → 1–3 dots; any other difficulty has none. */
 const LEVELS: Record<string, number> = { beginner: 1, easy: 1, intermediate: 2, medium: 2, advanced: 3, hard: 3 }
@@ -71,6 +75,8 @@ export class DancePickerPanel extends BaseScriptComponent {
   private card: SceneObject
   private bg: RoundedRectangle
   private status: Text
+  private barTrack: SceneObject
+  private barFill: RoundedRectangle
   private tiles: Tile[] = []
   private retry: Button
   private list: Button
@@ -94,6 +100,7 @@ export class DancePickerPanel extends BaseScriptComponent {
     this.text(TYPE.popupHead, "ink2", "center", W - PAD - 80, PAD + 20).text = "PINCH A TILE TO START"
     this.status = this.text(TYPE.popupHead, "ink2", "left", PAD, STATUS_Y)
 
+    this.makeBar()
     for (let i = 0; i < MAX_DANCES; i++) this.tiles.push(this.makeTile(i))
     const bw = (W - PAD * 2 - SPACING.popupButtonGap) / 2
     this.retry = this.makeButton("Retry", "active", "active", "activeInk", bw)
@@ -147,11 +154,17 @@ export class DancePickerPanel extends BaseScriptComponent {
     const failed = view.kind === "failed"
     const offline = view.kind === "list" && view.offline
     this.retry.object.enabled = failed || offline
-    this.list.object.enabled = failed
+    const loadingDance = view.kind === "loadingDance"
+    this.list.object.enabled = failed || loadingDance
+    this.list.text.text = loadingDance ? "Back" : "Back to list"
+    this.barTrack.enabled = loadingDance
+    if (view.kind === "loadingDance") this.showProgress(view.progress)
     this.retry.text.text = failed ? "Try again" : "Try the server again"
     const bw = (W - PAD * 2 - SPACING.popupButtonGap) / 2
     this.retry.object.getTransform().setLocalPosition(this.point(PAD + bw / 2, y + BUTTON_H / 2, Z_STEP))
-    this.list.object.getTransform().setLocalPosition(this.point(PAD + bw + SPACING.popupButtonGap + bw / 2, y + BUTTON_H / 2, Z_STEP))
+    // Beside Try again on a failure; on its own, centred, while a dance loads.
+    const listX = loadingDance ? W / 2 : PAD + bw + SPACING.popupButtonGap + bw / 2
+    this.list.object.getTransform().setLocalPosition(this.point(listX, y + BUTTON_H / 2, Z_STEP))
   }
 
   private statusLine(view: PickerView): string {
@@ -159,13 +172,30 @@ export class DancePickerPanel extends BaseScriptComponent {
       case "loadingList":
         return "Loading dances…"
       case "loadingDance":
-        return `Loading ${view.title}…`
+        return `Loading ${view.title}… ${Math.round(view.progress * 100)}%`
       case "failed":
         return `Couldn't load ${view.title}.\nCheck the connection and try again.`
       case "list":
         if (view.offline) return "OFFLINE · can't reach the dance server,\nso this is the built-in test dance."
         return view.dances.length === 0 ? "No dances are ready yet.\nMake one ready on the adjust page." : ""
     }
+  }
+
+  /** The loading bar: a track across the card with a fill laid over it from the left. */
+  private makeBar() {
+    this.barTrack = childObject("LoadingBar", this.card)
+    this.barTrack.getTransform().setLocalPosition(this.point(W / 2, BAR_Y, Z_STEP))
+    setRectSize(makeRect(this.barTrack, "soft", ORDER + 1), BAR_W, BAR_H, BAR_H / 2)
+    const fill = childObject("Fill", this.barTrack)
+    this.barFill = makeRect(fill, "active", ORDER + 2)
+    this.barTrack.enabled = false
+  }
+
+  /** Fills the bar to a fraction (0 to 1), growing from its left end. */
+  private showProgress(fraction: number) {
+    const w = Math.max(BAR_H, BAR_W * Math.min(Math.max(fraction, 0), 1))
+    setRectSize(this.barFill, w, BAR_H, BAR_H / 2)
+    this.barFill.getSceneObject().getTransform().setLocalPosition(new vec3(pxToCm((w - BAR_W) / 2), 0, Z_STEP))
   }
 
   /** Sizes the card, and centres it on its spot. */

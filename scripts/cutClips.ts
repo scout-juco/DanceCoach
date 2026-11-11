@@ -21,13 +21,16 @@ export interface CutClip {
   end: number
 }
 
+/** Shrinks footage so its short side is at most 720 px (never enlarges it): the glasses show a small window, and 4K clips are slow to download. */
+export const SCALE_FILTER = "scale='if(gt(iw,ih),-2,min(720,iw))':'if(gt(iw,ih),min(720,ih),-2)'"
+
 /** The clips the package needs and the ffmpeg arguments that cut each one. Pure: runs nothing. */
 export function clipJobs(pkg: DancePackage, sourceVideo: string, outDir: string): { clip: CutClip; args: string[] }[] {
   return planClips(pkg).map(({ id, start, end }) => {
     const file = join(outDir, `${clipAssetName(pkg.video, id)}.mp4`)
     // Re-encoded so each clip starts exactly on its first frame; ffmpeg stops at the end of the footage.
     const args = ["-y", "-loglevel", "error", "-ss", start.toFixed(3), "-i", sourceVideo, "-t", (end - start).toFixed(3),
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
+      "-vf", SCALE_FILTER, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
       "-movflags", "+faststart", file]
     return { clip: { id, file, start, end }, args }
   })

@@ -8,12 +8,12 @@ const flush = () => new Promise((r) => setTimeout(r, 0))
 /** A source whose answers the test releases by hand. */
 class ManualSource implements DanceSource<never> {
   lists: { resolve: (d: DanceListing[]) => void; reject: (e: Error) => void }[] = []
-  loads: { id: string; resolve: (l: LoadedDance<never>) => void; reject: (e: Error) => void }[] = []
+  loads: { id: string; onProgress?: (f: number) => void; resolve: (l: LoadedDance<never>) => void; reject: (e: Error) => void }[] = []
   list() {
     return new Promise<DanceListing[]>((resolve, reject) => this.lists.push({ resolve, reject }))
   }
-  load(id: string) {
-    return new Promise<LoadedDance<never>>((resolve, reject) => this.loads.push({ id, resolve, reject }))
+  load(id: string, onProgress?: (f: number) => void) {
+    return new Promise<LoadedDance<never>>((resolve, reject) => this.loads.push({ id, onProgress, resolve, reject }))
   }
 }
 
@@ -63,7 +63,7 @@ describe("DancePicker", () => {
   it("loads the dance picked and hands it over", async () => {
     const { remote, picker, got } = await listed(["a"])
     picker.pick("a")
-    expect(picker.view).toEqual({ kind: "loadingDance", title: "Dance A" })
+    expect(picker.view).toEqual({ kind: "loadingDance", title: "Dance A", progress: 0 })
     remote.loads[0].resolve(loaded("a"))
     await flush()
     expect(got.map((l) => l.dance.id)).toEqual(["a"])
@@ -89,7 +89,7 @@ describe("DancePicker", () => {
     await flush()
     expect(picker.view).toEqual({ kind: "failed", title: "Dance A" })
     picker.retry()
-    expect(picker.view).toEqual({ kind: "loadingDance", title: "Dance A" })
+    expect(picker.view).toEqual({ kind: "loadingDance", title: "Dance A", progress: 0 })
     remote.loads[1].resolve(loaded("a"))
     await flush()
     expect(got).toHaveLength(1)
@@ -104,6 +104,30 @@ describe("DancePicker", () => {
     expect(picker.view).toMatchObject({ kind: "list", offline: false })
     picker.pick("b")
     expect(remote.loads.map((l) => l.id)).toEqual(["a", "b"])
+  })
+
+  it("shows how much of the dance is in, and keeps waiting while it makes progress", async () => {
+    const { remote, picker } = await listed(["a"])
+    picker.pick("a")
+    picker.tick(LOAD_TIMEOUT_SEC - 1)
+    remote.loads[0].onProgress!(0.5)
+    expect(picker.view).toEqual({ kind: "loadingDance", title: "Dance A", progress: 0.5 })
+    picker.tick(LOAD_TIMEOUT_SEC - 1)
+    expect(picker.view?.kind).toBe("loadingDance")
+    picker.tick(1)
+    expect(picker.view?.kind).toBe("failed")
+  })
+
+  it("goes back to the list from a loading dance, and ignores the dance when it arrives", async () => {
+    const { remote, picker, got } = await listed(["a", "b"])
+    picker.pick("a")
+    picker.back()
+    expect(picker.view).toMatchObject({ kind: "list", offline: false })
+    remote.loads[0].onProgress!(0.9)
+    remote.loads[0].resolve(loaded("a"))
+    await flush()
+    expect(got).toHaveLength(0)
+    expect(picker.view?.kind).toBe("list")
   })
 
   it("times out a slow load, and ignores the answer when it finally comes", async () => {

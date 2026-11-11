@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { clipAssetName, planClips } from "../DanceCoachLens/Assets/Scripts/Core/ClipPlan"
-import { RemoteClip, RemoteDanceSource, RemoteTransport } from "../DanceCoachLens/Assets/Scripts/Core/RemoteDanceSource"
+import { MAX_CONCURRENT_DOWNLOADS, RemoteClip, RemoteDanceSource, RemoteTransport } from "../DanceCoachLens/Assets/Scripts/Core/RemoteDanceSource"
 import { VIDEO_STATUS, VideoPlayer } from "../DanceCoachLens/Assets/Scripts/Core/VideoDriver"
 import { stillNames } from "../DanceCoachLens/Assets/Scripts/Core/StillPlan"
 import { makeDance } from "./fixtures"
@@ -99,6 +99,43 @@ describe("RemoteDanceSource", () => {
     it("rejects when any still fails to download", async () => {
       const { transport } = fakeTransport(json, undefined, pkg.stills[2][15])
       await expect(new RemoteDanceSource(BASE, transport).load(dance.id)).rejects.toThrow(/still download failed/)
+    })
+
+    it("downloads only a few at a time", async () => {
+      let active = 0
+      let peak = 0
+      const { transport } = fakeTransport(json)
+      const loadStill = transport.loadStill
+      transport.loadStill = async (url) => {
+        active++
+        peak = Math.max(peak, active)
+        await new Promise((r) => setTimeout(r, 1))
+        active--
+        return loadStill(url)
+      }
+      await new RemoteDanceSource(BASE, transport).load(dance.id)
+      expect(peak).toBeGreaterThan(1)
+      expect(peak).toBeLessThanOrEqual(MAX_CONCURRENT_DOWNLOADS)
+    })
+
+    it("reports how much is in as the package, clips and stills arrive", async () => {
+      const seen: number[] = []
+      await new RemoteDanceSource(BASE, fakeTransport(json).transport).load(dance.id, (f) => seen.push(f))
+      expect(seen[0]).toBe(0)
+      expect(seen[seen.length - 1]).toBe(1)
+      expect(seen.every((f, i) => i === 0 || f > seen[i - 1])).toBe(true)
+    })
+
+    it("tries a failed download again before giving up", async () => {
+      const { transport } = fakeTransport(json)
+      const loadStill = transport.loadStill
+      let failures = 1
+      transport.loadStill = async (url) => {
+        if (url.endsWith(pkg.stills[0][0]) && failures-- > 0) throw new Error("dropped")
+        return loadStill(url)
+      }
+      const loaded = await new RemoteDanceSource(BASE, transport).load(dance.id)
+      expect(loaded.stills).toEqual(pkg.stills)
     })
   })
 })

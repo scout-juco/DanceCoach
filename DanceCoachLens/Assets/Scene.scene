@@ -1147,6 +1147,8 @@
   ScriptAsset: !<reference> b0ba77f6-1174-4c4a-8963-03b1e98214b9
   ScriptInputsDefault:
     alwaysFirstLook: true
+    poseStills: true
+    countAnd: true
   ScriptTypesDefault:
     {}
   ScriptInputs:
@@ -1164,7 +1166,9 @@
         - !<reference> 07cf0cb0-6ac1-4f48-8f3d-319b0fb5b0d3
         - !<reference> 98d95387-c60e-448d-97c6-efbbfc57a959
         - !<reference> 178658eb-572f-4b26-adaa-4873921f7576
-      serverUrl: "https://silly-seller-committees-discrimination.trycloudflare.com"
+      poseStills: !<reference.Texture[]>
+        []
+      serverUrl: "http://localhost:8792/"
       internetModule: !<reference.InternetModule> eebf6808-5aba-4e36-93fe-1f953128779f
       remoteMediaModule: !<reference.RemoteMediaModule> c503e25e-d86a-45bc-97ce-b44a45c4b6b1
       count1: !<reference.AudioTrackAsset> 4229a75b-d5e9-41b2-80df-fe4a184cd282
@@ -1175,6 +1179,7 @@
       count6: !<reference.AudioTrackAsset> 94663218-c19d-4cbd-8964-89f2e6f14440
       count7: !<reference.AudioTrackAsset> ba30a0e3-d424-410a-b9af-ffc84ab0be06
       count8: !<reference.AudioTrackAsset> d0fdcddf-5a52-46f4-a8d9-538f6e0fb53c
+      countAnd: !<reference.AudioTrackAsset> 00000000-0000-0000-0000-000000000000
   ScriptTypes:
     "":
       {}

@@ -21,6 +21,7 @@
  *   GET /dances/<id>/takes?section=n          the takes (all, or one section's): [{ name, section, speed, mirror, created, offset, number }]
  *   GET /dances/<id>/takes/<name>.mp4         one take;  DELETE /dances/<id>/takes/<name> removes it
  *   GET /                     the adjust page; GET /app.js is its script, bundled from server/page
+ *   GET /record               the phone recorder page; GET /record.js is its script
  *     4xx { error }                 a readable reason
  *
  * The original is kept at <storage>/<id>/original<ext>. Detection is only a starting guess.
@@ -237,15 +238,19 @@ async function listReady(storageDir: string) {
 const pageDir = fileURLToPath(new URL("./page/", import.meta.url))
 const VIDEO_TYPES: Record<string, string> = { ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".m4v": "video/mp4" }
 
-let bundle: Promise<string> | undefined
-/** The adjust page's script: server/page/adjust.ts with the lens's count logic, bundled once. */
-function pageScript(): Promise<string> {
-  bundle ??= build({ entryPoints: [join(pageDir, "adjust.ts")], bundle: true, write: false, format: "esm", target: "es2020" })
-    .then((r) => r.outputFiles[0].text)
-    .catch((err) => {
-      bundle = undefined
-      throw err
-    })
+const bundles = new Map<string, Promise<string>>()
+/** A page's script: server/page/<entry>.ts with whatever it imports (the adjust page, the lens's count logic), bundled once. */
+function pageScript(entry: "adjust" | "record"): Promise<string> {
+  let bundle = bundles.get(entry)
+  if (!bundle) {
+    bundle = build({ entryPoints: [join(pageDir, `${entry}.ts`)], bundle: true, write: false, format: "esm", target: "es2020" })
+      .then((r) => r.outputFiles[0].text)
+      .catch((err) => {
+        bundles.delete(entry)
+        throw err
+      })
+    bundles.set(entry, bundle)
+  }
   return bundle
 }
 
@@ -343,7 +348,15 @@ export function createIngestServer(options: IngestOptions): Server {
       }
       if (req.method === "GET" && url.pathname === "/app.js") {
         res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" })
-        return void res.end(await pageScript())
+        return void res.end(await pageScript("adjust"))
+      }
+      if (req.method === "GET" && url.pathname === "/record") {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+        return void res.end(await readFile(join(pageDir, "record.html")))
+      }
+      if (req.method === "GET" && url.pathname === "/record.js") {
+        res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" })
+        return void res.end(await pageScript("record"))
       }
       if (req.method === "GET" && url.pathname === "/dances") {
         return send(res, 200, await listReady(options.storageDir))

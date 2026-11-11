@@ -3,8 +3,8 @@
  *
  * It lists the server's dances, loads the one picked, and hands it to onLoaded. If the server
  * can't be reached it offers the fallback source's dances instead and says they're offline.
- * A load that fails or takes longer than the limit shows a could-not-load message; retry tries
- * it again and back returns to the list. Answers that arrive after the picker has moved on
+ * A load that fails or goes the limit without any progress shows a could-not-load message; retry tries
+ * it again and back returns to the list (from a loading dance too, which stops waiting for it). Answers that arrive after the picker has moved on
  * (a retry, a back, a timeout) are ignored.
  * Pure: no Lens Studio APIs. The Lens calls tick() each frame so slow loads time out.
  */
@@ -14,7 +14,7 @@ import { DanceListing, DanceSource, LoadedDance } from "./DanceSource"
 export type PickerView =
   | { kind: "loadingList" }
   | { kind: "list"; dances: DanceListing[]; offline: boolean }
-  | { kind: "loadingDance"; title: string }
+  | { kind: "loadingDance"; title: string; /** How much of the dance is in, 0 to 1. */ progress: number }
   | { kind: "failed"; title: string }
 
 /** How long a list or a dance may take to come back, in seconds. */
@@ -72,9 +72,10 @@ export class DancePicker<T> {
     else if (this.state?.kind === "list" && this.offline) this.open()
   }
 
-  /** From a could-not-load message, back to the list. */
+  /** From a could-not-load message or a loading dance, back to the list. */
   back() {
-    if (this.state?.kind === "failed") this.state = { kind: "list", dances: this.dances, offline: this.offline }
+    if (this.state?.kind === "loadingDance") this.generation++
+    if (this.state?.kind === "failed" || this.state?.kind === "loadingDance") this.state = { kind: "list", dances: this.dances, offline: this.offline }
   }
 
   /** Call every frame: a list or a dance that takes too long gives up. */
@@ -88,9 +89,15 @@ export class DancePicker<T> {
 
   private load(listing: DanceListing) {
     this.picked = listing
-    const gen = this.begin({ kind: "loadingDance", title: listing.title })
+    const gen = this.begin({ kind: "loadingDance", title: listing.title, progress: 0 })
     const source = this.offline ? this.fallback : this.remote
-    source.load(listing.id).then(
+    // Waiting for a dance is for it to stall, not for it to be big: progress starts the wait again.
+    const onProgress = (progress: number) => {
+      if (gen !== this.generation || this.state?.kind !== "loadingDance") return
+      this.state = { ...this.state, progress }
+      this.waited = 0
+    }
+    source.load(listing.id, onProgress).then(
       (loaded) => {
         if (gen !== this.generation) return
         this.state = null
