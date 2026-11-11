@@ -13,6 +13,13 @@
  *   GET /dances/<id>/clips/<name>  one of its clips, named <video>_<clip id>.mp4
  *   GET /dances/<id>/stills/<name> one of its stills (a JPEG per half-count), as listed in the package's stills
  *   GET /dances/<id>/original the uploaded video (supports Range, so the adjust page can seek)
+ *   POST /dances/<id>/takes/session   body = { section, speed, mirror }: arms a take (replacing any session) -> 201 the session
+ *   POST /takes/session/<sid>/start | /stop   sent by the glasses
+ *   POST /takes/session/<sid>/upload          body = the phone's recording; lines it up, trims and transcodes it -> the session
+ *   GET /recorder/state       for the phone: { session } while armed or recording; counts as its heartbeat
+ *   GET /recorder/status      for the glasses: { phoneConnected, session } (armed, recording, uploading, processing, ready, failed)
+ *   GET /dances/<id>/takes?section=n          the takes (all, or one section's): [{ name, section, speed, mirror, created, offset, number }]
+ *   GET /dances/<id>/takes/<name>.mp4         one take;  DELETE /dances/<id>/takes/<name> removes it
  *   GET /                     the adjust page; GET /app.js is its script, bundled from server/page
  *     4xx { error }                 a readable reason
  *
@@ -35,9 +42,11 @@ import { clipAssetName, planClips } from "../DanceCoachLens/Assets/Scripts/Core/
 import { stillNames } from "../DanceCoachLens/Assets/Scripts/Core/StillPlan"
 import { detectBeats } from "./detectBeats"
 import { decodeAudio, fetchWithYtDlp, probeVideo, UploadError, VideoFetcher } from "./media"
+import { deleteTake, NotFoundError, rawUploadPath, readTakes, Recorder, takeFile } from "./takes"
 
 const MAX_UPLOAD_BYTES = 1024 ** 3
 const MAX_PACKAGE_BYTES = 1024 ** 2
+const MAX_TAKE_BYTES = 512 * 1024 ** 2
 const ID_PATTERN = /^[0-9a-f]{12}$/
 
 export interface IngestOptions {
@@ -45,6 +54,10 @@ export interface IngestOptions {
   storageDir: string
   /** Gets the video behind a link into a folder. Defaults to yt-dlp; tests fake it. */
   fetchVideo?: VideoFetcher
+  /** The clock for takes (phone heartbeat, upload timeout). Tests fake it. */
+  now?: () => number
+  /** How long after stop the phone has to upload a take. */
+  uploadTimeoutMs?: number
 }
 
 export interface Draft {
@@ -141,6 +154,21 @@ async function findOriginal(storageDir: string, id: string): Promise<string | nu
   return original ? join(storageDir, id, original) : null
 }
 
+/**
+ * Bump when the ffmpeg settings for clips or stills change: dances cut with an older version are cut again
+ * the next time they're made ready. Each cut folder holds a CUT_MARKER file saying which version cut it.
+ */
+const CUT_VERSION = "2"
+const CUT_MARKER = ".cut-version"
+
+async function cutIsCurrent(folder: string): Promise<boolean> {
+  try {
+    return (await readFile(join(folder, CUT_MARKER), "utf8")).trim() === CUT_VERSION
+  } catch {
+    return false
+  }
+}
+
 /** Validates the adjusted package, cuts its clips and marks the dance ready. */
 async function saveDance(id: string, body: string, storageDir: string): Promise<DancePackage> {
   const original = await findOriginal(storageDir, id)
@@ -166,14 +194,17 @@ async function saveDance(id: string, body: string, storageDir: string): Promise<
   const same = before !== null && timing(before) === timing(pkg)
   // A dance made ready before Pose has clips but no stills; saving it again adds them.
   const cut = [
-    { name: "clips", run: cutClips, needed: !(same && (await exists(join(dir, "clips")))) },
-    { name: "stills", run: cutStills, needed: !(same && (await exists(join(dir, "stills")))) },
+    { name: "clips", run: cutClips, needed: !(same && (await cutIsCurrent(join(dir, "clips")))) },
+    { name: "stills", run: cutStills, needed: !(same && (await cutIsCurrent(join(dir, "stills")))) },
   ].filter((c) => c.needed)
   const stagingOf = (name: string) => join(dir, `${name}.tmp`)
   const clearStaging = () => Promise.all(cut.map((c) => rm(stagingOf(c.name), { recursive: true, force: true })))
   await clearStaging()
   try {
-    for (const c of cut) c.run(pkg, original, stagingOf(c.name))
+    for (const c of cut) {
+      c.run(pkg, original, stagingOf(c.name))
+      await writeFile(join(stagingOf(c.name), CUT_MARKER), CUT_VERSION)
+    }
   } catch (err) {
     await clearStaging()
     throw err
@@ -202,8 +233,6 @@ async function listReady(storageDir: string) {
   const ready = await Promise.all(ids.map((id) => readReady(storageDir, id)))
   return ready.flatMap((p) => (p ? [{ id: p.id, title: p.title, difficulty: p.difficulty }] : []))
 }
-
-class NotFoundError extends Error {}
 
 const pageDir = fileURLToPath(new URL("./page/", import.meta.url))
 const VIDEO_TYPES: Record<string, string> = { ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".m4v": "video/mp4" }
@@ -241,9 +270,63 @@ async function sendFile(req: IncomingMessage, res: ServerResponse, file: string,
 }
 
 export function createIngestServer(options: IngestOptions): Server {
+  const recorder = new Recorder(options)
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost")
     try {
+      if (req.method === "GET" && url.pathname === "/recorder/state") return send(res, 200, recorder.phoneState())
+      if (req.method === "GET" && url.pathname === "/recorder/status") return send(res, 200, recorder.status())
+      const sessionRoute = url.pathname.match(/^\/takes\/session\/([^/]+)\/(start|stop|upload)$/)
+      if (req.method === "POST" && sessionRoute) {
+        const [, sid, action] = sessionRoute
+        if (action === "start") return send(res, 200, recorder.start(sid))
+        if (action === "stop") return send(res, 200, recorder.stop(sid))
+        const waiting = recorder.beginUpload(sid)
+        const pkg = await readReady(options.storageDir, waiting.danceId)
+        if (!pkg) return send(res, 404, { error: "That dance is gone." })
+        const raw = await rawUploadPath(options.storageDir, waiting.danceId, sid, req.headers["content-type"] ?? "")
+        if (Number(req.headers["content-length"] ?? 0) > MAX_TAKE_BYTES) {
+          recorder.fail(sid, "That recording is too big.")
+          return send(res, 413, { error: "That recording is too big." })
+        }
+        try {
+          await pipeline(req, createWriteStream(raw))
+        } catch {
+          return send(res, 422, { error: recorder.fail(sid, "The recording didn't arrive in full. Record again.").reason })
+        }
+        const done = await recorder.finishUpload(sid, raw, pkg)
+        return done.state === "ready" ? send(res, 200, done) : send(res, 422, { error: done.reason, session: done })
+      }
+      const takesRoute = url.pathname.match(/^\/dances\/([^/]+)\/takes(?:\/([^/]+))?$/)
+      if (takesRoute) {
+        const [, id, what] = takesRoute
+        if (!(await readReady(options.storageDir, id))) throw new NotFoundError("There's no such dance.")
+        if (req.method === "POST" && what === "session") {
+          let params: any
+          try {
+            params = JSON.parse(await readBody(req))
+          } catch {
+            throw new UploadError("That isn't valid JSON.")
+          }
+          return send(res, 201, recorder.arm((await readReady(options.storageDir, id))!, params ?? {}))
+        }
+        if (req.method === "GET" && !what) {
+          const section = url.searchParams.get("section")
+          return send(res, 200, (await readTakes(options.storageDir, id)).filter((t) => section === null || t.section === Number(section)))
+        }
+        if (req.method === "GET" && what?.endsWith(".mp4")) {
+          const file = await takeFile(options.storageDir, id, what.slice(0, -4))
+          if (file) {
+            res.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": (await stat(file)).size })
+            return void createReadStream(file).pipe(res)
+          }
+          throw new NotFoundError("There's no such take.")
+        }
+        if (req.method === "DELETE" && what) {
+          await deleteTake(options.storageDir, id, what)
+          return send(res, 200, { deleted: true })
+        }
+      }
       if (req.method === "POST" && url.pathname === "/dances") {
         if (Number(req.headers["content-length"] ?? 0) > MAX_UPLOAD_BYTES) {
           return send(res, 413, { error: "That video is too big (1 GB at most)." })

@@ -151,6 +151,19 @@ describe("saving, listing and serving a dance", () => {
     expect(served.video.startsWith(pkg.id)).toBe(true)
   }, 120_000)
 
+  it("cuts the clips and stills again for a dance cut with older settings", async () => {
+    const pkg = await draft()
+    await save(pkg.id, pkg)
+    const clips = join(storage, pkg.id, "clips")
+    const old = join(clips, "old.txt")
+    writeFileSync(old, "from the old cut")
+    rmSync(join(clips, ".cut-version"))
+    const again = await save(pkg.id, pkg)
+    expect(again.status).toBe(200)
+    expect(existsSync(old)).toBe(false) // re-cut
+    expect(existsSync(join(clips, ".cut-version"))).toBe(true)
+  }, 120_000)
+
   it("re-saves a ready dance with a new name without cutting its clips again", async () => {
     const pkg = await draft()
     await save(pkg.id, pkg)
@@ -177,7 +190,7 @@ describe("saving, listing and serving a dance", () => {
     expect(served.bpm).toBe(slower.bpm)
     const after = await clipNames(served)
     expect(after).not.toEqual(before)
-    expect(readdirSync(join(storage, pkg.id, "clips")).sort()).toEqual([...after].sort())
+    expect(readdirSync(join(storage, pkg.id, "clips")).filter((f) => !f.startsWith(".")).sort()).toEqual([...after].sort())
     for (const name of after) expect((await fetch(`${base}/dances/${pkg.id}/clips/${name}`)).status).toBe(200)
     for (const name of before.filter((n) => !after.includes(n))) {
       expect((await fetch(`${base}/dances/${pkg.id}/clips/${name}`)).status).toBe(404)
@@ -238,7 +251,7 @@ describe("stills", () => {
   it("writes 16 stills per section when a dance is made ready, and lists them in the package", async () => {
     const pkg = await ready()
     expect(pkg.stills?.map((s) => s.length)).toEqual([16, 16, 16])
-    expect(readdirSync(join(storage, pkg.id, "stills")).sort()).toEqual(pkg.stills!.flat().sort())
+    expect(readdirSync(join(storage, pkg.id, "stills")).filter((f) => !f.startsWith(".")).sort()).toEqual(pkg.stills!.flat().sort())
     for (const name of pkg.stills!.flat()) expect(existsSync(stillFile(pkg, name))).toBe(true)
   }, 180_000)
 
@@ -322,4 +335,182 @@ describe("stills", () => {
     expect((await (await fetch(`${base}/dances/${pkg.id}/package`)).json()).bpm).toBe(120)
     expect(readdirSync(join(storage, pkg.id)).filter((f) => f.endsWith(".tmp"))).toEqual([])
   }, 180_000)
+})
+
+describe("takes", { timeout: 120_000 }, () => {
+  // The same server code on a clock the tests move, over the same storage.
+  let now = 1_000_000
+  const clocked = createIngestServer({ storageDir: storage, now: () => now, uploadTimeoutMs: 5000 })
+  let url = ""
+  beforeAll(async () => {
+    await new Promise<void>((ok) => clocked.listen(0, ok))
+    url = `http://localhost:${(clocked.address() as AddressInfo).port}`
+  })
+  afterAll(() => void clocked.close())
+
+  // 120 bpm, first beat at 0.5 s, 10 s of footage: section 2 runs 4.5–8.5 s and leads in from 2.5 s.
+  const readyDance = async () => {
+    const { package: draft } = await (await upload(ramp, "Ramp.mp4")).json()
+    const pkg = { ...draft, bpm: 120, firstBeatSec: 0.5, trim: { start: 0, end: 10 } }
+    expect((await fetch(`${base}/dances/${draft.id}`, { method: "PUT", body: JSON.stringify(pkg) })).status).toBe(200)
+    return draft.id as string
+  }
+  const call = (method: string, path: string, body?: unknown) =>
+    fetch(`${url}${path}`, { method, body: body === undefined ? undefined : typeof body === "string" || body instanceof Buffer ? body : JSON.stringify(body) })
+  const arm = async (id: string, extra: object = {}) => {
+    const res = await call("POST", `/dances/${id}/takes/session`, { section: 2, speed: 1, mirror: false, ...extra })
+    return { res, session: await res.json() }
+  }
+  const status = async () => (await call("GET", "/recorder/status")).json()
+  const clips: Record<string, string> = {}
+  /** What a phone films: a brightness ramp over `seconds` (255 * t / seconds), with a tone from `musicAt` (none if null). */
+  const filmed = (seconds: number, musicAt: number | null) => {
+    const key = `${seconds}-${musicAt}`
+    if (!clips[key]) {
+      const file = (clips[key] = join(work, `film-${key}.mp4`))
+      const video = ["-f", "lavfi", "-i", `color=c=black:size=64x64:rate=25:duration=${seconds},geq=lum='16+219*T/${seconds}':cb=128:cr=128`]
+      const audio = musicAt === null ? [] : ["-f", "lavfi", "-i", `aevalsrc='0.5*sin(2*PI*440*t)*gte(t,${musicAt})':d=${seconds}:s=44100`, "-c:a", "aac"]
+      execFileSync("ffmpeg", ["-v", "error", "-y", ...video, ...audio, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest", file])
+    }
+    return readFileSync(clips[key])
+  }
+  const luma = (file: string) =>
+    execFileSync("ffmpeg", ["-v", "error", "-i", file, "-frames:v", "1", "-vf", "scale=1:1", "-pix_fmt", "gray", "-f", "rawvideo", "-"])[0]
+  const probe = (file: string) => JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", file]).toString())
+  const record = async (id: string, film: Buffer, extra: object = {}) => {
+    const { session } = await arm(id, extra)
+    await call("GET", "/recorder/state")
+    await call("POST", `/takes/session/${session.id}/start`)
+    await call("POST", `/takes/session/${session.id}/stop`)
+    return { session, res: await call("POST", `/takes/session/${session.id}/upload`, film) }
+  }
+
+  it("arm, start, stop, upload ends with a ready take, listed for its section with its speed, mirror and number", async () => {
+    const id = await readyDance()
+    const { session, res } = await record(id, filmed(10, 1), { speed: 0.75, mirror: true })
+    expect(res.status).toBe(200)
+    const done = await res.json()
+    expect(done.state).toBe("ready")
+    expect(done.take).toMatchObject({ name: "s2-t1", section: 2, speed: 0.75, mirror: true, number: 1 })
+    expect((await status()).session).toMatchObject({ id: session.id, state: "ready", take: { name: "s2-t1" } })
+    const listed = await (await call("GET", `/dances/${id}/takes?section=2`)).json()
+    expect(listed).toEqual([done.take])
+    expect(await (await call("GET", `/dances/${id}/takes?section=1`)).json()).toEqual([])
+    // The next take of the section is number 2.
+    const second = await (await record(id, filmed(10, 1))).res.json()
+    expect(second.take.number).toBe(2)
+  }, 120_000)
+
+  it("starts the take on the section's count 1, within one frame of a known offset", async () => {
+    const id = await readyDance()
+    // Music starts at 1.0 s; section 2's count 1 is 2 s (4 counts) later at 1×.
+    const { res } = await record(id, filmed(8, 1))
+    const { take } = await res.json()
+    expect(Math.abs(take.offset - 3)).toBeLessThanOrEqual(1 / 30)
+    const file = join(storage, id, "takes", "s2-t1.mp4")
+    // The first frame is the raw take's frame at 3 s: brightness 255 * 3 / 8.
+    expect(Math.abs(luma(file) - (255 * 3) / 8)).toBeLessThanOrEqual(2)
+    const info = probe(file)
+    expect(Number(info.format.duration)).toBeCloseTo(4, 0)
+    expect(info.streams.map((s: { codec_type: string }) => s.codec_type)).toEqual(["video"])
+    expect(info.streams[0].codec_name).toBe("h264")
+    // Served as an mp4; the raw upload is gone.
+    const served = await call("GET", `/dances/${id}/takes/s2-t1.mp4`)
+    expect(served.status).toBe(200)
+    expect(served.headers.get("content-type")).toBe("video/mp4")
+    expect(readdirSync(join(storage, id, "takes")).filter((f) => f.startsWith("raw-"))).toEqual([])
+  }, 120_000)
+
+  it("falls back to the server's clock when the recording has no sound", async () => {
+    const id = await readyDance()
+    const { session } = await arm(id)
+    await call("POST", `/takes/session/${session.id}/start`)
+    now += 6000 // the clip: 2 s of lead-in and the 4 s section
+    await call("POST", `/takes/session/${session.id}/stop`)
+    const res = await call("POST", `/takes/session/${session.id}/upload`, filmed(8, null))
+    // The clip began 6 s before the end of an 8 s recording, so count 1 is at 2 + 2 = 4 s.
+    expect((await res.json()).take.offset).toBeCloseTo(4, 2)
+  }, 120_000)
+
+  it("says phone connected only with a heartbeat in the last 3 s", async () => {
+    now += 10_000
+    expect((await status()).phoneConnected).toBe(false)
+    await call("GET", "/recorder/state")
+    expect((await status()).phoneConnected).toBe(true)
+    now += 2900
+    expect((await status()).phoneConnected).toBe(true)
+    now += 200
+    expect((await status()).phoneConnected).toBe(false)
+  })
+
+  it("gives the phone the armed session until the glasses stop it", async () => {
+    const id = await readyDance()
+    await arm(id, { section: 1 })
+    expect((await (await call("GET", "/recorder/state")).json()).session).toMatchObject({ state: "armed", section: 1 })
+    const { session } = await arm(id)
+    expect((await (await call("GET", "/recorder/state")).json()).session).toMatchObject({ id: session.id, state: "armed", section: 2 })
+    await call("POST", `/takes/session/${session.id}/start`)
+    expect((await (await call("GET", "/recorder/state")).json()).session.state).toBe("recording")
+    await call("POST", `/takes/session/${session.id}/stop`)
+    expect((await (await call("GET", "/recorder/state")).json()).session).toBeNull()
+  })
+
+  it("replaces an old session when a new one is armed", async () => {
+    const id = await readyDance()
+    const first = (await arm(id)).session
+    const second = (await arm(id, { section: 1 })).session
+    expect(second.id).not.toBe(first.id)
+    expect((await call("POST", `/takes/session/${first.id}/start`)).status).toBe(404)
+    expect((await status()).session).toMatchObject({ id: second.id, section: 1, state: "armed" })
+  })
+
+  it("refuses to arm a take that makes no sense", async () => {
+    const id = await readyDance()
+    for (const bad of [{ section: 0 }, { section: 9 }, { section: 1.5 }, { speed: 0 }, { speed: "fast" }, { mirror: "no" }]) {
+      expect((await arm(id, bad)).res.status).toBe(422)
+    }
+    expect((await call("POST", `/dances/000000000000/takes/session`, { section: 1, speed: 1, mirror: false })).status).toBe(404)
+  })
+
+  it("fails the session when a stop is not followed by an upload", async () => {
+    const id = await readyDance()
+    const { session } = await arm(id)
+    await call("POST", `/takes/session/${session.id}/start`)
+    await call("POST", `/takes/session/${session.id}/stop`)
+    expect((await status()).session.state).toBe("uploading")
+    now += 5100
+    expect((await status()).session).toMatchObject({ state: "failed", reason: expect.stringMatching(/never sent/) })
+  })
+
+  it("fails the session with a reason on a bad upload, and keeps the raw upload", async () => {
+    const id = await readyDance()
+    const { session, res } = await record(id, Buffer.from("not a video, just words"))
+    expect(res.status).toBe(422)
+    expect((await res.json()).error).toMatch(/read/)
+    expect((await status()).session).toMatchObject({ id: session.id, state: "failed", reason: expect.stringMatching(/read/) })
+    expect(readdirSync(join(storage, id, "takes")).some((f) => f.startsWith("raw-"))).toBe(true)
+    expect(await (await call("GET", `/dances/${id}/takes`)).json()).toEqual([])
+  })
+
+  it("ignores a stop before a start, and an upload nobody asked for", async () => {
+    const id = await readyDance()
+    const { session } = await arm(id)
+    expect((await call("POST", `/takes/session/${session.id}/stop`)).status).toBe(422)
+    expect((await call("POST", `/takes/session/${session.id}/upload`, filmed(8, 1))).status).toBe(422)
+  })
+
+  it("answers 404 for an unknown take, and delete removes the file and its listing", async () => {
+    const id = await readyDance()
+    expect((await call("GET", `/dances/${id}/takes/s2-t9.mp4`)).status).toBe(404)
+    expect((await call("DELETE", `/dances/${id}/takes/s2-t9`)).status).toBe(404)
+    await record(id, filmed(8, 1))
+    const file = join(storage, id, "takes", "s2-t1.mp4")
+    expect(existsSync(file)).toBe(true)
+    expect((await call("DELETE", `/dances/${id}/takes/s2-t1`)).status).toBe(200)
+    expect(existsSync(file)).toBe(false)
+    expect(await (await call("GET", `/dances/${id}/takes`)).json()).toEqual([])
+    expect((await call("GET", `/dances/${id}/takes/s2-t1.mp4`)).status).toBe(404)
+    // A path that isn't a take name reaches nothing.
+    expect((await call("GET", `/dances/${id}/takes/..%2Fpackage.json.mp4`)).status).toBe(404)
+  }, 120_000)
 })
