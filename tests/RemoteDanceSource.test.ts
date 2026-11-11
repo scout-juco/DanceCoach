@@ -21,6 +21,9 @@ function fakeTransport(json: Record<string, unknown>, failClip?: string, failSti
       if (!(url in json)) throw new Error(`HTTP 404 for ${url}`)
       return json[url]
     },
+    postJson: async () => {
+      throw new Error("not used")
+    },
     loadClip: async (url): Promise<RemoteClip<string>> => {
       requested.push(url)
       if (failClip && url.endsWith(failClip)) throw new Error("download failed")

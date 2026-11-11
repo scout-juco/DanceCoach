@@ -35,6 +35,8 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   E: { video: [790, 40, 300, 533], poseBar: [520, 590, 740, 128] },
   // Lookback, no takes: the look panel (a little smaller than the video, top-aligned with it) beside the video, the ATTEMPTS row under them and the bar under that.
   I: { video: [790, 40, 300, 533], lookPanel: [500, 40, 270, 480], attempts: [470, 583, 620, 52], controls: [470, 645, 0, 84], toast: [470, 525, 420, 48] },
+  // Lookback with takes: the same board; the look panel shows the selected take and the ATTEMPTS row the last four.
+  L: { video: [790, 40, 300, 533], lookPanel: [500, 40, 270, 480], attempts: [470, 583, 620, 52], controls: [470, 645, 0, 84], toast: [470, 525, 420, 48] },
 }
 
 /** A Full run plays on B with From the top's segmented bar in place of the progress bar. */

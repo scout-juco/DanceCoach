@@ -10,7 +10,9 @@ import { LensTransport } from "../Dance/LensTransport"
 import { DancePackage } from "./Core/DancePackage"
 import { DancePicker } from "./Core/DancePicker"
 import { DanceSource, LoadedDance } from "./Core/DanceSource"
+import { LookbackController, LookbackView } from "./Core/LookbackController"
 import { RemoteDanceSource } from "./Core/RemoteDanceSource"
+import { TakesClient } from "./Core/TakesClient"
 import { AND_CALL, CountCaller } from "./Core/CountCaller"
 import { PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
 import { PoseController, PoseView } from "./Core/PoseController"
@@ -109,6 +111,12 @@ export class DanceCoach extends BaseScriptComponent {
   // Runs Pose while the controller's mode is Pose; poseView is null in Playthrough.
   private pose = new PoseController()
   private poseView: PoseView | null = null
+  // Runs Lookback while the controller's mode is Lookback; lookbackView is null in the other modes.
+  private lookback = new LookbackController()
+  private lookbackView: LookbackView | null = null
+  // The server's takes API; null without a server.
+  private takesClient: TakesClient | null = null
+  private pollingStatus = false
   private caller = new CountCaller()
   private voice: AudioComponent | null = null
   // countTracks[n] says n, and countTracks[AND_CALL] says "and"; empty without the spoken counts.
@@ -158,7 +166,9 @@ export class DanceCoach extends BaseScriptComponent {
   /** The server's dances; without the network modules assigned, a source that can't be reached, so the bundled dance is offered. */
   private remoteSource(onClipReady: () => void): DanceSource<Texture> {
     if (this.internetModule && this.remoteMediaModule && this.serverUrl) {
-      const remote = new RemoteDanceSource(this.serverUrl, new LensTransport(this.internetModule, this.remoteMediaModule, onClipReady))
+      const transport = new LensTransport(this.internetModule, this.remoteMediaModule, onClipReady)
+      const remote = new RemoteDanceSource(this.serverUrl, transport)
+      this.takesClient = new TakesClient(this.serverUrl, transport)
       // Failures show in the picker only as "offline" or "couldn't load", so log why.
       const logged = <T>(what: string, p: Promise<T>) =>
         p.catch((err) => {
@@ -191,6 +201,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.savedFirstLook = firstLookSeen
     this.savedSettings = this.controller.view.settings
     this.poseView = null
+    this.leaveLookback()
     this.caller = new CountCaller()
     this.fakeTime = 0
     this.fakeSeekId = -1
@@ -215,6 +226,7 @@ export class DanceCoach extends BaseScriptComponent {
     if (this.driver) this.driver.stop()
     this.driver = null
     this.poseView = null
+    this.leaveLookback()
     if (this.voice && this.voice.isPlaying()) this.voice.stop(false)
     // Closes the count-in and the pop-up, which aren't on the window.
     this.render({ ...this.controller.view, countIn: null, popup: null })
@@ -256,6 +268,11 @@ export class DanceCoach extends BaseScriptComponent {
       this.render(this.controller.view)
     }
     this.lookPanel = childObject("LookPanel", plane).createComponent(LookPanel.getTypeName()) as LookPanel
+    this.lookPanel.onSelect = (attempt) => {
+      if (!this.lookbackView) return
+      this.lookbackView = this.lookback.selectAttempt(attempt)
+      this.render(this.controller.view)
+    }
     this.segBar = childObject("SegBar", plane).createComponent(SegBar.getTypeName()) as SegBar
     this.banner = childObject("Banner", plane).createComponent(Banner.getTypeName()) as Banner
     this.sections = childObject("Sections", plane).createComponent(SectionRow.getTypeName()) as SectionRow
@@ -387,7 +404,7 @@ export class DanceCoach extends BaseScriptComponent {
     }
   }
 
-  /** After the mode button: enters the Pose controller when the mode becomes Pose, and leaves it when it's Playthrough again. */
+  /** After the mode button: enters the Pose or Lookback controller when the mode becomes theirs, and leaves it when the mode moves on. */
   private switchMode(view: ViewState) {
     if (view.mode === "Pose" && !this.poseView) {
       print(`DanceCoach: Pose on Section ${view.section}`)
@@ -396,7 +413,51 @@ export class DanceCoach extends BaseScriptComponent {
       print(`DanceCoach: back to Playthrough on Section ${view.section}`)
       this.poseView = null
     }
+    if (view.mode === "Lookback" && !this.lookbackView) this.enterLookback(view)
+    else if (view.mode !== "Lookback" && this.lookbackView) this.leaveLookback()
     this.render(view)
+  }
+
+  /** Opens Lookback on the section, then lists its takes; the screen is I until they arrive, and L if there are any. */
+  private enterLookback(view: ViewState) {
+    print(`DanceCoach: Lookback on Section ${view.section}`)
+    this.lookbackView = this.lookback.enter(view.section)
+    const client = this.takesClient
+    if (!client) return
+    const section = view.section
+    client.list(this.dance.id, section).then(
+      (takes) => {
+        // Ignore a listing that lands after Lookback was left or reopened on another section.
+        if (!this.lookbackView || this.lookbackView.section !== section) return
+        this.lookbackView = this.lookback.setTakes(takes)
+        this.render(this.controller.view)
+      },
+      (err) => print(`DanceCoach: listing takes failed: ${err && err.message ? err.message : err}`),
+    )
+  }
+
+  private leaveLookback() {
+    this.lookback.leave()
+    this.lookbackView = null
+  }
+
+  /** Asks the server whether the phone camera is connected; one request at a time. */
+  private pollStatus() {
+    const client = this.takesClient
+    if (!client || this.pollingStatus) return
+    this.pollingStatus = true
+    client.status().then(
+      (status) => {
+        this.pollingStatus = false
+        if (!this.lookbackView) return
+        this.lookbackView = this.lookback.phoneStatus(status.phoneConnected)
+      },
+      (err) => {
+        this.pollingStatus = false
+        if (this.lookbackView) this.lookbackView = this.lookback.phoneStatus(false)
+        print(`DanceCoach: recorder status failed: ${err && err.message ? err.message : err}`)
+      },
+    )
   }
 
   private update() {
@@ -432,6 +493,7 @@ export class DanceCoach extends BaseScriptComponent {
 
   /** One frame on from the video's time: the Pose controller ticks in Pose, the playback controller otherwise. */
   private advance(videoTimeSec: number, dt: number) {
+    if (this.lookback.tick(dt)) this.pollStatus()
     if (this.poseView) {
       // The video only holds the section's start frame; Pose moves on real time.
       if (this.poseLine.aimed || this.poseBar.aimed) this.pose.aim()
@@ -453,8 +515,8 @@ export class DanceCoach extends BaseScriptComponent {
   }
 
   private render(playView: ViewState) {
-    // In Pose the Pose controller says which screen is up: D, or E with the bar open.
-    const view = this.poseView ? { ...playView, screen: this.poseView.screen } : playView
+    // In Pose the Pose controller says which screen is up: D, or E with the bar open. In Lookback, the Lookback controller: I or L.
+    const view = this.poseView ? { ...playView, screen: this.poseView.screen } : this.lookbackView ? { ...playView, screen: this.lookbackView.screen } : playView
     const panels = panelsFor(view)
     if (panels !== this.panels) {
       this.panels = panels
@@ -465,7 +527,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.videoWindow.render(view, this.poseView)
     this.poseLine.render(view, this.poseView)
     this.poseBar.render(view, this.poseView)
-    this.lookPanel.render(view)
+    this.lookPanel.render(view, this.lookbackView)
     this.resize.render(view)
     this.countIn.render(view)
     this.progress.render(view)

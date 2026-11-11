@@ -22,6 +22,12 @@ export class LensTransport implements RemoteTransport<Texture> {
     return response.json()
   }
 
+  async postJson(url: string, body: unknown): Promise<unknown> {
+    const response = await this.internet.fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`)
+    return response.json()
+  }
+
   loadStill(url: string): Promise<Texture> {
     return new Promise((resolve, reject) => {
       const resource = this.internet.makeResourceFromUrl(url)

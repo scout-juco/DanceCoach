@@ -25,6 +25,8 @@ export interface RemoteClip<T> {
 export interface RemoteTransport<T> {
   /** GETs a URL and parses the JSON; rejects on a network error or a non-success status. */
   getJson(url: string): Promise<unknown>
+  /** POSTs a JSON body and parses the JSON reply; rejects on a network error or a non-success status. */
+  postJson(url: string, body: unknown): Promise<unknown>
   /** Downloads a video and turns it into a video texture; rejects on failure. */
   loadClip(url: string): Promise<RemoteClip<T>>
   /** Downloads an image and turns it into a texture; rejects on failure. */
