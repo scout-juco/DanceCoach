@@ -4,7 +4,8 @@
  * Mode button (Playthrough · NEXT: POSE), Replay section, From the top, speed (0.5× / 0.75× / 1×),
  * Mirror, Counts and Finish routine. A pinch on a control calls onPress with its command.
  * In Pose (for now) the bar holds only the mode button (Pose · NEXT: LOOKBACK).
- * In Lookback it holds the mode button, speed, Mirror and Counts.
+ * In Lookback it holds the mode button, speed, Mirror and Counts. On side by side (M) the speed is one button that cycles
+ * (it shows the speed it's on), and Record again and Back to takes follow Counts.
  * Replay section is the filled button until Finish routine unlocks; then Finish routine is.
  * A shallow view: render() shows the view state, placed by the screen's controls panel
  * in Layout.SCREENS. It's hidden on screens without one, so it can't be pressed mid-run.
@@ -12,6 +13,7 @@
  */
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
+import { LookbackView } from "../Core/LookbackController"
 import { MODES, Mode, Speed, ViewState } from "../Core/PlaybackController"
 import { panelsFor, pointInPanelCm, pxToCm, PxRect, SCREENS } from "./Layout"
 import { ColorToken, RADII, SPACING, TYPE } from "./Theme"
@@ -25,7 +27,7 @@ const Z_LABEL = 0.05
 const HIT_DEPTH = 1
 const SPEEDS: Speed[] = [0.5, 0.75, 1]
 
-export type ControlCommand = "mode" | "replay" | "top" | "mirror" | "counts" | "finish" | Speed
+export type ControlCommand = "mode" | "replay" | "top" | "mirror" | "counts" | "finish" | "speedCycle" | "recordAgain" | "backToTakes" | Speed
 
 interface Control {
   object: SceneObject
@@ -52,6 +54,10 @@ export class ControlBar extends BaseScriptComponent {
   private finish: Control
   private finishName: Text
   private finishSub: Text
+  private cycle: Control
+  private cycleValue: Text
+  private again: Control
+  private back: Control
   private screen = ""
   private lastKey = ""
 
@@ -115,10 +121,19 @@ export class ControlBar extends BaseScriptComponent {
     this.finishName = this.label(this.finish.object, TYPE.button, "soft", 0, -7)
     this.finishName.text = "Finish routine"
     this.finishSub = this.label(this.finish.object, TYPE.finishSub, "soft", 0, 11)
+
+    // Side by side: one speed button that cycles, then Record again and Back to takes.
+    this.cycle = this.control("SpeedCycle", c.cycle, H, "speedCycle")
+    this.label(this.cycle.object, TYPE.chip, "ink", 0, -8).text = "Speed"
+    this.cycleValue = this.label(this.cycle.object, TYPE.button, "ink", 0, 8)
+    this.again = this.control("RecordAgain", c.action, H, "recordAgain")
+    this.label(this.again.object, TYPE.button, "ink", 0, 0).text = "Record again"
+    this.back = this.control("BackToTakes", c.action, H, "backToTakes")
+    this.label(this.back.object, TYPE.button, "ink", 0, 0).text = "Back to takes"
     this.sceneObject.enabled = false
   }
 
-  render(view: ViewState) {
+  render(view: ViewState, look: LookbackView | null = null) {
     const box = panelsFor(view).controls
     this.sceneObject.enabled = !!box
     if (!box) {
@@ -127,10 +142,11 @@ export class ControlBar extends BaseScriptComponent {
     }
     if (view.screen !== this.screen) {
       this.screen = view.screen
-      this.layout(box, view.mode)
+      this.layout(box, view.mode, view.screen === "M")
     }
     const st = view.settings
-    const key = `${view.mode}|${st.speed}|${st.mirror}|${st.counts}|${view.finishReady}|${view.sectionCount}`
+    const sbsSpeed = look && look.sideBySide ? look.sideBySide.speed : 1
+    const key = `${view.mode}|${st.speed}|${sbsSpeed}|${st.mirror}|${st.counts}|${view.finishReady}|${view.sectionCount}`
     if (key === this.lastKey) return
     this.lastKey = key
 
@@ -144,6 +160,8 @@ export class ControlBar extends BaseScriptComponent {
       control.rect.backgroundColor = themeColor(on ? "active" : "panel")
       text.textFill.color = themeColor(on ? "activeInk" : "ink")
     })
+
+    this.cycleValue.text = `${sbsSpeed}×`
 
     this.toggles.forEach(({ control, state }, i) => {
       const on = i === 0 ? st.mirror : st.counts
@@ -165,14 +183,14 @@ export class ControlBar extends BaseScriptComponent {
     this.finishSub.text = ready ? "✓ ALL SECTIONS" : `AFTER SEC ${view.sectionCount}`
   }
 
-  /** Sizes the bar to its controls and lays them out left to right from the panel's top-left. In Pose only the mode button shows; in Lookback, it, speed, Mirror and Counts. */
-  private layout(box: PxRect, mode: Mode) {
+  /** Sizes the bar to its controls and lays them out left to right from the panel's top-left. In Pose only the mode button shows; in Lookback, it, speed, Mirror and Counts; on side by side, the mode button, the cycling speed, Mirror, Counts, Record again and Back to takes. */
+  private layout(box: PxRect, mode: Mode, sideBySide: boolean) {
     const H = this.itemHeight()
     const pad = SPACING.barPad
-    const all = [this.mode, this.replay, this.top, this.speedBox, ...this.toggles.map((t) => t.control), this.finish]
+    const all = [this.mode, this.replay, this.top, this.speedBox, ...this.toggles.map((t) => t.control), this.finish, this.cycle, this.again, this.back]
     const c = SPACING.control
-    const allWidths = [c.mode, c.replay, c.top, c.speed, c.toggle, c.toggle, c.finish]
-    const shown = mode === "Pose" ? [0] : mode === "Lookback" ? [0, 3, 4, 5] : all.map((_, i) => i)
+    const allWidths = [c.mode, c.replay, c.top, c.speed, c.toggle, c.toggle, c.finish, c.cycle, c.action, c.action]
+    const shown = sideBySide ? [0, 7, 4, 5, 8, 9] : mode === "Pose" ? [0] : mode === "Lookback" ? [0, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6]
     all.forEach((item, i) => (item.object.enabled = shown.indexOf(i) >= 0))
     const items = shown.map((i) => all[i])
     const widths = shown.map((i) => allWidths[i])

@@ -4,7 +4,7 @@
  * The section, the speed · mirror the take will use, and whether the phone camera is connected, over
  * "Yes, record" (greyed out until the phone is connected, with "Not connected: open /record on your phone"
  * under the rows) and "Not now". It isn't on the video board: like Routine done it opens in front of your head
- * (Layout.RECORD_POPUP, farther out and scaled up) and glides back in front of you if you turn more than POPUP.followDeg away (PopupFollow).
+ * (Layout.RECORD_POPUP, a little farther out and scaled down) and glides back in front of you if you turn more than POPUP.followDeg away (PopupFollow).
  * A shallow view: render() shows the Lookback view while it's on J.
  */
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"

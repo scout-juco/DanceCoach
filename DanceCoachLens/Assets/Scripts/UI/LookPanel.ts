@@ -4,7 +4,7 @@
  * I (no takes): "LOOKBACK · SECTION n · 0 TAKES" over a "Record lookback" button (pinching it calls onRecord),
  * with "No recordings for this section yet" under it.
  * L (takes): the selected take's tile, "TAKE n · 0.75×" on it, over a "Play side by side" button
- * (greyed out until side by side arrives). The ATTEMPTS row ("SECTION n · LOCKED") shows the last four
+ * (pinching it calls onPlay). The ATTEMPTS row ("SECTION n · LOCKED") shows the last four
  * takes, newest on the right, and a + (it calls onRecord too); pinching a take calls onSelect with its place in the row.
  * The take just recorded is tagged NEW, and a failed recording leaves its message under the buttons.
  * A shallow view: render() shows the Lookback view, placed by the screen's lookPanel and attempts panels in Layout.SCREENS.
@@ -68,6 +68,8 @@ export class LookPanel extends BaseScriptComponent {
   onSelect: (attempt: number) => void = () => {}
   /** Called when Record lookback or the + is pinched. */
   onRecord: () => void = () => {}
+  /** Called when Play side by side is pinched. */
+  onPlay: () => void = () => {}
 
   private look: SceneObject
   private lookRect: RoundedRectangle
@@ -104,8 +106,8 @@ export class LookPanel extends BaseScriptComponent {
     this.tileRect.borderSize = pxToCm(2)
     this.tileRect.borderColor = themeColor("ink")
     this.tileLabel = this.label(this.tile, TYPE.chip, "ink", "left")
-    this.play = this.outlined("Play", this.look, PLAY.w, PLAY.h, RADII.control)
-    this.label(this.play, TYPE.button, "soft").text.text = "Play side by side"
+    this.play = this.outlined("Play", this.look, PLAY.w, PLAY.h, RADII.control, () => this.onPlay())
+    this.label(this.play, TYPE.button, "ink").text.text = "Play side by side"
 
     this.attempts = childObject("Attempts", this.sceneObject)
     this.attemptsRect = this.panel(this.attempts)

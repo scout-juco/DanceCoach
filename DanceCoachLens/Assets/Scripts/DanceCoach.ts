@@ -10,8 +10,8 @@ import { LensTransport } from "../Dance/LensTransport"
 import { DancePackage } from "./Core/DancePackage"
 import { DancePicker } from "./Core/DancePicker"
 import { DanceSource, LoadedDance } from "./Core/DanceSource"
-import { LookbackController, LookbackView } from "./Core/LookbackController"
-import { RemoteDanceSource } from "./Core/RemoteDanceSource"
+import { ClipRequest, LookbackController, LookbackView, SideBySideView } from "./Core/LookbackController"
+import { RemoteClip, RemoteDanceSource } from "./Core/RemoteDanceSource"
 import { TakesClient } from "./Core/TakesClient"
 import { AND_CALL, CountCaller } from "./Core/CountCaller"
 import { PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
@@ -34,6 +34,7 @@ import { PoseLine } from "./UI/PoseLine"
 import { ProgressBar } from "./UI/ProgressBar"
 import { SectionRow } from "./UI/SectionRow"
 import { SegBar } from "./UI/SegBar"
+import { SideBySideBar } from "./UI/SideBySideBar"
 import { SkipButton } from "./UI/SkipButton"
 import { Toast } from "./UI/Toast"
 import { VideoWindow } from "./UI/VideoWindow"
@@ -46,6 +47,10 @@ import { WindowResize } from "./UI/WindowResize"
 const PLACE_SETTLE_SEC = 1.5
 // The window's scale while a dance is being picked: too small to see, but not 0, which can break the maths on its transform.
 const HIDDEN_SCALE = 0.0001
+// Side by side's clip requests count up from their own seek counter, so they're offset out of the way of the playback controller's.
+const SBS_SEEK_BASE = 1000000
+// A take is one clip from 0, as long as it needs to be.
+const TAKE_CLIP_END = 3600
 
 @component
 export class DanceCoach extends BaseScriptComponent {
@@ -121,6 +126,13 @@ export class DanceCoach extends BaseScriptComponent {
   private pollingStatus = false
   // True while screen K is up: when it ends, the video goes back to the section's start.
   private recordingShown = false
+  // Side by side (M): the take's window beside the original, its driver, and the takes downloaded so far (by dance and name).
+  private takeWindow: VideoWindow
+  private sbsBar: SideBySideBar
+  private takeDriver: VideoDriver | null = null
+  private takeDriverFor = ""
+  private takeClips = new Map<string, RemoteClip<Texture>>()
+  private sbsShown = false
   private caller = new CountCaller()
   private voice: AudioComponent | null = null
   // countTracks[n] says n, and countTracks[AND_CALL] says "and"; empty without the spoken counts.
@@ -208,6 +220,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.savedSettings = this.controller.view.settings
     this.poseView = null
     this.leaveLookback()
+    this.takeClips.clear()
     this.caller = new CountCaller()
     this.fakeTime = 0
     this.fakeSeekId = -1
@@ -280,6 +293,24 @@ export class DanceCoach extends BaseScriptComponent {
       this.render(this.controller.view)
     }
     this.lookPanel.onRecord = () => this.tapRecord()
+    this.lookPanel.onPlay = () => this.playSideBySide()
+    // The take's window is a second video window beside the original, on the same plane; only screen M shows it.
+    this.takeWindow = childObject("TakeWindow", plane).createComponent(VideoWindow.getTypeName()) as VideoWindow
+    this.takeWindow.getSceneObject().enabled = false
+    this.sbsBar = childObject("SideBySideBar", plane).createComponent(SideBySideBar.getTypeName()) as SideBySideBar
+    this.sbsBar.onPlay = () => {
+      this.lookbackView = this.lookback.togglePlay()
+      this.render(this.controller.view)
+    }
+    // The count follows the drag at once; both videos seek once it lets go.
+    this.sbsBar.onScrub = (fraction) => {
+      this.lookbackView = this.lookback.scrub(fraction)
+      this.render(this.controller.view)
+    }
+    this.sbsBar.onScrubEnd = () => {
+      this.lookbackView = this.lookback.scrubEnd()
+      this.render(this.controller.view)
+    }
     this.recordCountdown = childObject("RecordCountdown", plane).createComponent(RecordCountdown.getTypeName()) as RecordCountdown
     this.recordPopup = childObject("RecordPopup", this.getSceneObject()).createComponent(RecordPopup.getTypeName()) as RecordPopup
     this.recordPopup.setup(this.camera)
@@ -389,6 +420,14 @@ export class DanceCoach extends BaseScriptComponent {
         return this.render(c.toggleCounts())
       case "mode":
         return this.switchMode(c.tapMode())
+      case "speedCycle":
+        this.lookbackView = this.lookback.cycleSpeed()
+        return this.render(c.view)
+      case "recordAgain":
+        return this.tapRecord(true)
+      case "backToTakes":
+        this.lookbackView = this.lookback.backToTakes()
+        return this.render(c.view)
       case "finish":
         return this.render(c.finish())
       default:
@@ -437,31 +476,62 @@ export class DanceCoach extends BaseScriptComponent {
   private enterLookback(view: ViewState) {
     print(`DanceCoach: Lookback on Section ${view.section}`)
     this.lookbackView = this.lookback.enter(view.section)
+    this.listTakes(view.section)
+  }
+
+  /** Lists the section's takes afresh (so takes deleted on the phone are gone) and shows them; a failure says the server can't be reached. */
+  private listTakes(section: number) {
     const client = this.takesClient
     if (!client) return
-    const section = view.section
-    client.list(this.dance.id, section).then(
+    const dance = this.dance
+    client.list(dance.id, section).then(
       (takes) => {
-        // Ignore a listing that lands after Lookback was left or reopened on another section.
-        if (!this.lookbackView || this.lookbackView.section !== section) return
+        // Ignore a listing that lands after Lookback was left, reopened on another section, or the dance was swapped.
+        if (!this.lookbackView || this.lookbackView.section !== section || this.dance !== dance) return
+        this.forgetTakeClips(dance.id, section, takes.map((t) => t.name))
         this.lookbackView = this.lookback.setTakes(takes)
         this.render(this.controller.view)
       },
-      (err) => print(`DanceCoach: listing takes failed: ${err && err.message ? err.message : err}`),
+      (err) => {
+        print(`DanceCoach: listing takes failed: ${err && err.message ? err.message : err}`)
+        if (!this.lookbackView || this.lookbackView.section !== section || this.dance !== dance) return
+        this.lookbackView = this.lookback.serverUnreachable()
+        this.render(this.controller.view)
+      },
     )
+  }
+
+  /** Drops the downloaded videos of the section's takes that are no longer listed (deleted on the phone). */
+  private forgetTakeClips(danceId: string, section: number, keep: string[]) {
+    const prefix = `${danceId}/s${section}-t`
+    for (const key of [...this.takeClips.keys()]) {
+      if (key.startsWith(prefix) && !keep.includes(key.slice(danceId.length + 1))) this.takeClips.delete(key)
+    }
   }
 
   private leaveLookback() {
     this.lookback.leave()
     this.lookbackView = null
+    this.stopTakeDriver()
   }
 
-  /** The + or Record lookback: asks "Record lookback?" about a take of this section at the current speed and mirror. */
-  private tapRecord() {
+  /** The + or Record lookback (or Record again, on M): asks "Record lookback?" about a take of this section at the current speed and mirror. */
+  private tapRecord(again = false) {
     if (!this.lookbackView) return
     const c = this.controller
     const v = c.view
-    this.lookbackView = this.lookback.tapRecord(v.settings.speed, v.settings.mirror, { start: c.clock.sectionStart(v.section), end: c.clock.sectionEnd(v.section) })
+    const range = { start: c.clock.sectionStart(v.section), end: c.clock.sectionEnd(v.section) }
+    this.lookbackView = again ? this.lookback.recordAgain(v.settings.speed, v.settings.mirror, range) : this.lookback.tapRecord(v.settings.speed, v.settings.mirror, range)
+    this.render(v)
+  }
+
+  /** Play side by side: the take's video is fetched if it hasn't been, then M opens. */
+  private playSideBySide() {
+    if (!this.lookbackView) return
+    const c = this.controller
+    const v = c.view
+    this.lookbackView = this.lookback.playSideBySide({ start: c.clock.sectionStart(v.section), end: c.clock.sectionEnd(v.section), beatSec: c.clock.beatSec })
+    this.carryOutRequests()
     this.render(v)
   }
 
@@ -503,10 +573,32 @@ export class DanceCoach extends BaseScriptComponent {
           break
         case "download":
           client.loadTake(dance.id, req.take).then(
-            () => (this.lookbackView = this.lookback.downloaded(req.take)),
+            (clip) => {
+              // Kept, so playing it side by side doesn't download it again.
+              this.takeClips.set(this.takeKey(req.take.name), clip as RemoteClip<Texture>)
+              this.lookbackView = this.lookback.downloaded(req.take)
+            },
             (err) => {
               print(`DanceCoach: downloading the take failed: ${why(err)}`)
               this.lookbackView = this.lookback.downloadFailed(`Couldn't download the take: ${why(err)}`)
+            },
+          )
+          break
+        case "load":
+          if (this.takeClips.has(this.takeKey(req.take.name))) {
+            this.lookbackView = this.lookback.takeLoaded(req.take)
+            break
+          }
+          client.loadTake(dance.id, req.take).then(
+            (clip) => {
+              this.takeClips.set(this.takeKey(req.take.name), clip as RemoteClip<Texture>)
+              this.lookbackView = this.lookback.takeLoaded(req.take)
+            },
+            (err) => {
+              print(`DanceCoach: loading the take failed: ${why(err)}`)
+              this.lookbackView = this.lookback.takeLoadFailed(`Couldn't load the take: ${why(err)}`)
+              // It may have been deleted on the phone: list again so it goes.
+              if (this.lookbackView) this.listTakes(this.lookbackView.section)
             },
           )
           break
@@ -517,13 +609,48 @@ export class DanceCoach extends BaseScriptComponent {
   /** What the video should do: Lookback plays the section itself while a take is recording; otherwise the controller's request. */
   private videoRequest(): VideoRequest {
     const video = this.controller.view.video
+    const sbs = this.sideBySide()
+    if (sbs) return this.clipRequest(sbs.originalClip, this.controller.clock.sectionEnd(this.lookbackView!.section), SBS_SEEK_BASE)
     const record = this.lookbackView ? this.lookbackView.record : null
     return record && record.phase === "recording" ? { ...video, playing: true, rate: record.speed, holdFrame: false, dim: false } : video
+  }
+
+  /** Side by side's view while screen M is up, else null. */
+  private sideBySide(): SideBySideView | null {
+    return this.lookbackView && this.lookbackView.screen === "M" ? this.lookbackView.sideBySide : null
+  }
+
+  private clipRequest(clip: ClipRequest, runEnd: number, seekBase: number): VideoRequest {
+    return { seekTo: clip.seekTo, seekId: seekBase + clip.seekId, runEnd, playing: clip.playing, rate: clip.rate, holdFrame: false, dim: false }
+  }
+
+  private takeKey(name: string): string {
+    return `${this.dance.id}/${name}`
+  }
+
+  /** The driver for the take on M: made when M opens on it, from the take's downloaded clip. Null if it isn't there. */
+  private ensureTakeDriver(sbs: SideBySideView): VideoDriver | null {
+    const key = this.takeKey(sbs.take.name)
+    if (this.takeDriver && this.takeDriverFor === key) return this.takeDriver
+    this.stopTakeDriver()
+    const clip = this.takeClips.get(key)
+    if (!clip) return null
+    this.takeDriverFor = key
+    this.takeWindow.setVideo(clip.texture)
+    this.takeDriver = new VideoDriver([{ clip: { id: sbs.take.name, start: 0, end: TAKE_CLIP_END }, player: clip.player }], () => this.takeWindow.setVideo(clip.texture))
+    return this.takeDriver
+  }
+
+  private stopTakeDriver() {
+    if (this.takeDriver) this.takeDriver.stop()
+    this.takeDriver = null
+    this.takeDriverFor = ""
   }
 
   /** The playback view with Lookback's screen over it: I or L, J dimmed, or K with the recording's progress. */
   private lookbackOver(playView: ViewState, look: LookbackView): ViewState {
     if (look.screen === "J") return { ...playView, screen: "J", video: { ...playView.video, dim: true } }
+    if (look.screen === "M" && look.sideBySide) return { ...playView, screen: "M", countIn: null, count: look.sideBySide.count, and: false, video: { ...playView.video, dim: false } }
     if (look.screen === "K" && look.record) return { ...playView, screen: "K", countIn: null, runProgress: look.record.progress, video: { ...playView.video, dim: false } }
     return { ...playView, screen: look.screen }
   }
@@ -542,7 +669,7 @@ export class DanceCoach extends BaseScriptComponent {
       },
       (err) => {
         this.pollingStatus = false
-        if (this.lookbackView) this.lookbackView = this.lookback.phoneStatus(false)
+        if (this.lookbackView) this.lookbackView = this.lookback.serverUnreachable()
         print(`DanceCoach: recorder status failed: ${err && err.message ? err.message : err}`)
       },
     )
@@ -570,10 +697,15 @@ export class DanceCoach extends BaseScriptComponent {
     // Until a seek has landed, the video's time isn't the run's time yet.
     const wasBusy = this.driver.busy
     this.driver.apply(this.videoRequest(), dt)
-    if (this.driver.busy) {
+    // On M the take's video is driven the same way, and the two play only once both have landed.
+    const sbs = this.sideBySide()
+    const takeDriver = sbs ? this.ensureTakeDriver(sbs) : null
+    if (sbs && takeDriver) takeDriver.apply(this.clipRequest(sbs.takeClip, TAKE_CLIP_END, 0), dt)
+    if (this.driver.busy || (takeDriver && takeDriver.busy)) {
       this.render(view)
       return
     }
+    if (sbs && sbs.seeking && takeDriver) this.lookbackView = this.lookback.landed()
     // The video's aspect is known once a seek has landed, whether or not onPlaybackReady fired.
     if (wasBusy) this.videoWindow.fitVideo()
     this.advance(this.driver.time, dt)
@@ -611,6 +743,13 @@ export class DanceCoach extends BaseScriptComponent {
     const recording = !!this.lookbackView && this.lookbackView.screen === "K"
     if (this.recordingShown && !recording) playView = this.controller.restartLookback()
     this.recordingShown = recording
+    // Likewise when side by side is left (Back to takes, Record again or the mode button): the take stops, and the original goes back to the section's start.
+    const onSbs = !!this.lookbackView && this.lookbackView.screen === "M"
+    if (this.sbsShown && !onSbs) {
+      this.stopTakeDriver()
+      playView = this.controller.restartLookback()
+    }
+    this.sbsShown = onSbs
     // In Pose the Pose controller says which screen is up: D, or E with the bar open. In Lookback, the Lookback controller: I, L, J or K.
     const view = this.poseView ? { ...playView, screen: this.poseView.screen } : this.lookbackView ? this.lookbackOver(playView, this.lookbackView) : playView
     const panels = panelsFor(view)
@@ -618,9 +757,13 @@ export class DanceCoach extends BaseScriptComponent {
       this.panels = panels
       this.videoWindow.setRect(panels.video!)
       this.resize.setRect(panels.video!)
+      this.takeWindow.getSceneObject().enabled = !!panels.take
+      if (panels.take) this.takeWindow.setRect(panels.take)
     }
     this.showStill()
     this.videoWindow.render(view, this.poseView, this.lookbackView)
+    if (panels.take) this.takeWindow.render(view, null, this.lookbackView)
+    this.sbsBar.render(view, this.lookbackView)
     this.poseLine.render(view, this.poseView)
     this.poseBar.render(view, this.poseView)
     this.lookPanel.render(view, this.lookbackView)
@@ -632,7 +775,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.segBar.render(view)
     this.banner.render(view)
     this.sections.render(view)
-    this.controls.render(view)
+    this.controls.render(view, this.lookbackView)
     this.toast.render(view)
     this.skip.render(view)
     this.popup.render(view)

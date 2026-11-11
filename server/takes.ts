@@ -27,6 +27,8 @@ const run = promisify(execFile)
 export const PHONE_TIMEOUT_MS = 3000
 /** How long after stop the phone has to send its recording. */
 export const UPLOAD_TIMEOUT_MS = 60_000
+/** The reason a take fails when the phone went away before sending its recording. */
+export const PHONE_STOPPED_REASON = "The phone stopped filming. Record again?"
 const TAKE_FPS = 30
 const MIN_SPEED = 0.25
 const MAX_SPEED = 2
@@ -223,10 +225,16 @@ export class Recorder {
   }
 
   private view(s: Session): SessionView {
-    // A stop with no upload behind it ends the session; checked when someone looks.
-    if (s.state === "uploading" && s.stoppedAt !== undefined && this.now() - s.stoppedAt > this.uploadTimeoutMs) {
-      s.state = "failed"
-      s.reason = "The phone never sent the recording. Check it is still on and connected, then record again."
+    // A stop with no upload behind it ends the session; checked when someone looks. A phone that has gone quiet
+    // (it polls every 0.3 s, even while uploading) isn't going to send it, so that fails at once.
+    if (s.state === "uploading" && s.stoppedAt !== undefined) {
+      if (this.lastBeat > -Infinity && this.now() - this.lastBeat > PHONE_TIMEOUT_MS) {
+        s.state = "failed"
+        s.reason = PHONE_STOPPED_REASON
+      } else if (this.now() - s.stoppedAt > this.uploadTimeoutMs) {
+        s.state = "failed"
+        s.reason = "The phone never sent the recording. Check it is still on and connected, then record again."
+      }
     }
     const { startedAt, stoppedAt, ...view } = s
     return view

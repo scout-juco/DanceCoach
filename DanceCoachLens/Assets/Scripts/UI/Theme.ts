@@ -97,7 +97,7 @@ export const SPACING = {
   /** The control bar: padding around its items, the gap between them, and each item's width. */
   barPad: 12,
   controlGap: 8,
-  control: { mode: 170, replay: 110, top: 150, speed: 132, toggle: 60, finish: 92 },
+  control: { mode: 170, replay: 110, top: 150, speed: 132, toggle: 60, finish: 92, cycle: 84, action: 112 },
   modeDot: 7,
   modeDotGap: 11,
   /** The Routine done pop-up: padding, the title and section tiles under the heading, and the buttons. */

@@ -426,6 +426,7 @@ describe("takes", { timeout: 120_000 }, () => {
     const { session } = await arm(id)
     await call("POST", `/takes/session/${session.id}/start`)
     now += 6000 // the clip: 2 s of lead-in and the 4 s section
+    await call("GET", "/recorder/state") // the phone is still polling
     await call("POST", `/takes/session/${session.id}/stop`)
     const res = await call("POST", `/takes/session/${session.id}/upload`, filmed(8, null))
     // The clip began 6 s before the end of an 8 s recording, so count 1 is at 2 + 2 = 4 s.
@@ -479,8 +480,63 @@ describe("takes", { timeout: 120_000 }, () => {
     await call("POST", `/takes/session/${session.id}/stop`)
     expect((await status()).session.state).toBe("uploading")
     now += 5100
+    await call("GET", "/recorder/state") // the phone is still there, just not sending
     expect((await status()).session).toMatchObject({ state: "failed", reason: expect.stringMatching(/never sent/) })
   })
+
+  it("fails the take at once when the phone goes quiet before sending its recording", async () => {
+    const id = await readyDance()
+    const { session } = await arm(id)
+    await call("GET", "/recorder/state")
+    await call("POST", `/takes/session/${session.id}/start`)
+    now += 3100 // no heartbeat for the rest of the take
+    await call("POST", `/takes/session/${session.id}/stop`)
+    expect((await status()).session).toMatchObject({ state: "failed", reason: "The phone stopped filming. Record again?" })
+  })
+
+  it("keeps waiting for a phone that is still polling, and takes its late recording", async () => {
+    const id = await readyDance()
+    const { session } = await arm(id)
+    await call("GET", "/recorder/state")
+    await call("POST", `/takes/session/${session.id}/start`)
+    await call("POST", `/takes/session/${session.id}/stop`)
+    now += 2000
+    await call("GET", "/recorder/state")
+    expect((await status()).session.state).toBe("uploading")
+    expect((await call("POST", `/takes/session/${session.id}/upload`, filmed(8, 1))).status).toBe(200)
+  }, 120_000)
+
+  it("cuts a short last section's take to the section's counts", async () => {
+    const id = await readyDance() // section 3 runs 8.5–10 s: 3 counts
+    const { res } = await record(id, filmed(8, 1), { section: 3 })
+    const { take } = await res.json()
+    expect(take).toMatchObject({ name: "s3-t1", section: 3 })
+    const info = probe(join(storage, id, "takes", "s3-t1.mp4"))
+    expect(Number(info.format.duration)).toBeCloseTo(1.5, 0)
+    expect(Math.abs(Number(info.format.duration) - 1.5)).toBeLessThanOrEqual(0.15)
+  }, 120_000)
+
+  it("records a one-section dance's only section, and refuses a second", async () => {
+    const { package: draft } = await (await upload(ramp, "One.mp4")).json()
+    const pkg = { ...draft, bpm: 120, firstBeatSec: 0.5, trim: { start: 0, end: 4 } }
+    expect((await fetch(`${base}/dances/${draft.id}`, { method: "PUT", body: JSON.stringify(pkg) })).status).toBe(200)
+    expect((await arm(draft.id, { section: 2 })).res.status).toBe(422)
+    const { res } = await record(draft.id, filmed(8, 1), { section: 1 })
+    expect((await res.json()).take).toMatchObject({ name: "s1-t1", section: 1 })
+    expect(await (await call("GET", `/dances/${draft.id}/takes?section=1`)).json()).toHaveLength(1)
+  }, 120_000)
+
+  it("stops listing a take deleted on the phone, so the glasses lose it the next time they list", async () => {
+    const id = await readyDance()
+    await record(id, filmed(8, 1))
+    await record(id, filmed(8, 1))
+    const names = async () => (await (await call("GET", `/dances/${id}/takes?section=2`)).json()).map((t: { name: string }) => t.name)
+    expect(await names()).toEqual(["s2-t1", "s2-t2"])
+    expect((await call("DELETE", `/dances/${id}/takes/s2-t1`)).status).toBe(200)
+    expect(await names()).toEqual(["s2-t2"])
+    // Its video is gone too, which is what a glasses still holding the old list would run into.
+    expect((await call("GET", `/dances/${id}/takes/s2-t1.mp4`)).status).toBe(404)
+  }, 120_000)
 
   it("fails the session with a reason on a bad upload, and keeps the raw upload", async () => {
     const id = await readyDance()

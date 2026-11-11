@@ -12,7 +12,7 @@ import { Placement } from "../Core/WindowPlacement"
 /** [x, y, width, height] in prototype pixels. */
 export type PxRect = [number, number, number, number]
 
-export type PanelId = "video" | "progress" | "segBar" | "banner" | "sections" | "controls" | "poseLine" | "poseBar" | "lookPanel" | "attempts" | "countdown" | "toast" | "skip" | "popup"
+export type PanelId = "video" | "progress" | "segBar" | "banner" | "sections" | "controls" | "poseLine" | "poseBar" | "lookPanel" | "attempts" | "countdown" | "toast" | "skip" | "popup" | "take" | "sbsBar"
 
 export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // First look plays like From the top (the preview has no PV frame): its banner, the segmented bar,
@@ -40,6 +40,8 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // "Record lookback?" over I or L, with no bar (the board is locked behind it). Like Routine done it opens in front of you, so only its size counts.
   J: { video: [790, 40, 300, 533], lookPanel: [500, 40, 270, 480], attempts: [470, 583, 620, 52], popup: [0, 0, 440, 330] },
   // Recording: the 3, 2, 1 beside the video, which grows to Playing's size, with its progress line. No controls: they're locked.
+  // Side by side: the original left and the take right (each with its heading in the 22 px above), the play button and scrub bar under them, then the bar.
+  M: { video: [500, 62, 310, 533], take: [830, 62, 310, 533], sbsBar: [500, 606, 640, 44], controls: [380, 676, 0, 84] },
   K: { countdown: [560, 200, 200, 200], video: [790, 40, 340, 604], progress: [790, 662, 340, 6] },
 }
 
@@ -61,11 +63,11 @@ export const POPUP = {
   followDeg: 30,
 }
 
-/** "Record lookback?" opens farther out than Routine done, and is scaled up to stay easy to read there. */
+/** "Record lookback?" opens a little farther out than Routine done, and is scaled down so it takes less of the view. */
 export const RECORD_POPUP = {
-  distanceCm: 250,
+  distanceCm: 120,
   dropCm: 5,
-  scale: 1.8,
+  scale: 0.5,
 }
 
 /** The dance picker opens in front of you like a pop-up, but farther out: its 3:4 card is 480×640 px (72×96 cm). */
