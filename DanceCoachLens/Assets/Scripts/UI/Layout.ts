@@ -12,7 +12,7 @@ import { Placement } from "../Core/WindowPlacement"
 /** [x, y, width, height] in prototype pixels. */
 export type PxRect = [number, number, number, number]
 
-export type PanelId = "video" | "progress" | "segBar" | "sections" | "controls" | "poseLine" | "poseBar" | "lookPanel" | "attempts" | "countdown" | "toast" | "skip" | "popup" | "take" | "sbsBar"
+export type PanelId = "video" | "progress" | "segBar" | "sections" | "controls" | "poseLine" | "lookPanel" | "attempts" | "countdown" | "toast" | "skip" | "popup" | "take" | "sbsBar"
 
 /** The video window's three sizes (BUILD_SPEC §6.1), all at x 792, y 40. */
 const VIDEO_FULL: PxRect = [792, 40, 340, 604]
@@ -53,11 +53,10 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   C2: { video: VIDEO_TILES, sections: [604, 568, 488, 56], controls: [320, 648, 772, 144], toast: [360, 496, 420, 48] },
   // Routine done: a dialog centred in the frame. It opens in front of you (POPUP), so on device only its size counts.
   G: { video: VIDEO_FULL, popup: [320, 220, 640, 360] },
-  // Pose, collapsed: the thin scrub 24 under the video. B2 has no panel here; until #48 the mode track alone
-  // sits 24 under the scrub, right-aligned, so the mode can still change.
-  D: { video: VIDEO_FULL, poseLine: [792, 668, 340, 8], controls: [732, 700, 400, 72] },
-  // Pose, open: the mode panel with the scrub and step controls, 24 under the video.
-  E: { video: VIDEO_BESIDE, poseBar: [592, 584, 500, 200] },
+  // Pose, collapsed: the thin scrub 24 under the video (B2PoseCollapsed). No panel: reaching for it opens E.
+  D: { video: VIDEO_FULL, poseLine: [792, 668, 340, 8] },
+  // Pose, open: the mode panel with the scrub between its rows, 24 under the video (B2PoseOpen).
+  E: { video: VIDEO_BESIDE, controls: [596, 584, 496, 200] },
   // Lookback: the side panel 24 left of the video, the mode panel 24 under the video. The old ATTEMPTS row
   // sits left of the mode panel, and the toast left of the side panel.
   I: { video: VIDEO_BESIDE, lookPanel: [468, 40, 300, 520], attempts: [48, 584, 620, 56], controls: [692, 584, 400, 144], toast: [24, 512, 420, 48] },

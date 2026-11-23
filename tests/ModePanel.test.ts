@@ -21,9 +21,15 @@ describe("Mode panel rows", () => {
     expect(modeRow("M")).toEqual(["speed", "mirror", "counts", "recordAgain", "backToTakes"])
   })
 
-  it("is the track alone on Pose's collapsed screen", () => {
+  it("is the track alone with no row 2", () => {
     expect(modeRow("D")).toEqual([])
     expect(modePanelSize([])).toEqual({ w: 400, h: 72 })
+    expect(SCREENS.D.controls).toBeUndefined()
+  })
+
+  it("holds ‹, Step size, ›, Mirror and Counts on Pose's open screen (E), with no speed", () => {
+    expect(modeRow("E")).toEqual(["back", "step", "forward", "mirror", "counts"])
+    expect(modeRow("E")).not.toContain("speed")
   })
 })
 
@@ -32,6 +38,10 @@ describe("Mode panel size", () => {
     expect(rowWidth(modeRow("C"))).toBe(580)
     expect(modePanelSize(modeRow("C"))).toEqual({ w: 604, h: 144 })
     expect(modePanelSize(modeRow("C2"))).toEqual({ w: 772, h: 144 })
+  })
+
+  it("matches B2PoseOpen: 496 wide, 200 tall, with the scrub row between the rows", () => {
+    expect(modePanelSize(modeRow("E"))).toEqual({ w: 496, h: 200 })
   })
 
   it("is never narrower than 400", () => {

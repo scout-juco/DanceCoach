@@ -66,8 +66,7 @@ describe("Layout on the B2 grid", () => {
       ["C2", "video", "below", "sections"],
       ["C2", "sections", "below", "controls"],
       ["D", "video", "below", "poseLine"],
-      ["D", "poseLine", "below", "controls"],
-      ["E", "video", "below", "poseBar"],
+      ["E", "video", "below", "controls"],
       ["I", "lookPanel", "right", "video"],
       ["I", "video", "below", "controls"],
       ["L", "lookPanel", "right", "video"],
@@ -99,7 +98,7 @@ describe("Layout on the B2 grid", () => {
   it("right-aligns the mode panel, section tiles and Skip to the video", () => {
     for (const [id, panels] of boards) {
       const edge = right(panels.video!)
-      for (const p of ["controls", "sections", "skip", "poseBar"] as PanelId[]) {
+      for (const p of ["controls", "sections", "skip"] as PanelId[]) {
         const r = panels[p]
         if (r) expect(right(r), `${id}.${p}`).toBe(edge)
       }

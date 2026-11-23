@@ -14,7 +14,7 @@ import { ClipRequest, LookbackController, LookbackView, SideBySideView } from ".
 import { RemoteClip, RemoteDanceSource } from "./Core/RemoteDanceSource"
 import { TakesClient } from "./Core/TakesClient"
 import { AND_CALL, CountCaller } from "./Core/CountCaller"
-import { MODES, PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
+import { PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
 import { PoseController, PoseView } from "./Core/PoseController"
 import { decodeSettings, encodeSettings, finishReadyKey, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
 import { ClipPlayer, VideoDriver } from "./Core/VideoDriver"
@@ -29,7 +29,6 @@ import { LookPanel } from "./UI/LookPanel"
 import { PopupCard } from "./UI/PopupCard"
 import { RecordCountdown } from "./UI/RecordCountdown"
 import { RecordPopup } from "./UI/RecordPopup"
-import { PoseBar, PoseBarCommand } from "./UI/PoseBar"
 import { PoseLine } from "./UI/PoseLine"
 import { ProgressBar } from "./UI/ProgressBar"
 import { SectionRow } from "./UI/SectionRow"
@@ -145,7 +144,6 @@ export class DanceCoach extends BaseScriptComponent {
   private countIn: CountInPanel
   private progress: ProgressBar
   private poseLine: PoseLine
-  private poseBar: PoseBar
   private lookPanel: LookPanel
   private recordCountdown: RecordCountdown
   private recordPopup: RecordPopup
@@ -277,19 +275,6 @@ export class DanceCoach extends BaseScriptComponent {
     this.countIn.setup(this.camera, this.videoWindow)
     this.progress = childObject("Progress", plane).createComponent(ProgressBar.getTypeName()) as ProgressBar
     this.poseLine = childObject("PoseLine", plane).createComponent(PoseLine.getTypeName()) as PoseLine
-    this.poseBar = childObject("PoseBar", plane).createComponent(PoseBar.getTypeName()) as PoseBar
-    this.poseBar.onPress = (command) => this.pressPoseBar(command)
-    // The still follows the drag at once; the count is said once, on the frame after it lets go.
-    this.poseBar.onScrub = (fraction) => {
-      if (!this.poseView) return
-      this.poseView = this.pose.scrub(fraction)
-      this.render(this.controller.view)
-    }
-    this.poseBar.onScrubEnd = () => {
-      if (!this.poseView) return
-      this.poseView = this.pose.scrubEnd()
-      this.render(this.controller.view)
-    }
     this.lookPanel = childObject("LookPanel", plane).createComponent(LookPanel.getTypeName()) as LookPanel
     this.lookPanel.onSelect = (attempt) => {
       if (!this.lookbackView) return
@@ -331,6 +316,18 @@ export class DanceCoach extends BaseScriptComponent {
     this.controls = childObject("ModePanel", plane).createComponent(ModePanel.getTypeName()) as ModePanel
     this.controls.onPress = (command) => this.press(command)
     this.controls.onSelect = (mode) => this.switchMode(this.controller.selectMode(mode, this.poseView ? this.poseView.section : undefined))
+    // The still follows the drag at once; the count is said once, on the frame after it lets go.
+    this.controls.onScrub = (fraction) => {
+      if (!this.poseView) return
+      this.poseView = this.pose.scrub(fraction)
+      this.render(this.controller.view)
+    }
+    this.controls.onScrubEnd = () => {
+      if (!this.poseView) return
+      this.poseView = this.pose.scrubEnd()
+      this.render(this.controller.view)
+    }
+    this.controls.onStepSize = (half) => this.setStepSize(half)
     this.toast = childObject("Toast", plane).createComponent(Toast.getTypeName()) as Toast
     this.skip = childObject("Skip", plane).createComponent(SkipButton.getTypeName()) as SkipButton
     this.skip.onPress = () => {
@@ -435,33 +432,30 @@ export class DanceCoach extends BaseScriptComponent {
         return this.render(c.view)
       case "finish":
         return this.render(c.finish())
+      case "back":
+      case "forward":
+        return this.stepPose(command)
+      case "step":
+        return
     }
   }
 
-  /** A Pose bar button: any use keeps the bar open a while longer. */
-  private pressPoseBar(command: PoseBarCommand) {
+  /** ‹ or ›: steps the frozen frame by the selected size; any use keeps the panel open a while longer. */
+  private stepPose(command: "back" | "forward") {
     if (!this.poseView) return
-    this.poseView = this.pose.use()
-    switch (command) {
-      case "mode": {
-        // The Pose bar's old mode button (until #48): the mode after Pose.
-        const next = MODES[(MODES.indexOf(this.controller.view.mode) + 1) % MODES.length]
-        return this.switchMode(this.controller.selectMode(next, this.poseView.section))
-      }
-      case "mirror":
-        return this.render(this.controller.toggleMirror())
-      case "halfCounts":
-        this.poseView = this.pose.setHalfCounts(this.controller.toggleHalfCounts().settings.halfCounts)
-        return this.render(this.controller.view)
-      case "back":
-      case "forward":
-        this.poseView = command === "back" ? this.pose.stepBack() : this.pose.stepForward()
-        // The still changes at once; the count is said once, on the next frame.
-        return this.render(this.controller.view)
-      case "playFromHere":
-        print(`DanceCoach: Play from here, Section ${this.poseView.section} step ${this.poseView.step}`)
-        return this.switchMode(this.controller.playFromHere(this.poseView.section, this.poseView.step))
-    }
+    this.pose.use()
+    this.poseView = command === "back" ? this.pose.stepBack() : this.pose.stepForward()
+    // The still changes at once; the count is said once, on the next frame.
+    this.render(this.controller.view)
+  }
+
+  /** A step-size option: 1 count or half a count. Half counts is the saved setting, so it stays across Pose visits. */
+  private setStepSize(half: boolean) {
+    if (!this.poseView) return
+    this.pose.use()
+    if (this.controller.view.settings.halfCounts !== half) this.controller.toggleHalfCounts()
+    this.poseView = this.pose.setHalfCounts(half)
+    this.render(this.controller.view)
   }
 
   /** After a mode change: enters the Pose or Lookback controller when the mode becomes theirs, and leaves it when the mode moves on. */
@@ -760,7 +754,7 @@ export class DanceCoach extends BaseScriptComponent {
     }
     if (this.poseView) {
       // The video only holds the section's start frame; Pose moves on real time.
-      if (this.poseLine.aimed || this.poseBar.aimed) this.pose.aim()
+      if (this.poseLine.aimed || this.controls.aimed) this.pose.aim()
       this.poseView = this.pose.tick(dt)
       this.render(this.controller.view)
       this.say(this.caller.nextStep(this.poseView))
@@ -805,7 +799,6 @@ export class DanceCoach extends BaseScriptComponent {
     if (panels.take) this.takeWindow.render(view, null, this.lookbackView)
     this.sbsBar.render(view, this.lookbackView)
     this.poseLine.render(view, this.poseView)
-    this.poseBar.render(view, this.poseView)
     this.lookPanel.render(view, this.lookbackView)
     this.recordCountdown.render(view, this.lookbackView)
     this.recordPopup.render(this.lookbackView)
@@ -814,7 +807,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.progress.render(view)
     this.segBar.render(view)
     this.sections.render(view)
-    this.controls.render(view, this.lookbackView)
+    this.controls.render(view, this.lookbackView, this.poseView)
     this.toast.render(view)
     this.skip.render(view)
     this.popup.render(view)

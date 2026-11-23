@@ -8,7 +8,7 @@ import { ScreenId, Speed } from "../Core/PlaybackController"
 import { SIZE, SPACE } from "./Theme"
 
 /** A control in the panel's row 2. */
-export type ModeControl = "replay" | "top" | "speed" | "mirror" | "counts" | "finish" | "recordAgain" | "backToTakes"
+export type ModeControl = "replay" | "top" | "speed" | "mirror" | "counts" | "finish" | "recordAgain" | "backToTakes" | "back" | "step" | "forward"
 
 /**
  * Each control's width, in prototype px, from layout.json (B2PlayEnd, B2LastDone, B2LookWatch) snapped to the 4 px grid:
@@ -23,7 +23,26 @@ export const CONTROL_WIDTH: Record<ModeControl, number> = {
   finish: 156,
   recordAgain: 152,
   backToTakes: 148,
+  // Pose (B2PoseOpen): ‹ and › are 56 circles; the step-size track is 4 + 94 + 4 + 94 + 4.
+  back: SIZE.control,
+  step: 200,
+  forward: SIZE.control,
 }
+
+/** Pose's step-size options inside their track (BUILD_SPEC §6.10): two 48-tall options, 4 in and 4 apart. */
+export const STEP_OPTION_WIDTH = 94
+
+/** The scrub row between the track and row 2 on Pose's open screen (§6.11): a 28 playhead, then its 16-tall labels, 4 in from the top. */
+export const POSE_SCRUB = {
+  height: 48,
+  /** Inset of the bar and labels from the panel's sides, inside the 8 padding. */
+  inset: 16,
+  barHeight: 12,
+  handle: { w: 24, h: 28 },
+  /** Top of the playhead's box, and the labels' centre, from the scrub row's top. */
+  handleY: 4,
+  labelY: 40,
+} as const
 
 /** The panel's insides: its padding and row gap, the track's inset, row 2's inset and the gap between its buttons. */
 export const MODE_PANEL = {
@@ -43,7 +62,7 @@ export const MODE_PANEL = {
 /**
  * Row 2 on each screen. C: Replay section · From the top · Speed · Mirror · Counts; C2 adds Finish routine.
  * Lookback (I, L): Speed · Mirror · Counts. Side by side (M) adds Record again and Back to takes.
- * Pose's collapsed screen (D) shows the track alone until Pose's panel is rebuilt (#48); E keeps its Pose bar.
+ * Pose's open screen (E): ‹ · Step size · › · Mirror · Counts, with the scrub row above it. Pose's collapsed screen (D) has no panel.
  */
 export function modeRow(screen: ScreenId): ModeControl[] {
   switch (screen) {
@@ -56,6 +75,8 @@ export function modeRow(screen: ScreenId): ModeControl[] {
       return ["speed", "mirror", "counts"]
     case "M":
       return ["speed", "mirror", "counts", "recordAgain", "backToTakes"]
+    case "E":
+      return ["back", "step", "forward", "mirror", "counts"]
     default:
       return []
   }
@@ -66,11 +87,15 @@ export function rowWidth(row: ModeControl[]): number {
   return row.reduce((w, c) => w + CONTROL_WIDTH[c], 0) + MODE_PANEL.gap * Math.max(0, row.length - 1)
 }
 
-/** The panel's size: wide enough for row 2 (at least 400), and one row taller when it has a row 2. */
+/** Pose's panel holds the scrub row, which is the only one with a step-size control. */
+export const hasScrub = (row: ModeControl[]) => row.indexOf("step") >= 0
+
+/** The panel's size: wide enough for row 2 (at least 400), one row taller when it has a row 2, and taller still with the scrub row. */
 export function modePanelSize(row: ModeControl[]): { w: number; h: number } {
   const p = MODE_PANEL
   const w = Math.max(p.minWidth, rowWidth(row) + 2 * p.rowPad + 2 * p.pad)
-  const h = 2 * p.pad + p.trackHeight + (row.length ? p.rowGap + p.rowHeight : 0)
+  const scrub = hasScrub(row) ? p.rowGap + POSE_SCRUB.height : 0
+  const h = 2 * p.pad + p.trackHeight + scrub + (row.length ? p.rowGap + p.rowHeight : 0)
   return { w, h }
 }
 
