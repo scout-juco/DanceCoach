@@ -49,6 +49,9 @@ const PLACE_SETTLE_SEC = 1.5
 const HIDDEN_SCALE = 0.0001
 // Side by side's clip requests count up from their own seek counter, so they're offset out of the way of the playback controller's.
 const SBS_SEEK_BASE = 1000000
+// A recording's request gets its own seek ids too: a player only takes a playback rate when a seek starts it, so the section is
+// sought again, paused, at the recording's speed while the count runs down, and plays from there.
+const RECORD_SEEK_BASE = 2000000
 // A take is one clip from 0, as long as it needs to be.
 const TAKE_CLIP_END = 3600
 
@@ -131,6 +134,8 @@ export class DanceCoach extends BaseScriptComponent {
   private sbsBar: SideBySideBar
   private takeDriver: VideoDriver | null = null
   private takeDriverFor = ""
+  /** When the take being recorded really started, in the server's time (ms), once the server has answered "start". */
+  private takeStartedAt: number | null = null
   private takeClips = new Map<string, RemoteClip<Texture>>()
   private sbsShown = false
   private caller = new CountCaller()
@@ -297,6 +302,7 @@ export class DanceCoach extends BaseScriptComponent {
     // The take's window is a second video window beside the original, on the same plane; only screen M shows it.
     this.takeWindow = childObject("TakeWindow", plane).createComponent(VideoWindow.getTypeName()) as VideoWindow
     this.takeWindow.getSceneObject().enabled = false
+    this.takeWindow.isTake = true
     this.sbsBar = childObject("SideBySideBar", plane).createComponent(SideBySideBar.getTypeName()) as SideBySideBar
     this.sbsBar.onPlay = () => {
       this.lookbackView = this.lookback.togglePlay()
@@ -348,7 +354,7 @@ export class DanceCoach extends BaseScriptComponent {
       this.faceCamera()
       this.savePlacement()
     }
-    // Pinch a top corner of the video to resize the window.
+    // Pinch the top-left or bottom-right bracket to resize the window.
     this.resize = childObject("Resize", plane).createComponent(WindowResize.getTypeName()) as WindowResize
     this.resize.setup(this.windowRoot)
     this.resize.onResizing = () => {
@@ -566,10 +572,7 @@ export class DanceCoach extends BaseScriptComponent {
           break
         case "start":
         case "stop":
-          client[req.type](req.sessionId).catch((err) => {
-            print(`DanceCoach: ${req.type} of the take failed: ${why(err)}`)
-            this.lookbackView = this.lookback.requestFailed(`Couldn't ${req.type} the take: ${why(err)}`)
-          })
+          this.sendTakeRun(client, req)
           break
         case "download":
           client.loadTake(dance.id, req.take).then(
@@ -612,7 +615,12 @@ export class DanceCoach extends BaseScriptComponent {
     const sbs = this.sideBySide()
     if (sbs) return this.clipRequest(sbs.originalClip, this.controller.clock.sectionEnd(this.lookbackView!.section), SBS_SEEK_BASE)
     const record = this.lookbackView ? this.lookbackView.record : null
-    return record && record.phase === "recording" ? { ...video, playing: true, rate: record.speed, holdFrame: false, dim: false } : video
+    if (record && record.phase !== "confirm") {
+      // The clip starts at the section's lead-in (the last 4 counts before it), which the server counts on to find count 1 in the take.
+      const lead = this.controller.clock.leadIn(this.lookbackView!.section)
+      return { ...video, seekTo: lead ? lead.start : video.seekTo, seekId: RECORD_SEEK_BASE + video.seekId, playing: record.phase === "recording", rate: record.speed, holdFrame: false, dim: false }
+    }
+    return video
   }
 
   /** Side by side's view while screen M is up, else null. */
@@ -622,6 +630,28 @@ export class DanceCoach extends BaseScriptComponent {
 
   private clipRequest(clip: ClipRequest, runEnd: number, seekBase: number): VideoRequest {
     return { seekTo: clip.seekTo, seekId: seekBase + clip.seekId, runEnd, playing: clip.playing, rate: clip.rate, holdFrame: false, dim: false }
+  }
+
+  /**
+   * "start" and "stop" reach the server some time after they're sent, and that varies. So the glasses time "start" there and back,
+   * take the server's clock as it answered, less half the trip, as when the clip really started, and send that with "stop".
+   */
+  private sendTakeRun(client: TakesClient, req: { type: "start"; sessionId: string; videoTimeSec: number } | { type: "stop"; sessionId: string }) {
+    const failed = (err: unknown) => {
+      print(`DanceCoach: ${req.type} of the take failed: ${err && (err as Error).message ? (err as Error).message : err}`)
+      this.lookbackView = this.lookback.requestFailed(`Couldn't ${req.type} the take: ${err && (err as Error).message ? (err as Error).message : err}`)
+    }
+    if (req.type === "stop") {
+      const startedAt = this.takeStartedAt
+      this.takeStartedAt = null
+      client.stop(req.sessionId, startedAt === null ? undefined : startedAt).catch(failed)
+      return
+    }
+    this.takeStartedAt = null
+    const sent = getTime()
+    client.start(req.sessionId, req.videoTimeSec).then((serverTime) => {
+      if (serverTime !== null) this.takeStartedAt = serverTime - ((getTime() - sent) * 1000) / 2
+    }, failed)
   }
 
   private takeKey(name: string): string {
@@ -694,6 +724,13 @@ export class DanceCoach extends BaseScriptComponent {
       this.advance(this.fakeTime, dt)
       return
     }
+    // Pose shows stills and moves on real time, so it doesn't drive the video or wait for a seek to land. (Its seek to the
+    // section's start sits inside a clip when the section has a lead-in, which the player can't do, so waiting never ended.)
+    // The driver picks up the next request once Pose is left.
+    if (this.poseView) {
+      this.advance(0, dt)
+      return
+    }
     // Until a seek has landed, the video's time isn't the run's time yet.
     const wasBusy = this.driver.busy
     this.driver.apply(this.videoRequest(), dt)
@@ -705,7 +742,10 @@ export class DanceCoach extends BaseScriptComponent {
       this.render(view)
       return
     }
-    if (sbs && sbs.seeking && takeDriver) this.lookbackView = this.lookback.landed()
+    if (sbs && sbs.seeking && takeDriver) {
+      print(`DanceCoach: side by side landed: original wanted ${sbs.originalClip.seekTo.toFixed(3)} s, got ${this.driver.time.toFixed(3)} s (frame showing: ${this.driver.frameTime.toFixed(3)} s); take wanted ${sbs.takeClip.seekTo.toFixed(3)} s, got ${takeDriver.time.toFixed(3)} s (frame showing: ${takeDriver.frameTime.toFixed(3)} s)`)
+      this.lookbackView = this.lookback.landed()
+    }
     // The video's aspect is known once a seek has landed, whether or not onPlaybackReady fired.
     if (wasBusy) this.videoWindow.fitVideo()
     this.advance(this.driver.time, dt)
@@ -769,7 +809,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.lookPanel.render(view, this.lookbackView)
     this.recordCountdown.render(view, this.lookbackView)
     this.recordPopup.render(this.lookbackView)
-    this.resize.render(view)
+    this.resize.render(view, this.poseView, this.lookbackView)
     this.countIn.render(view)
     this.progress.render(view)
     this.segBar.render(view)
