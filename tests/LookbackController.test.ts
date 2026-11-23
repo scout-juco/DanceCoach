@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ATTEMPTS_SHOWN, LookbackController, STATUS_POLL_SEC, takeLabel } from "../DanceCoachLens/Assets/Scripts/Core/LookbackController"
+import { LookbackController, STATUS_POLL_SEC, STEPPER_FROM, takeLabel } from "../DanceCoachLens/Assets/Scripts/Core/LookbackController"
 import { Take } from "../DanceCoachLens/Assets/Scripts/Core/TakesClient"
 
 const take = (number: number, speed = 1): Take => ({ name: `s2-t${number}`, section: 2, speed, mirror: false, number })
@@ -8,7 +8,7 @@ const takes = (n: number) => Array.from({ length: n }, (_, i) => take(i + 1))
 describe("Lookback: entering", () => {
   it("opens on screen I with no takes", () => {
     const v = new LookbackController().enter(2, [])
-    expect(v).toMatchObject({ screen: "I", section: 2, takes: [], selected: -1, attempts: [], phoneConnected: false })
+    expect(v).toMatchObject({ screen: "I", section: 2, takes: [], selected: -1, stepper: false, phoneConnected: false })
   })
 
   it("opens on screen L with the newest take selected", () => {
@@ -41,40 +41,58 @@ describe("Lookback: entering", () => {
   })
 })
 
-describe("Lookback: the ATTEMPTS row", () => {
-  it("shows every take up to four", () => {
-    expect(new LookbackController().enter(2, takes(3)).attempts.map((t) => t.number)).toEqual([1, 2, 3])
+describe("Lookback: the takes row", () => {
+  it("is a button per take up to three: no stepper, nothing out of range", () => {
+    for (const n of [1, 2, 3]) expect(new LookbackController().enter(2, takes(n))).toMatchObject({ stepper: false, selected: n - 1 })
   })
 
-  it("shows only the last four takes, oldest first", () => {
-    const v = new LookbackController().enter(2, takes(6))
-    expect(ATTEMPTS_SHOWN).toBe(4)
-    expect(v.attempts.map((t) => t.number)).toEqual([3, 4, 5, 6])
+  it("becomes the stepper from four takes", () => {
+    expect(STEPPER_FROM).toBe(4)
+    expect(new LookbackController().enter(2, takes(3)).stepper).toBe(false)
+    expect(new LookbackController().enter(2, takes(4)).stepper).toBe(true)
+    expect(new LookbackController().enter(2, takes(6)).stepper).toBe(true)
   })
 
-  it("selects a take by its place in the row", () => {
+  it("selects a take by number on the buttons, and ignores one that isn't there", () => {
+    const lb = new LookbackController()
+    lb.enter(2, takes(3))
+    expect(lb.selectTake(0)).toMatchObject({ selected: 0 })
+    expect(lb.selectTake(3)).toMatchObject({ selected: 0 })
+    expect(lb.selectTake(-1)).toMatchObject({ selected: 0 })
+  })
+
+  it("steps ‹ and › over every take, not just the last four", () => {
     const lb = new LookbackController()
     lb.enter(2, takes(6))
-    expect(lb.selectAttempt(0)).toMatchObject({ selected: 2 })
-    expect(lb.view!.takes[lb.view!.selected].number).toBe(3)
-    expect(lb.selectAttempt(3)).toMatchObject({ selected: 5 })
+    expect(lb.view).toMatchObject({ selected: 5, canBack: true, canForward: false })
+    for (let i = 4; i >= 0; i--) expect(lb.stepTake(-1)!.selected).toBe(i)
+    expect(lb.view).toMatchObject({ selected: 0, canBack: false, canForward: true })
+    expect(lb.stepTake(1)!.selected).toBe(1)
   })
 
-  it("ignores a place past the takes shown", () => {
+  it("stops ‹ at the first take and › at the newest", () => {
     const lb = new LookbackController()
-    lb.enter(2, takes(2))
-    lb.selectAttempt(0)
-    expect(lb.selectAttempt(2)).toMatchObject({ selected: 0 })
-    expect(lb.selectAttempt(-1)).toMatchObject({ selected: 0 })
-  })
-
-  it("keeps an earlier take selected, off the row's window, when more takes arrive", () => {
-    const lb = new LookbackController()
-    lb.enter(2, takes(4))
+    lb.enter(2, takes(5))
+    expect(lb.stepTake(1)).toMatchObject({ selected: 4, canForward: false })
     lb.selectTake(0)
-    const v = lb.setTakes(takes(6))!
-    expect(v.takes[v.selected].number).toBe(1)
-    expect(v.attempts.map((t) => t.number)).toEqual([3, 4, 5, 6])
+    expect(lb.stepTake(-1)).toMatchObject({ selected: 0, canBack: false })
+  })
+
+  it("ignores ‹ › with no takes and mid-recording", () => {
+    const lb = new LookbackController()
+    lb.enter(2, [])
+    expect(lb.stepTake(-1)).toMatchObject({ selected: -1, canBack: false, canForward: false })
+    lb.enter(2, takes(4))
+    lb.tapRecord(1, false, { start: 0, end: 4 })
+    expect(lb.stepTake(-1)).toMatchObject({ selected: 3 })
+  })
+
+  it("keeps an earlier take selected when more takes arrive, and updates the stepper", () => {
+    const lb = new LookbackController()
+    lb.enter(2, takes(3))
+    lb.selectTake(0)
+    const v = lb.setTakes(takes(5))!
+    expect(v).toMatchObject({ selected: 0, stepper: true, canBack: false, canForward: true })
   })
 })
 

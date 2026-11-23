@@ -1,37 +1,40 @@
 /**
- * RecordPopup: the "Record lookback?" pop-up (screen J).
+ * RecordPopup: the "Record lookback?" dialog (screen J, B2LookArmed).
  *
- * The section, the speed · mirror the take will use, and whether the phone camera is connected, over
- * "Yes, record" (greyed out until the phone is connected, with "Not connected: open /record on your phone"
- * under the rows) and "Not now". It isn't on the video board: like Routine done it opens in front of your head
- * (Layout.RECORD_POPUP, a little farther out and scaled down) and glides back in front of you if you turn more than POPUP.followDeg away (PopupFollow).
+ * Title, body, four key/value rows (Section, Speed · mirror, Phone camera, You're in frame) and "Yes, record" (pink) over
+ * "Not now". "Yes, record" is greyed out and does nothing until the phone is connected; the body then says to open /record on
+ * the phone. "You're in frame" shows the phone's connection, as there is no in-frame detection.
+ * Fill #23262B, 1 px border, radius 24, padding 32. It isn't on the video board: like Routine done it opens in front of your head
+ * (Layout.RECORD_POPUP, a little farther out and scaled down) and glides back in front of you if you turn more than
+ * POPUP.followDeg away (PopupFollow).
  * A shallow view: render() shows the Lookback view while it's on J.
  */
-import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
-import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
+import { speedMirrorLabel } from "../Core/DialogCopy"
 import { LookbackView } from "../Core/LookbackController"
+import { DialogButton, makeDialogButton } from "./DialogButton"
 import { pxToCm, RECORD_POPUP, SCREENS } from "./Layout"
 import { PopupFollow } from "./PopupFollow"
-import { ColorToken, RADII, SPACING, TYPE } from "./Theme"
-import { childObject, makeRect, makeText, setRectSize, themeColor } from "./Visuals"
+import { ColorToken, RADIUS, SPACE, TextStyle } from "./Theme"
+import { childObject, Icon, makeIcon, makeSurface, makeText } from "./Visuals"
 
-// Layers in front of the card, in cm: its buttons, then their labels.
+// Layers in front of the card, in cm: its text and buttons, then their labels.
 const Z_ITEM = 0.1
-const Z_LABEL = 0.05
-// Collider depth, in cm.
-const HIT_DEPTH = 1
 // Drawn after the video board, which sits behind it.
 const ORDER = 10
-const ROWS_Y = 112
-const ROW_GAP = 30
-const BUTTON_H = 56
-const NOT_CONNECTED = "Not connected: open /record on your phone"
 
-interface Button {
-  object: SceneObject
-  rect: RoundedRectangle
-  text: Text
-}
+const PAD = 32
+const BODY = "Your recording will use the same settings as your\ncurrent section. Would you like to continue?"
+const NOT_CONNECTED = "Not connected: open /record on your phone"
+// From the card's top (px): the title 32, the body 48, four 24 rows 8 apart, the buttons 56, each block 16 apart.
+const TITLE_Y = PAD
+const BODY_Y = TITLE_Y + 32 + SPACE.attached
+const ROWS_Y = BODY_Y + 48 + SPACE.attached
+const ROW_H = 24
+const BUTTON_Y = ROWS_Y + 4 * ROW_H + 3 * SPACE.group + SPACE.attached
+const BUTTON_H = 56
+// The values on the right: Inter 700 14/20.
+const VALUE_STYLE: TextStyle = { family: "inter", size: 14, lineHeight: 20, weight: 700 }
+const TICK = 12
 
 @component
 export class RecordPopup extends BaseScriptComponent {
@@ -42,10 +45,10 @@ export class RecordPopup extends BaseScriptComponent {
 
   private camera: SceneObject | null = null
   private card: SceneObject
+  private body: Text
   private values: Text[] = []
-  private hint: Text
-  private yes: Button
-  private no: Button
+  private ticks: Icon[] = []
+  private yes: DialogButton
   private follow = new PopupFollow()
   // Where the pop-up is measured from: your head when it opened, gliding after you when it follows.
   private anchor = vec3.zero()
@@ -56,33 +59,56 @@ export class RecordPopup extends BaseScriptComponent {
   private readonly h = SCREENS.J.popup![3]
 
   onAwake() {
-    const pad = SPACING.popupPad
     this.card = childObject("Card", this.sceneObject)
-    const bg = makeRect(this.card, "panel", ORDER)
-    bg.border = true
-    bg.borderSize = pxToCm(1)
-    bg.borderColor = themeColor("stroke")
-    setRectSize(bg, this.w, this.h, RADII.popup)
+    makeSurface(this.card, { fill: "panelSolid", border: "border", borderPx: 1, radius: RADIUS.lg }, ORDER, this.w, this.h)
 
-    this.text(TYPE.popupTitle, "ink", "left", pad, pad + 14).text = "Record lookback?"
-    this.text(TYPE.button, "ink2", "left", pad, pad + 52).text = "Your recording uses the settings of this section."
-    const labels = ["Section", "Speed · mirror", "Phone camera"]
+    this.text("heading", "text", "left", PAD, TITLE_Y + 16).text = "Record lookback?"
+    this.body = this.text("body", "textMuted", "left", PAD, BODY_Y + 24)
+    const labels = ["Section", "Speed · mirror", "Phone camera", "You're in frame"]
     labels.forEach((label, i) => {
-      this.text(TYPE.popupButton, "ink", "left", pad, ROWS_Y + i * ROW_GAP).text = label
-      this.values.push(this.text(TYPE.chip, "ink2", "right", this.w - pad, ROWS_Y + i * ROW_GAP))
+      const y = ROWS_Y + i * (ROW_H + SPACE.group) + ROW_H / 2
+      this.text("body", "textMuted", "left", PAD, y).text = label
+      this.values.push(this.text(VALUE_STYLE, "text", "right", this.w - PAD, y))
     })
-    this.hint = this.text(TYPE.button, "muted", "left", pad, ROWS_Y + labels.length * ROW_GAP + 6)
+    // A tick after "CONNECTED" and alone for "You're in frame": the glyph isn't in the fonts, so it's drawn.
+    for (const i of [2, 3]) {
+      const y = ROWS_Y + i * (ROW_H + SPACE.group) + ROW_H / 2
+      const tick = makeIcon(this.card, "check", "text", ORDER + 2, TICK)
+      tick.object.getTransform().setLocalPosition(this.point(this.w - PAD - TICK / 2, y, Z_ITEM))
+      this.ticks.push(tick)
+    }
 
-    const g = SPACING.popupButtonGap
-    const bw = (this.w - pad * 2 - g) / 2
-    const by = this.h - pad - BUTTON_H
-    this.yes = this.button("Yes, record", pad + bw / 2, by + BUTTON_H / 2, bw, () => {
-      if (this.connected) this.onYes()
+    const g = SPACE.between
+    const bw = (this.w - PAD * 2 - g) / 2
+    const by = BUTTON_Y + BUTTON_H / 2
+    this.yes = makeDialogButton(this.card, this.w, this.h, {
+      label: "Yes, record",
+      x: PAD + bw / 2,
+      y: by,
+      w: bw,
+      h: BUTTON_H,
+      radius: RADIUS.pill,
+      fill: "pink",
+      ink: "onColor",
+      style: "buttonStrong",
+      order: ORDER + 1,
+      onPress: () => {
+        if (this.connected) this.onYes()
+      },
     })
-    this.no = this.button("Not now", pad + bw + g + bw / 2, by + BUTTON_H / 2, bw, () => this.onNo())
-    this.no.rect.backgroundColor = themeColor("panel")
-    this.no.rect.borderColor = themeColor("ink")
-    this.no.text.textFill.color = themeColor("ink")
+    makeDialogButton(this.card, this.w, this.h, {
+      label: "Not now",
+      x: PAD + bw + g + bw / 2,
+      y: by,
+      w: bw,
+      h: BUTTON_H,
+      radius: RADIUS.pill,
+      fill: "control",
+      ink: "text",
+      style: "button",
+      order: ORDER + 1,
+      onPress: () => this.onNo(),
+    })
 
     this.sceneObject.enabled = false
     this.createEvent("UpdateEvent").bind(() => this.update())
@@ -104,13 +130,18 @@ export class RecordPopup extends BaseScriptComponent {
     const key = `${look.section}|${record.speed}|${record.mirror}|${look.phoneConnected}`
     if (key === this.lastKey) return
     this.lastKey = key
+    const on = look.phoneConnected
+    this.body.text = on ? BODY : NOT_CONNECTED
     this.values[0].text = String(look.section)
-    this.values[1].text = `${record.speed}× · ${record.mirror ? "ON" : "OFF"}`
-    this.values[2].text = look.phoneConnected ? "CONNECTED ✓" : "NOT CONNECTED"
-    this.hint.text = look.phoneConnected ? "" : NOT_CONNECTED
-    this.yes.rect.backgroundColor = themeColor(look.phoneConnected ? "active" : "panel")
-    this.yes.rect.borderColor = themeColor(look.phoneConnected ? "active" : "ghostLine")
-    this.yes.text.textFill.color = themeColor(look.phoneConnected ? "activeInk" : "soft")
+    this.values[1].text = speedMirrorLabel(record.speed, record.mirror)
+    // "CONNECTED" and its tick; the tick sits at the right edge, so the word moves in by its width and a gap.
+    this.values[2].text = on ? "CONNECTED" : "NOT CONNECTED"
+    this.values[2].getSceneObject().getParent().getTransform().setLocalPosition(this.point(this.w - PAD - (on ? TICK + SPACE.group : 0), ROWS_Y + 2 * (ROW_H + SPACE.group) + ROW_H / 2, Z_ITEM))
+    this.values[3].text = on ? "" : "—"
+    this.ticks[0].object.enabled = on
+    this.ticks[1].object.enabled = on
+    const fill: ColorToken = on ? "pink" : "control"
+    this.yes.setLook(fill, on ? "onColor" : "textDisabled")
   }
 
   private openInFront() {
@@ -145,35 +176,11 @@ export class RecordPopup extends BaseScriptComponent {
     return Math.atan2(look.x, look.z)
   }
 
-  /** A pressable button centred at (x, y) px from the card's top-left. */
-  private button(label: string, x: number, y: number, w: number, onPress: () => void): Button {
-    const object = childObject(label, this.card)
-    object.getTransform().setLocalPosition(this.point(x, y, Z_ITEM))
-    const rect = makeRect(object, "active", ORDER + 1)
-    rect.border = true
-    rect.borderSize = pxToCm(1)
-    rect.borderColor = themeColor("active")
-    setRectSize(rect, w, BUTTON_H, RADII.popupButton)
-    const labelObject = childObject("Label", object)
-    labelObject.getTransform().setLocalPosition(new vec3(0, 0, Z_LABEL))
-    const text = makeText(labelObject, TYPE.popupButton, "activeInk", ORDER + 2)
-    text.text = label
-
-    const collider = object.createComponent("ColliderComponent") as ColliderComponent
-    collider.fitVisual = false
-    const shape = Shape.createBoxShape()
-    shape.size = new vec3(pxToCm(w), pxToCm(BUTTON_H), HIT_DEPTH)
-    collider.shape = shape
-    const interactable = object.createComponent(Interactable.getTypeName()) as Interactable
-    interactable.onTriggerEnd.add(onPress)
-    return { object, rect, text }
-  }
-
-  /** A line of text anchored at (x, y) px from the card's top-left. */
-  private text(sizePx: number, token: ColorToken, align: "left" | "right", xPx: number, yPx: number): Text {
+  /** A line of text anchored at (x, y centre) px from the card's top-left. */
+  private text(style: Parameters<typeof makeText>[1], token: ColorToken, align: "left" | "right", xPx: number, yPx: number): Text {
     const so = childObject("Text", this.card)
     so.getTransform().setLocalPosition(this.point(xPx, yPx, Z_ITEM))
-    return makeText(so, sizePx, token, ORDER + 2, align)
+    return makeText(so, style, token, ORDER + 2, align)
   }
 
   /** (x, y) px from the card's top-left (y down, as in the prototype) → cm from its centre. */

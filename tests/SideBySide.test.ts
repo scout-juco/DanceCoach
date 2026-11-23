@@ -55,9 +55,9 @@ describe("opening side by side (screen M)", () => {
     expect(v.takeClip.rate).toBe(1)
   })
 
-  it("loads the take that was selected in the ATTEMPTS row", () => {
+  it("loads the take that was selected in the takes row", () => {
     const lb = onL()
-    lb.selectAttempt(0)
+    lb.selectTake(0)
     lb.playSideBySide(SETUP)
     expect(lb.takeRequests()).toEqual([{ type: "load", take: take(1, 1) }])
   })
@@ -257,7 +257,7 @@ describe("speed", () => {
 
   it("keeps the speed and the clips' times for a take filmed at 1×", () => {
     const lb = onL()
-    lb.selectAttempt(0)
+    lb.selectTake(0)
     lb.playSideBySide(SETUP)
     lb.takeRequests()
     lb.takeLoaded(take(1, 1))

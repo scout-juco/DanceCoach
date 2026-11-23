@@ -7,6 +7,7 @@
  */
 import { BundledDanceSource } from "../Dance/BundledDanceSource"
 import { LensTransport } from "../Dance/LensTransport"
+import { CountClock } from "./Core/CountClock"
 import { DancePackage } from "./Core/DancePackage"
 import { DancePicker } from "./Core/DancePicker"
 import { DanceSource, LoadedDance } from "./Core/DanceSource"
@@ -16,7 +17,7 @@ import { TakesClient } from "./Core/TakesClient"
 import { AND_CALL, CountCaller } from "./Core/CountCaller"
 import { PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
 import { PoseController, PoseView } from "./Core/PoseController"
-import { decodeSettings, encodeSettings, finishReadyKey, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
+import { decodeDoneSections, decodeSettings, doneSectionsKey, encodeDoneSections, encodeSettings, finishReadyKey, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
 import { ClipPlayer, VideoDriver } from "./Core/VideoDriver"
 import { decodePlacement, encodePlacement, Placement, PLACEMENT_KEY } from "./Core/WindowPlacement"
 import { ModePanel } from "./UI/ModePanel"
@@ -113,6 +114,8 @@ export class DanceCoach extends BaseScriptComponent {
   private dancesButton: DancesButton
   // True from start until a dance has loaded, and again after "Dances": no dance is playing.
   private picking = true
+  // The saved done sections of the open dance, as stored.
+  private savedDoneSections = "[]"
   private windowShown = true
   private loaded: LoadedDance<Texture>
   private dance: DancePackage
@@ -216,7 +219,10 @@ export class DanceCoach extends BaseScriptComponent {
     const firstLookSeen = this.savedFirstLook && !this.alwaysFirstLook
     if (this.savedFirstLook && !firstLookSeen) print("DanceCoach: playing the first look again (Always First Look is on)")
     this.savedFinishReady = store.getBool(finishReadyKey(this.dance.id))
-    this.controller = new PlaybackController(this.dance, { settings, firstLookSeen, finishReady: this.savedFinishReady }, !!loaded.stills, !!loaded.fromServer)
+    // Which sections were learned last time: the section tiles show them ticked.
+    const doneSections = decodeDoneSections(store.getString(doneSectionsKey(this.dance.id)), new CountClock(this.dance).sectionCount)
+    this.savedDoneSections = encodeDoneSections(doneSections)
+    this.controller = new PlaybackController(this.dance, { settings, firstLookSeen, finishReady: this.savedFinishReady, doneSections }, !!loaded.stills, !!loaded.fromServer)
     // Saved again only when the first look ends.
     this.savedFirstLook = firstLookSeen
     this.savedSettings = this.controller.view.settings
@@ -276,9 +282,14 @@ export class DanceCoach extends BaseScriptComponent {
     this.progress = childObject("Progress", plane).createComponent(ProgressBar.getTypeName()) as ProgressBar
     this.poseLine = childObject("PoseLine", plane).createComponent(PoseLine.getTypeName()) as PoseLine
     this.lookPanel = childObject("LookPanel", plane).createComponent(LookPanel.getTypeName()) as LookPanel
-    this.lookPanel.onSelect = (attempt) => {
+    this.lookPanel.onSelect = (index) => {
       if (!this.lookbackView) return
-      this.lookbackView = this.lookback.selectAttempt(attempt)
+      this.lookbackView = this.lookback.selectTake(index)
+      this.render(this.controller.view)
+    }
+    this.lookPanel.onStep = (delta) => {
+      if (!this.lookbackView) return
+      this.lookbackView = this.lookback.stepTake(delta)
       this.render(this.controller.view)
     }
     this.lookPanel.onRecord = () => this.tapRecord()
@@ -363,6 +374,8 @@ export class DanceCoach extends BaseScriptComponent {
     // The dance picker comes first; the window shows once a dance has loaded.
     this.pickerPanel = childObject("DancePicker", this.getSceneObject()).createComponent(DancePickerPanel.getTypeName()) as DancePickerPanel
     this.pickerPanel.setup(this.camera)
+    // Each card's status comes from what was saved, without loading the dance.
+    this.pickerPanel.progressFor = (id) => decodeDoneSections(global.persistentStorageSystem.store.getString(doneSectionsKey(id)))
     this.pickerPanel.onPick = (id) => this.picker.pick(id)
     this.pickerPanel.onRetry = () => this.picker.retry()
     this.pickerPanel.onList = () => this.picker.back()
@@ -814,6 +827,15 @@ export class DanceCoach extends BaseScriptComponent {
     this.saveSettings(view.settings)
     this.saveFirstLook(view.firstLookSeen)
     this.saveFinishReady(view.finishReady)
+    this.saveDoneSections(view.doneSections)
+  }
+
+  /** Saves the done sections whenever a section is marked done, so the tiles and the picker show them next time. */
+  private saveDoneSections(done: number[]) {
+    const raw = encodeDoneSections(done)
+    if (raw === this.savedDoneSections) return
+    this.savedDoneSections = raw
+    global.persistentStorageSystem.store.putString(doneSectionsKey(this.dance.id), raw)
   }
 
   /** Saves that Finish routine has unlocked; it stays unlocked for the dance. */

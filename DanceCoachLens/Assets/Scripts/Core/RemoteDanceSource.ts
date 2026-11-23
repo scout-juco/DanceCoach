@@ -1,7 +1,7 @@
 /**
  * RemoteDanceSource: the dances the ingest server has ready (server/ingestServer.ts).
  *
- *   GET <base>/dances                 → [{ id, title, difficulty }]
+ *   GET <base>/dances                 → [{ id, title, difficulty, sections, lengthSec }]
  *   GET <base>/dances/<id>/package    → the dance package
  *   GET <base>/dances/<id>/clips/<n>  → one clip, named <video>_<clip id>.mp4 (see ClipPlan)
  *   GET <base>/dances/<id>/stills/<n> → one still, a name from the package's stills (see StillPlan)
@@ -53,7 +53,8 @@ export class RemoteDanceSource<T> implements DanceSource<T> {
     if (!Array.isArray(raw)) throw new Error("The dance list isn't a list")
     return raw.map((d, i) => {
       if (!d || typeof d.id !== "string" || typeof d.title !== "string") throw new Error(`Dance ${i + 1} in the list is malformed`)
-      return { id: d.id, title: d.title, difficulty: typeof d.difficulty === "string" ? d.difficulty : undefined }
+      const num = (v: unknown) => (typeof v === "number" && isFinite(v) && v > 0 ? v : undefined)
+      return { id: d.id, title: d.title, difficulty: typeof d.difficulty === "string" ? d.difficulty : undefined, sections: num(d.sections), lengthSec: num(d.lengthSec) }
     })
   }
 

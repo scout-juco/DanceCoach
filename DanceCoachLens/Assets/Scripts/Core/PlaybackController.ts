@@ -69,8 +69,10 @@ export const finishLockedToast = (lastSection: number) => `Finish routine unlock
 /** The pop-ups, which open in front of the dancer rather than on the video board. */
 export type Popup = "routineDone"
 
-/** The Routine done choices: Run it again (from the top), Keep practicing, Back. */
-export type RoutineDoneChoice = "again" | "practice" | "back"
+/** The Routine done choices: Run it again (from the top), Keep practicing, Back to dances, and Record your dance (not built yet: it toasts). */
+export type RoutineDoneChoice = "again" | "practice" | "back" | "record"
+
+export const RECORD_DANCE_TOAST = "Record your dance is coming soon"
 
 /** How long a toast stays up, in seconds. */
 export const TOAST_SEC = 2.6
@@ -452,6 +454,12 @@ export class PlaybackController {
   routineDone(choice: RoutineDoneChoice): ViewState {
     const s = this.state
     if (s.popup !== "routineDone") return s
+    if (choice === "record") {
+      // Nothing else happens: the dialog stays up with its toast.
+      this.toastLeft = TOAST_SEC
+      this.state = { ...s, toast: RECORD_DANCE_TOAST }
+      return this.state
+    }
     this.state = { ...s, screen: "C2", popup: null, controlsLocked: false, video: { ...s.video, dim: false } }
     if (choice !== "again") return this.state
     const last = this.clock.sectionCount

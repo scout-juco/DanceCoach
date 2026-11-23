@@ -1,39 +1,39 @@
 /**
- * LookPanel: Lookback's look panel and ATTEMPTS row (screens I and L).
+ * LookPanel: Lookback's side panel (BUILD_SPEC §6.13), 300×520, 24 left of the video.
  *
- * I (no takes): "LOOKBACK · SECTION n · 0 TAKES" over a "Record lookback" button (pinching it calls onRecord),
- * with "No recordings for this section yet" under it.
- * L (takes): the selected take's tile, "TAKE n · 0.75×" on it, over a "Play side by side" button
- * (pinching it calls onPlay). The ATTEMPTS row ("SECTION n · LOCKED") shows the last four
- * takes, newest on the right, and a + (it calls onRecord too); pinching a take calls onSelect with its place in the row.
- * The take just recorded is tagged NEW, and a failed recording leaves its message under the buttons.
- * A shallow view: render() shows the Lookback view, placed by the screen's lookPanel and attempts panels in Layout.SCREENS.
- * Hidden on screens without them.
+ * I (no takes): one big "Record lookback" button filling the panel (an 80 pink + circle over the label).
+ * L: the header ("LOOKBACK · SECTION n" / "n TAKES"), the selected take's card (2 px white border, NEW on the newest take
+ * just recorded, "TAKE n · 0.75×", an 80 play circle and "Play side by side") and the takes row under it: 1–3 numbered
+ * buttons (the selected one white) and a pink +.
+ * L2 (four or more takes): the row is ‹ · "n / total" · › · +, with ‹ and › greyed at the ends.
+ * Pinching the card calls onPlay, a take button onSelect with its index, ‹ › onStep, and Record lookback or + onRecord.
+ * A failed recording's message sits under the card's label (or the button's).
+ * A shallow view: render() shows the Lookback view, placed by the screen's lookPanel in Layout.SCREENS; hidden elsewhere.
  */
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
-import { ATTEMPTS_SHOWN, LookbackView, takeLabel } from "../Core/LookbackController"
+import { LookbackView, takeLabel } from "../Core/LookbackController"
 import { panelsFor, pointInPanelCm, pxToCm, PxRect } from "./Layout"
 import { ViewState } from "../Core/PlaybackController"
-import { ColorToken, RADII, TYPE } from "./Theme"
-import { childObject, makeRect, makeText, place, setRectSize, themeColor } from "./Visuals"
+import { ColorToken, RADIUS, SIZE, SPACE, TextStyleName } from "./Theme"
+import { childObject, Icon, makeIcon, makePill, makeSurface, makeText, place, setRectSize, setSurfaceBorder, themeColor } from "./Visuals"
 
-// Layers in front of the window plane, in cm: the panels, then what sits on them.
+// Layers in front of the window plane, in cm: the panel, the buttons and card, then what sits on them.
 const Z_PANEL = 0.1
 const Z_ITEM = 0.2
-const RECORD = { w: 220, h: 64 }
-const PLAY = { w: 200, h: 56 }
-const PLUS = 36
+const Z_LABEL = 0.05
 // Collider depth, in cm.
 const HIT_DEPTH = 1
-// The ATTEMPTS row, from its left edge (prototype px): where the takes start, the + button's width and the gap between takes.
-const ATTEMPTS_X = 124
-const PLUS_W = 52
-const CHIP_GAP = 6
-const TILE_PAD = 12
-
-// How many characters of the note fit across the look panel.
-const NOTE_CHARS = 34
+const PAD = SPACE.attached
+const HEADER_H = 16
+const BIG_CIRCLE = 80
+const CHIP_INSET = 12
+const CHIP_PAD = 16
+// Chip text (Sora 14/700, capitals) is about this wide per character.
+const CHIP_CHAR_W = 10
+const COUNT_W = 64
+// How many characters of a failure message fit across the card.
+const NOTE_CHARS = 30
 
 /** Breaks text into lines of at most `max` characters, at spaces. */
 function wrapLines(text: string, max: number): string {
@@ -56,167 +56,234 @@ interface Label {
   text: Text
 }
 
-interface Chip {
+/** A round 56 button: its object, fill, a number label and an optional icon. */
+interface RoundButton {
   object: SceneObject
   rect: RoundedRectangle
   label: Label
+  icon: Icon | null
 }
 
 @component
 export class LookPanel extends BaseScriptComponent {
-  /** Called when a take in the ATTEMPTS row is pinched, with its place in the row (0 is the oldest shown). */
-  onSelect: (attempt: number) => void = () => {}
+  /** Called when a take button is pinched, with the take's index in the section's takes. */
+  onSelect: (index: number) => void = () => {}
+  /** Called when ‹ (-1) or › (+1) is pinched. */
+  onStep: (delta: -1 | 1) => void = () => {}
   /** Called when Record lookback or the + is pinched. */
   onRecord: () => void = () => {}
-  /** Called when Play side by side is pinched. */
+  /** Called when the take card is pinched. */
   onPlay: () => void = () => {}
 
   private look: SceneObject
-  private lookRect: RoundedRectangle
+  private bigButton: SceneObject
+  private bigNote: Label
+  private header: SceneObject
   private head: Label
   private count: Label
-  private note: Label
-  private record: SceneObject
-  private tile: SceneObject
-  private tileRect: RoundedRectangle
-  private tileLabel: Label
-  private play: SceneObject
-  private attempts: SceneObject
-  private attemptsRect: RoundedRectangle
-  private attemptsLabel: Label
-  private chips: Chip[] = []
-  private plus: SceneObject
-  private lookKey = ""
-  private attemptsKey = ""
+  private card: SceneObject
+  private cardRect: RoundedRectangle
+  private newPill: SceneObject
+  private newRect: RoundedRectangle
+  private takePill: SceneObject
+  private takePillRect: RoundedRectangle
+  private takePillLabel: Label
+  private cardNote: Label
+  private row: SceneObject
+  private takeButtons: RoundButton[] = []
+  private back: RoundButton
+  private forward: RoundButton
+  private counter: Label
+  private plus: RoundButton
+  private layoutKey = ""
   private lastKey = ""
-  // How many takes the row shows; a pinch on a chip past it does nothing.
-  private shown = 0
+  // The takes the buttons stand for, and what ‹ › may do now.
+  private takeCount = 0
+  private canBack = false
+  private canForward = false
 
   onAwake() {
     this.look = childObject("Look", this.sceneObject)
-    this.lookRect = this.panel(this.look)
-    this.head = this.label(this.look, TYPE.chip, "muted", "left")
-    this.count = this.label(this.look, TYPE.chip, "muted", "right")
-    this.note = this.label(this.look, TYPE.button, "muted")
-    this.record = this.outlined("Record", this.look, RECORD.w, RECORD.h, RADII.control, () => this.onRecord())
-    this.label(this.record, TYPE.button, "ink").text.text = "Record lookback"
-    this.tile = childObject("Tile", this.look)
-    this.tileRect = makeRect(this.tile, "video", 2)
-    this.tileRect.border = true
-    this.tileRect.borderSize = pxToCm(2)
-    this.tileRect.borderColor = themeColor("ink")
-    this.tileLabel = this.label(this.tile, TYPE.chip, "ink", "left")
-    this.play = this.outlined("Play", this.look, PLAY.w, PLAY.h, RADII.control, () => this.onPlay())
-    this.label(this.play, TYPE.button, "ink").text.text = "Play side by side"
+    makeSurface(this.look, { fill: "panelSolid", border: "border", borderPx: 1, radius: RADIUS.xl }, 1, 300, 520)
 
-    this.attempts = childObject("Attempts", this.sceneObject)
-    this.attemptsRect = this.panel(this.attempts)
-    this.attemptsLabel = this.label(this.attempts, TYPE.chip, "muted", "left")
-    for (let i = 0; i < ATTEMPTS_SHOWN; i++) this.chips.push(this.chip(i))
-    this.plus = this.outlined("Plus", this.attempts, PLUS, PLUS, PLUS / 2, () => this.onRecord())
-    this.label(this.plus, TYPE.icon, "ink").text.text = "+"
+    // I: one big button filling the panel.
+    this.bigButton = this.pressable("Record", this.look, 300 - 2 * PAD, 520 - 2 * PAD, () => this.onRecord())
+    makeSurface(this.bigButton, { fill: "control", radius: RADIUS.lg }, 2, 300 - 2 * PAD, 520 - 2 * PAD)
+    const circle = childObject("Circle", this.bigButton)
+    makePill(circle, "pink", 3, BIG_CIRCLE, BIG_CIRCLE)
+    // The circle, 16 gap and the label (24) are centred as one group: 120 tall.
+    place(circle, new vec2(0, pxToCm(20)), Z_LABEL)
+    const plusIcon = makeIcon(circle, "plus", "onColor", 4, 40)
+    plusIcon.object.getTransform().setLocalPosition(new vec3(0, 0, Z_LABEL))
+    const bigLabel = this.label(this.bigButton, "buttonStrong", "text")
+    bigLabel.text.text = "Record lookback"
+    place(bigLabel.object, new vec2(0, -pxToCm(48)), Z_LABEL)
+    this.bigNote = this.label(this.bigButton, "caption", "textMuted")
+    place(this.bigNote.object, new vec2(0, -pxToCm(80)), Z_LABEL)
+
+    // L: header, card and takes row.
+    this.header = childObject("Header", this.look)
+    this.head = this.label(this.header, "eyebrow", "textMuted", "left")
+    this.count = this.label(this.header, "eyebrow", "textSubtle", "right")
+    this.card = this.pressable("Card", this.look, 1, 1, () => this.onPlay())
+    this.cardRect = makeSurface(this.card, { fill: "control", border: "text", borderPx: 2, radius: RADIUS.lg }, 2, 1, 1)
+    this.newPill = childObject("New", this.card)
+    this.newRect = makePill(this.newPill, "text", 3, 1, SIZE.chip)
+    this.label(this.newPill, "chip", "onColor").text.text = "NEW"
+    this.takePill = childObject("TakePill", this.card)
+    this.takePillRect = makePill(this.takePill, "scrim", 3, 1, SIZE.chip)
+    this.takePillLabel = this.label(this.takePill, "chip", "text")
+    const playCircle = childObject("PlayCircle", this.card)
+    makePill(playCircle, "text", 3, BIG_CIRCLE, BIG_CIRCLE)
+    place(playCircle, new vec2(0, 0), Z_ITEM)
+    const playIcon = makeIcon(playCircle, "play", "onColor", 4, 28)
+    playIcon.object.getTransform().setLocalPosition(new vec3(0, 0, Z_LABEL))
+    const playLabel = this.label(this.card, "buttonStrong", "text")
+    playLabel.text.text = "Play side by side"
+    place(playLabel.object, new vec2(0, -pxToCm(BIG_CIRCLE / 2 + 12 + 12)), Z_ITEM)
+    this.cardNote = this.label(this.card, "caption", "textMuted")
+    place(this.cardNote.object, new vec2(0, -pxToCm(BIG_CIRCLE / 2 + 12 + 24 + 12 + 14)), Z_ITEM)
+
+    this.row = childObject("Takes", this.look)
+    for (let i = 0; i < 3; i++) this.takeButtons.push(this.roundButton(`Take${i}`, null, () => this.takeCount > i && this.onSelect(i)))
+    this.back = this.roundButton("Back", "back", () => this.canBack && this.onStep(-1))
+    this.forward = this.roundButton("Forward", "forward", () => this.canForward && this.onStep(1))
+    this.counter = this.label(this.row, "buttonCount", "text")
+    this.plus = this.roundButton("Plus", "plus", () => this.onRecord())
+    this.plus.rect.backgroundColor = themeColor("pink")
+    this.plus.icon!.setColor("onColor")
     this.sceneObject.enabled = false
   }
 
   render(view: ViewState, look: LookbackView | null) {
-    const { lookPanel, attempts } = panelsFor(view)
-    this.sceneObject.enabled = !!lookPanel && !!attempts && !!look
-    if (!lookPanel || !attempts || !look) return
-    const [, , lw, lh] = lookPanel
-    const [, , aw, ah] = attempts
+    const { lookPanel } = panelsFor(view)
+    this.sceneObject.enabled = !!lookPanel && !!look
+    if (!lookPanel || !look) return
     const hasTakes = look.takes.length > 0
-    const lookKey = `${lw}x${lh}|${hasTakes}`
-    if (lookKey !== this.lookKey) {
-      this.lookKey = lookKey
-      this.layoutLook(lookPanel, hasTakes)
+    const layoutKey = `${hasTakes}|${look.stepper}|${hasTakes && !look.stepper ? look.takes.length : 0}`
+    if (layoutKey !== this.layoutKey) {
+      this.layoutKey = layoutKey
+      // The layout moves the take pill, which the text pass places by its width.
+      this.lastKey = ""
+      this.layout(lookPanel, look, hasTakes)
     }
-    const attemptsKey = `${aw}x${ah}|${look.attempts.length}`
-    if (attemptsKey !== this.attemptsKey) {
-      this.attemptsKey = attemptsKey
-      this.layoutAttempts(attempts, look.attempts.length)
-    }
-    const n = look.takes.length
-    const key = `${look.section}|${look.selected}|${look.newTake}|${look.message}|${look.attempts.map((t) => t.name).join(",")}`
+    const key = `${look.section}|${look.selected}|${look.takes.length}|${look.newTake}|${look.message}|${look.canBack}|${look.canForward}`
     if (key === this.lastKey) return
     this.lastKey = key
+    const n = look.takes.length
+    this.takeCount = look.stepper ? 0 : n
+    this.canBack = look.stepper && look.canBack
+    this.canForward = look.stepper && look.canForward
+    const note = look.message ? wrapLines(look.message, NOTE_CHARS) : ""
+    this.bigNote.text.text = note
+    this.cardNote.text.text = note
     this.head.text.text = `LOOKBACK · SECTION ${look.section}`
     this.count.text.text = `${n} TAKE${n === 1 ? "" : "S"}`
-    // A failed recording's message takes the note's place, on L too.
-    this.note.object.enabled = !hasTakes || !!look.message
-    this.note.text.text = look.message ? wrapLines(look.message, NOTE_CHARS) : "No recordings for this section yet"
-    this.attemptsLabel.text.text = `ATTEMPTS   SECTION ${look.section} · LOCKED`
     const selected = look.selected >= 0 ? look.takes[look.selected] : null
-    this.tileLabel.text.text = selected ? takeLabel(selected, selected.name === look.newTake) : ""
-    this.shown = look.attempts.length
-    this.chips.forEach((chip, i) => {
-      const take = look.attempts[i]
-      chip.object.enabled = !!take
-      if (!take) return
-      const isSelected = look.takes[look.selected] === take
-      // NEW goes under the label: the chip is too narrow for it beside.
-      chip.label.text.text = take.name === look.newTake ? `${takeLabel(take)}\nNEW` : takeLabel(take)
-      chip.label.text.textFill.color = themeColor(isSelected ? "ink" : "ink2")
-      chip.rect.backgroundColor = themeColor(isSelected ? "video" : "panel")
-      chip.rect.borderColor = themeColor(isSelected ? "ink" : "soft")
-      chip.rect.borderSize = pxToCm(isSelected ? 2 : 1)
+    if (selected) {
+      const isNew = selected.name === look.newTake && look.selected === n - 1
+      this.newPill.enabled = isNew
+      this.takePillLabel.text.text = takeLabel(selected)
+      this.sizeChip(this.takePillRect, this.takePill, takeLabel(selected), CHIP_INSET, false)
+      this.counter.text.text = `${look.selected + 1} / ${n}`
+    }
+    this.takeButtons.forEach((b, i) => {
+      const take = look.takes[i]
+      if (!take || look.stepper) return
+      const on = i === look.selected
+      b.label.text.text = `${take.number}`
+      b.rect.backgroundColor = themeColor(on ? "text" : "control")
+      b.label.text.textFill.color = themeColor(on ? "onColor" : "text")
     })
+    this.back.icon!.setColor(look.canBack ? "text" : "tickOff")
+    this.forward.icon!.setColor(look.canForward ? "text" : "tickOff")
   }
 
-  /** Places the look panel's parts: the Record button and note with no takes, the tile and Play button with some. */
-  private layoutLook(box: PxRect, hasTakes: boolean) {
+  /** Places the panel's parts for I, L (one to three takes) or L2. */
+  private layout(box: PxRect, look: LookbackView, hasTakes: boolean) {
     const [, , w, h] = box
     place(this.look, pointInPanelCm(box, w / 2, h / 2), Z_PANEL)
-    setRectSize(this.lookRect, w, h, RADII.video)
-    this.head.object.getTransform().setLocalPosition(new vec3(-pxToCm(w / 2 - TILE_PAD), pxToCm(h / 2 - 20), Z_ITEM))
-    this.count.object.getTransform().setLocalPosition(new vec3(pxToCm(w / 2 - TILE_PAD), pxToCm(h / 2 - 20), Z_ITEM))
-    this.record.enabled = !hasTakes
-    this.tile.enabled = hasTakes
-    this.play.enabled = hasTakes
-    this.record.getTransform().setLocalPosition(new vec3(0, 0, Z_ITEM))
-    // The note sits under the Record button, or, on L, under the Play button.
-    this.note.object.getTransform().setLocalPosition(new vec3(0, hasTakes ? pxToCm(h / 2 - 36 - (h - 36 - 56) - 56 - PLAY.h / 2 - 22) : -pxToCm(RECORD.h / 2 + 24), Z_ITEM))
-    // The tile fills the panel under the heading, leaving room for the Play button below its middle.
-    const tileW = w - 2 * TILE_PAD
-    const tileH = h - 36 - 56
-    this.tile.getTransform().setLocalPosition(new vec3(0, pxToCm(h / 2 - 36 - tileH / 2), Z_ITEM / 2))
-    setRectSize(this.tileRect, tileW, tileH, 10)
-    this.tileLabel.object.getTransform().setLocalPosition(new vec3(-pxToCm(tileW / 2 - 8), -pxToCm(tileH / 2 - 14), Z_ITEM / 2))
-    this.play.getTransform().setLocalPosition(new vec3(0, pxToCm(h / 2 - 36 - tileH / 2 - 56), Z_ITEM))
+    this.bigButton.enabled = !hasTakes
+    this.header.enabled = hasTakes
+    this.card.enabled = hasTakes
+    this.row.enabled = hasTakes
+    if (!hasTakes) return
+    const left = -w / 2 + PAD
+    const top = h / 2 - PAD
+    this.head.object.getTransform().setLocalPosition(new vec3(pxToCm(left), pxToCm(top - HEADER_H / 2), Z_ITEM))
+    this.count.object.getTransform().setLocalPosition(new vec3(pxToCm(-left), pxToCm(top - HEADER_H / 2), Z_ITEM))
+    // The card fills what's between the header and the takes row.
+    const cardW = w - 2 * PAD
+    const cardTop = top - HEADER_H - SPACE.between
+    const rowTop = -h / 2 + PAD + SIZE.control
+    const cardBottom = rowTop + SPACE.between
+    const cardH = cardTop - cardBottom
+    place(this.card, new vec2(0, pxToCm((cardTop + cardBottom) / 2)), Z_ITEM)
+    setRectSize(this.cardRect, cardW, cardH, RADIUS.lg)
+    setSurfaceBorder(this.cardRect, "text", 2)
+    this.setHitBox(this.card, cardW, cardH)
+    // NEW top-left and the take's label bottom-left, 12 in.
+    this.sizeChip(this.newRect, this.newPill, "NEW", CHIP_INSET, true)
+    place(this.newPill, new vec2(-pxToCm(cardW / 2 - CHIP_INSET - this.chipWidth("NEW") / 2), pxToCm(cardH / 2 - CHIP_INSET - SIZE.chip / 2)), Z_LABEL)
+    this.takePill.getTransform().setLocalPosition(new vec3(0, -pxToCm(cardH / 2 - CHIP_INSET - SIZE.chip / 2), Z_LABEL))
+    // The takes row: centred, 12 between controls.
+    const y = pxToCm(rowTop - SIZE.control / 2)
+    const items: { object: SceneObject; w: number }[] = look.stepper
+      ? [
+          { object: this.back.object, w: SIZE.control },
+          { object: this.counter.object, w: COUNT_W },
+          { object: this.forward.object, w: SIZE.control },
+          { object: this.plus.object, w: SIZE.control },
+        ]
+      : [...this.takeButtons.slice(0, look.takes.length).map((b) => ({ object: b.object, w: SIZE.control })), { object: this.plus.object, w: SIZE.control }]
+    const every = [...this.takeButtons.map((b) => b.object), this.back.object, this.forward.object, this.counter.object, this.plus.object]
+    every.forEach((o) => (o.enabled = items.some((i) => i.object === o)))
+    const total = items.reduce((sum, i) => sum + i.w, 0) + SPACE.between * (items.length - 1)
+    let x = -total / 2
+    for (const item of items) {
+      place(item.object, new vec2(pxToCm(x + item.w / 2), y), Z_ITEM)
+      x += item.w + SPACE.between
+    }
   }
 
-  /** Places the ATTEMPTS row: its label, then `n` takes sharing the room left of the + button. */
-  private layoutAttempts(box: PxRect, n: number) {
-    const [, , w, h] = box
-    place(this.attempts, pointInPanelCm(box, w / 2, h / 2), Z_PANEL)
-    setRectSize(this.attemptsRect, w, h, RADII.bar)
-    this.attemptsLabel.object.getTransform().setLocalPosition(new vec3(-pxToCm(w / 2 - 20), 0, Z_ITEM))
-    const room = w - 12 - ATTEMPTS_X - PLUS_W
-    const chipW = n ? (room - CHIP_GAP * n) / n : 0
-    const chipH = h - 12
-    this.chips.forEach((chip, i) => {
-      setRectSize(chip.rect, chipW, chipH, 8)
-      this.setHitBox(chip.object, chipW, chipH)
-      chip.object.getTransform().setLocalPosition(new vec3(pxToCm(ATTEMPTS_X + i * (chipW + CHIP_GAP) + chipW / 2 - w / 2), 0, Z_ITEM))
-    })
-    this.plus.getTransform().setLocalPosition(new vec3(pxToCm(w / 2 - 6 - PLUS_W / 2), 0, Z_ITEM))
+  /** The width a chip's text needs, with its 16 padding either side. */
+  private chipWidth(text: string): number {
+    return 2 * CHIP_PAD + text.length * CHIP_CHAR_W
   }
 
-  /** A pressable take in the ATTEMPTS row. */
-  private chip(index: number): Chip {
-    const object = childObject(`Take${index}`, this.attempts)
-    const rect = makeRect(object, "panel", 2)
-    rect.border = true
-    rect.borderSize = pxToCm(1)
-    rect.borderColor = themeColor("soft")
-    const label = this.label(object, TYPE.chip, "ink2")
-    const collider = object.createComponent("ColliderComponent") as ColliderComponent
+  /** Sizes a pill to its text; `leftAnchored` pills are placed by the caller from their centre, the take pill hangs off the card's left edge. */
+  private sizeChip(rect: RoundedRectangle, object: SceneObject, text: string, inset: number, leftAnchored: boolean) {
+    const w = this.chipWidth(text)
+    setRectSize(rect, w, SIZE.chip, RADIUS.pill)
+    if (leftAnchored) return
+    // The label sits 12 in from the card's left edge and bottom.
+    const cardW = 300 - 2 * PAD
+    const pos = object.getTransform().getLocalPosition()
+    object.getTransform().setLocalPosition(new vec3(-pxToCm(cardW / 2 - inset - w / 2), pos.y, pos.z))
+  }
+
+  /** A 56 round button with an optional icon, pressable with onPress. */
+  private roundButton(name: string, icon: "back" | "forward" | "plus" | null, onPress: () => void): RoundButton {
+    const object = this.pressable(name, this.row, SIZE.control, SIZE.control, onPress)
+    const rect = makePill(object, "control", 2, SIZE.control, SIZE.control)
+    const label = this.label(object, "buttonCount", "text")
+    let glyph: Icon | null = null
+    if (icon) {
+      glyph = makeIcon(object, icon, "text", 3)
+      glyph.object.getTransform().setLocalPosition(new vec3(0, 0, Z_LABEL))
+    }
+    return { object, rect, label, icon: glyph }
+  }
+
+  /** A pressable object with a collider of the given size (px), calling onPress when pinched. */
+  private pressable(name: string, parent: SceneObject, wPx: number, hPx: number, onPress: () => void): SceneObject {
+    const so = childObject(name, parent)
+    const collider = so.createComponent("ColliderComponent") as ColliderComponent
     collider.fitVisual = false
-    this.setHitBox(object, 1, 1)
-    const interactable = object.createComponent(Interactable.getTypeName()) as Interactable
-    interactable.onTriggerEnd.add(() => {
-      if (index < this.shown) this.onSelect(index)
-    })
-    return { object, rect, label }
+    this.setHitBox(so, wPx, hPx)
+    const interactable = so.createComponent(Interactable.getTypeName()) as Interactable
+    interactable.onTriggerEnd.add(onPress)
+    return so
   }
 
   private setHitBox(object: SceneObject, wPx: number, hPx: number) {
@@ -227,36 +294,9 @@ export class LookPanel extends BaseScriptComponent {
     collider.shape = shape
   }
 
-  /** A bordered panel, sized on first render. */
-  private panel(parent: SceneObject): RoundedRectangle {
-    const rect = makeRect(parent, "panel", 1)
-    rect.border = true
-    rect.borderSize = pxToCm(1)
-    rect.borderColor = themeColor("stroke")
-    return rect
-  }
-
-  /** An outlined button: pressable with onPress, else greyed out. */
-  private outlined(name: string, parent: SceneObject, w: number, h: number, radius: number, onPress?: () => void): SceneObject {
-    const so = childObject(name, parent)
-    const rect = makeRect(so, "panel", 2)
-    rect.border = true
-    rect.borderSize = pxToCm(1)
-    rect.borderColor = themeColor(onPress ? "ink" : "ghostLine")
-    setRectSize(rect, w, h, radius)
-    if (onPress) {
-      const collider = so.createComponent("ColliderComponent") as ColliderComponent
-      collider.fitVisual = false
-      this.setHitBox(so, w, h)
-      const interactable = so.createComponent(Interactable.getTypeName()) as Interactable
-      interactable.onTriggerEnd.add(onPress)
-    }
-    return so
-  }
-
-  private label(parent: SceneObject, sizePx: number, token: ColorToken, align: "left" | "center" | "right" = "center"): Label {
+  private label(parent: SceneObject, style: TextStyleName, token: ColorToken, align: "left" | "center" | "right" = "center"): Label {
     const object = childObject("Label", parent)
-    object.getTransform().setLocalPosition(new vec3(0, 0, Z_ITEM / 2))
-    return { object, text: makeText(object, sizePx, token, 4, align) }
+    object.getTransform().setLocalPosition(new vec3(0, 0, Z_LABEL))
+    return { object, text: makeText(object, style, token, 5, align) }
   }
 }

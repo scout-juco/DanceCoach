@@ -203,7 +203,7 @@ describe("Recording: saving the take", () => {
     const v = lb.downloaded(take(3, 0.75))!
     expect(v).toMatchObject({ screen: "L", record: null, selected: 2, newTake: "s2-t3", message: null })
     expect(v.takes.map((t) => t.number)).toEqual([1, 2, 3])
-    expect(v.attempts.map((t) => t.number)).toEqual([1, 2, 3])
+    expect(v).toMatchObject({ stepper: false, canBack: true, canForward: false })
     expect(takeLabel(v.takes[2], v.newTake === v.takes[2].name)).toBe("TAKE 3 · 0.75× · NEW")
     expect(takeLabel(v.takes[1], v.newTake === v.takes[1].name)).toBe("TAKE 2 · 1×")
   })
@@ -318,5 +318,15 @@ describe("Recording: failures go back to I or L with a message", () => {
     expect(lb.armed("s9")).toBeNull()
     lb.enter(2, [])
     expect(lb.view!.record).toBeNull()
+  })
+})
+
+describe("Lookback: a new take on the stepper", () => {
+  it("becomes selected and carries NEW, with › off, once there are four or more takes", () => {
+    const lb = saving(4)
+    lb.recorderStatus(ready(5))
+    lb.takeRequests()
+    const v = lb.downloaded(take(5, 0.75))!
+    expect(v).toMatchObject({ screen: "L", selected: 4, newTake: "s2-t5", stepper: true, canBack: true, canForward: false })
   })
 })

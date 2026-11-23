@@ -134,7 +134,7 @@ describe("saving, listing and serving a dance", () => {
     expect(saved.status).toBe(200)
 
     const list = await (await fetch(`${base}/dances`)).json()
-    expect(list).toContainEqual({ id: pkg.id, title: "Adjusted", difficulty: "Intermediate" })
+    expect(list).toContainEqual(expect.objectContaining({ id: pkg.id, title: "Adjusted", difficulty: "Intermediate", sections: expect.any(Number), lengthSec: 9 }))
 
     const served = loadDancePackage(await (await fetch(`${base}/dances/${pkg.id}/package`)).json())
     expect(served.title).toBe("Adjusted")
@@ -173,7 +173,7 @@ describe("saving, listing and serving a dance", () => {
     const renamed = await save(pkg.id, { ...pkg, title: "Renamed", difficulty: "Advanced" })
     expect(renamed.status).toBe(200)
     expect(existsSync(marker)).toBe(true) // clips untouched
-    expect(await (await fetch(`${base}/dances`)).json()).toContainEqual({ id: pkg.id, title: "Renamed", difficulty: "Advanced" })
+    expect(await (await fetch(`${base}/dances`)).json()).toContainEqual(expect.objectContaining({ id: pkg.id, title: "Renamed", difficulty: "Advanced" }))
     // Changing the timing does cut again.
     await save(pkg.id, { ...pkg, trim: { start: 0, end: 8 } })
     expect(existsSync(marker)).toBe(false)

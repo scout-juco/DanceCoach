@@ -16,6 +16,10 @@ export interface DanceListing {
   id: string
   title: string
   difficulty?: string
+  /** How many 8-count sections it has, when the source knows (the picker's "N sections"). */
+  sections?: number
+  /** The routine's length in seconds, when the source knows. */
+  lengthSec?: number
 }
 
 /** A dance's clips, ready to play: players[i] and textures[i] are the same clip. */

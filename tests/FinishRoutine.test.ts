@@ -122,6 +122,12 @@ describe("Routine done", () => {
     expect(pc.replay()).toMatchObject({ runKind: "section", section: 3 })
   })
 
+  it("Record your dance only toasts: the dialog stays up", () => {
+    const pc = ready()
+    pc.finish()
+    expect(pc.routineDone("record")).toMatchObject({ screen: "G", popup: "routineDone", controlsLocked: true, toast: "Record your dance is coming soon" })
+  })
+
   it("ignores a choice without the pop-up", () => {
     const pc = ready()
     expect(pc.routineDone("again")).toMatchObject({ screen: "C2", popup: null })

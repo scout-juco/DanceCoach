@@ -16,6 +16,9 @@ export const firstLookKey = (danceId: string) => `danceCoach.firstLookSeen.${dan
 /** The persistent storage key for a dance's "Finish routine unlocked" flag (a bool). */
 export const finishReadyKey = (danceId: string) => `danceCoach.finishReady.${danceId}`
 
+/** The persistent storage key for a dance's done sections (a string, see encodeDoneSections). */
+export const doneSectionsKey = (danceId: string) => `danceCoach.doneSections.${danceId}`
+
 const SPEEDS: Speed[] = [0.5, 0.75, 1]
 
 export function encodeSettings(settings: Settings): string {
@@ -37,4 +40,22 @@ export function decodeSettings(raw: string | null | undefined): Settings {
     counts: typeof data.counts === "boolean" ? data.counts : DEFAULT_SETTINGS.counts,
     halfCounts: typeof data.halfCounts === "boolean" ? data.halfCounts : DEFAULT_SETTINGS.halfCounts,
   }
+}
+
+/** Done sections as a string for Lens persistent storage: a JSON array of section numbers. */
+export function encodeDoneSections(done: number[]): string {
+  return JSON.stringify(done)
+}
+
+/** Reads saved done sections; anything missing or damaged is none. Sorted, whole, 1 or more, no repeats; sections beyond sectionCount (when given) are dropped. */
+export function decodeDoneSections(raw: string | null | undefined, sectionCount: number = Infinity): number[] {
+  let data: any = null
+  try {
+    data = raw ? JSON.parse(raw) : null
+  } catch (e) {
+    data = null
+  }
+  if (!Array.isArray(data)) return []
+  const ok = data.filter((n: any) => typeof n === "number" && Math.floor(n) === n && n >= 1 && n <= sectionCount)
+  return ok.filter((n: number, i: number) => ok.indexOf(n) === i).sort((a: number, b: number) => a - b)
 }

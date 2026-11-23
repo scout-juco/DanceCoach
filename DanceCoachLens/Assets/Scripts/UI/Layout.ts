@@ -12,7 +12,7 @@ import { Placement } from "../Core/WindowPlacement"
 /** [x, y, width, height] in prototype pixels. */
 export type PxRect = [number, number, number, number]
 
-export type PanelId = "video" | "progress" | "segBar" | "sections" | "controls" | "poseLine" | "lookPanel" | "attempts" | "countdown" | "toast" | "skip" | "popup" | "take" | "sbsBar"
+export type PanelId = "video" | "progress" | "segBar" | "sections" | "controls" | "poseLine" | "lookPanel" | "countdown" | "toast" | "skip" | "popup" | "take" | "sbsBar"
 
 /** The video window's three sizes (BUILD_SPEC §6.1), all at x 792, y 40. */
 const VIDEO_FULL: PxRect = [792, 40, 340, 604]
@@ -22,12 +22,6 @@ const VIDEO_TILES: PxRect = [792, 40, 300, 504]
 /** The bars 16 below a full-height video: a progress bar is 8 tall; a section bar is 8 plus its labels (8 + 4 + 16). */
 const PROGRESS: PxRect = [792, 660, 340, 8]
 const SEG_BAR: PxRect = [792, 660, 340, 28]
-
-/**
- * The legacy panels have no B2 surface: "attempts" goes with Lookback's rebuild (#49).
- * Until then it sits 24 clear of its neighbours, out of the way.
- */
-export const LEGACY_PANELS: PanelId[] = ["attempts"]
 
 /** Floating panels: they aren't surfaces on the board (a toast, a pop-up that opens in front of you). */
 export const FLOATING_PANELS: PanelId[] = ["toast", "popup"]
@@ -57,19 +51,19 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   D: { video: VIDEO_FULL, poseLine: [792, 668, 340, 8] },
   // Pose, open: the mode panel with the scrub between its rows, 24 under the video (B2PoseOpen).
   E: { video: VIDEO_BESIDE, controls: [596, 584, 496, 200] },
-  // Lookback: the side panel 24 left of the video, the mode panel 24 under the video. The old ATTEMPTS row
-  // sits left of the mode panel, and the toast left of the side panel.
-  I: { video: VIDEO_BESIDE, lookPanel: [468, 40, 300, 520], attempts: [48, 584, 620, 56], controls: [692, 584, 400, 144], toast: [24, 512, 420, 48] },
-  L: { video: VIDEO_BESIDE, lookPanel: [468, 40, 300, 520], attempts: [48, 584, 620, 56], controls: [692, 584, 400, 144], toast: [24, 512, 420, 48] },
+  // Lookback: the side panel 24 left of the video (I: one Record lookback button; L and L2: the take card and
+  // the takes row), the mode panel 24 under the video, and the toast left of the side panel.
+  I: { video: VIDEO_BESIDE, lookPanel: [468, 40, 300, 520], controls: [692, 584, 400, 144], toast: [24, 512, 420, 48] },
+  L: { video: VIDEO_BESIDE, lookPanel: [468, 40, 300, 520], controls: [692, 584, 400, 144], toast: [24, 512, 420, 48] },
   // Record lookback?: a dialog centred over I or L, with no mode panel (the board is locked behind it).
-  J: { video: VIDEO_BESIDE, lookPanel: [468, 40, 300, 520], attempts: [48, 584, 620, 56], popup: [420, 216, 440, 368] },
+  J: { video: VIDEO_BESIDE, lookPanel: [468, 40, 300, 520], popup: [420, 216, 440, 368] },
   // Side by side: the same board as Lookback, so nothing seems to move (kept over B2's layout, Nov 23, 2026).
   // The original stays where it was, on the right, and the take takes the side panel's place on the left
   // (eyebrows 24 above each). The play bar is 16 under them and the mode panel 8 under that (as in B2's render),
   // right-aligned to the video.
   M: { video: VIDEO_BESIDE, take: [468, 40, 300, 520], sbsBar: [468, 576, 624, 48], controls: [520, 632, 572, 144] },
   // Lookback countdown: the 152-wide column 32 left of the video, then the section records like Playthrough.
-  K: { countdown: [608, 236, 152, 192], video: VIDEO_FULL, progress: PROGRESS },
+  K: { countdown: [608, 236, 152, 148], video: VIDEO_FULL, progress: PROGRESS },
 }
 
 /** A Full run plays on B with From the top's section bar in place of the progress bar. */

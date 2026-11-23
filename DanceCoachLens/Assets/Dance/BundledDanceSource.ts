@@ -2,6 +2,7 @@
  * The bundled dance source: the one dance that ships in the Lens (the test dance) and the
  * clips and stills assigned to the DanceCoach component in Lens Studio.
  */
+import { listingOf } from "../Scripts/Core/DanceCards"
 import { clipAssetName, planClips } from "../Scripts/Core/ClipPlan"
 import { DanceClips, DanceListing, DanceSource, LoadedDance } from "../Scripts/Core/DanceSource"
 import { DancePackage } from "../Scripts/Core/DancePackage"
@@ -24,7 +25,7 @@ export class BundledDanceSource implements DanceSource<Texture> {
   ) {}
 
   async list(): Promise<DanceListing[]> {
-    return this.dances.map((d) => ({ id: d.id, title: d.title, difficulty: d.difficulty }))
+    return this.dances.map(listingOf)
   }
 
   async load(name: string): Promise<LoadedDance<Texture>> {

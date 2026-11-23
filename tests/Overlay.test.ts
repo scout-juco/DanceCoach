@@ -13,7 +13,7 @@ function viewOn(screen: ScreenId, settings: Partial<Settings> = {}, extra: Parti
 
 const pose = (step: number): PoseView => ({ screen: "D", section: 1, step, halfCounts: false, stepId: 0 })
 const look = (record: LookbackView["record"], count = 0): LookbackView =>
-  ({ screen: "K", section: 1, takes: [], selected: -1, attempts: [], phoneConnected: true, record, newTake: null, message: null, sideBySide: count ? { count } : null }) as unknown as LookbackView
+  ({ screen: "K", section: 1, takes: [], selected: -1, stepper: false, canBack: false, canForward: false, phoneConnected: true, record, newTake: null, message: null, sideBySide: count ? { count } : null }) as unknown as LookbackView
 
 describe("overlayFor: a clip playing (B, A1, F)", () => {
   for (const screen of ["B", "PV", "F"] as ScreenId[]) {

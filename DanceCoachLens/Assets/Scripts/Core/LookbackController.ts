@@ -6,8 +6,10 @@
  * the mode; the Lens enters this controller when the mode becomes Lookback.
  *
  * M4-05: Lookback opens on screen I (no takes for the section) or L (some). On L the newest take is
- * selected; the ATTEMPTS row shows the last four takes and tapping one selects it. The glasses poll
- * the server's recorder status while here; tick says when a poll is due.
+ * selected. The glasses poll the server's recorder status while here; tick says when a poll is due.
+ *
+ * M5-07: the takes row. Up to three takes get a numbered button each (selectTake); from STEPPER_FROM takes it
+ * is a stepper, ‹ n / total ›, over every take of the section (stepTake), with › off at the newest.
  *
  * M4-06: recording a take. The + and Record lookback open "Record lookback?" (J), which blocks Yes until the
  * phone is connected. Yes arms the take on the server, counts 3, 2, 1 (K), tells the server the run started and
@@ -30,8 +32,8 @@ import { RecorderStatus, Take, TakeParams } from "./TakesClient"
 
 /** How often the recorder status is polled, in seconds. */
 export const STATUS_POLL_SEC = 0.5
-/** How many takes the ATTEMPTS row shows. */
-export const ATTEMPTS_SHOWN = 4
+/** From this many takes the takes row is a stepper (‹ n / total ›) instead of one button per take (L2). */
+export const STEPPER_FROM = 4
 /** The 3, 2, 1 before the section plays. */
 export const COUNTDOWN_FROM = 3
 /** How long a take may stay on "Saving take…" before it's given up on, in seconds. */
@@ -127,8 +129,11 @@ export interface LookbackView {
   takes: Take[]
   /** Index in takes of the selected take, or -1 with none. */
   selected: number
-  /** The last ATTEMPTS_SHOWN takes, oldest first, for the ATTEMPTS row. */
-  attempts: Take[]
+  /** The takes row is the stepper (L2): four or more takes. */
+  stepper: boolean
+  /** ‹ can go to an earlier take, and › to a later one (› is off at the newest). */
+  canBack: boolean
+  canForward: boolean
   /** The phone camera has polled the server recently. */
   phoneConnected: boolean
   /** The recording under way (J and K), or null. */
@@ -210,19 +215,19 @@ export class LookbackController {
     return this.state
   }
 
-  /** Selects the take at `index` in the ATTEMPTS row's visible window (0 is the oldest shown). */
-  selectAttempt(index: number): LookbackView | null {
-    const s = this.state
-    if (!s || index < 0 || index >= s.attempts.length) return s
-    return this.selectTake(s.takes.length - s.attempts.length + index)
-  }
-
   /** Selects the take at `index` in takes. Ignored during a recording. */
   selectTake(index: number): LookbackView | null {
     const s = this.state
     if (!s || s.record || index < 0 || index >= s.takes.length) return s
-    this.state = { ...s, selected: index }
+    this.state = { ...s, ...this.row(s.takes, index) }
     return this.state
+  }
+
+  /** ‹ (-1) or › (+1) on the stepper: one take earlier or later. Stops at the first and the newest. */
+  stepTake(delta: -1 | 1): LookbackView | null {
+    const s = this.state
+    if (!s || s.screen !== "L" || s.selected < 0) return s
+    return this.selectTake(s.selected + delta)
   }
 
   /** The + or Record lookback: asks "Record lookback?" for a take at this speed and mirror of the section's range. Ignored mid-recording. */
@@ -553,13 +558,17 @@ export class LookbackController {
     this.loadingTake = null
   }
 
+  /** The selected index and what the takes row shows for it. */
+  private row(takes: Take[], selected: number): Pick<LookbackView, "selected" | "stepper" | "canBack" | "canForward"> {
+    return { selected, stepper: takes.length >= STEPPER_FROM, canBack: selected > 0, canForward: selected >= 0 && selected < takes.length - 1 }
+  }
+
   private make(section: number, takes: Take[], selected: number, phoneConnected: boolean): LookbackView {
     return {
       screen: takes.length ? "L" : "I",
       section,
       takes,
-      selected: takes.length ? selected : -1,
-      attempts: takes.slice(-ATTEMPTS_SHOWN),
+      ...this.row(takes, takes.length ? selected : -1),
       phoneConnected,
       record: null,
       newTake: null,

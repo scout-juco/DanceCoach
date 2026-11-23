@@ -8,7 +8,7 @@
  *   POST /dances/link         body = { url } (JSON): fetches the video with yt-dlp, then as an upload
  *     201 { package, confidence }   the same draft; its source is the link
  *   DELETE /dances/<id>       removes the dance and its files (200 { deleted: true })
- *   GET /dances               the ready dances: [{ id, title, difficulty }]
+ *   GET /dances               the ready dances: [{ id, title, difficulty, sections, lengthSec }]
  *   GET /dances/<id>/package  a ready dance's package
  *   GET /dances/<id>/clips/<name>  one of its clips, named <video>_<clip id>.mp4
  *   GET /dances/<id>/stills/<name> one of its stills (a JPEG per half-count), as listed in the package's stills
@@ -39,6 +39,7 @@ import { pipeline } from "node:stream/promises"
 import { DancePackage, loadDancePackage } from "../DanceCoachLens/Assets/Scripts/Core/DancePackage"
 import { cutClips } from "../scripts/cutClips"
 import { cutStills } from "../scripts/cutStills"
+import { listingOf } from "../DanceCoachLens/Assets/Scripts/Core/DanceCards"
 import { clipAssetName, planClips } from "../DanceCoachLens/Assets/Scripts/Core/ClipPlan"
 import { stillNames } from "../DanceCoachLens/Assets/Scripts/Core/StillPlan"
 import { detectBeats } from "./detectBeats"
@@ -232,7 +233,7 @@ async function readReady(storageDir: string, id: string): Promise<DancePackage |
 async function listReady(storageDir: string) {
   const ids = await readdir(storageDir).catch(() => [] as string[])
   const ready = await Promise.all(ids.map((id) => readReady(storageDir, id)))
-  return ready.flatMap((p) => (p ? [{ id: p.id, title: p.title, difficulty: p.difficulty }] : []))
+  return ready.flatMap((p) => (p ? [listingOf(p)] : []))
 }
 
 const pageDir = fileURLToPath(new URL("./page/", import.meta.url))

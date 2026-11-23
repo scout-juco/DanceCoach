@@ -1,33 +1,57 @@
 /**
- * PopupCard: the Routine done pop-up (screen G).
+ * PopupCard: the Routine done dialog (screen G, B2Finish).
  *
- * "That's the whole routine.", the sections with their ticks, and three choices:
- * Run it again, Keep practicing and Back. A pinch on one calls onChoose with it.
+ * An eyebrow ("FROM THE TOP · SECTION 1 → SECTION 4 · 1×"), "That's the whole routine.", a pill per section with its tick,
+ * the volt "Record your dance" card (which only toasts that it's coming soon), then Run it again · Keep practicing · Back to dances.
+ * Fill #23262B, 1 px border, radius 24, padding 32.
  * It isn't on the video board: it opens in front of your head (Layout.POPUP) and glides
- * back in front of you if you turn more than POPUP.followDeg away (PopupFollow).
+ * back in front of you if you turn more than POPUP.followDeg away (PopupFollow). The toast sits under it, as part of it.
  * A shallow view: render() shows it while the view state has the pop-up; setup() gives it the camera.
  */
-import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
+import { routineDoneEyebrow } from "../Core/DialogCopy"
 import { RoutineDoneChoice, ViewState } from "../Core/PlaybackController"
+import { makeDialogButton } from "./DialogButton"
 import { POPUP, pxToCm, SCREENS } from "./Layout"
 import { PopupFollow } from "./PopupFollow"
-import { ColorToken, RADII, SPACING, TYPE } from "./Theme"
-import { childObject, makeRect, makeText, setRectSize, themeColor } from "./Visuals"
+import { RADIUS, SPACE, TextStyle } from "./Theme"
+import { childObject, Icon, makeIcon, makePill, makeSurface, makeText } from "./Visuals"
 
-// Layers in front of the card, in cm: its tiles and buttons, then their labels.
+// Layers in front of the card, in cm: its pills and buttons, then their labels.
 const Z_ITEM = 0.1
 const Z_LABEL = 0.05
-// Collider depth, in cm.
-const HIT_DEPTH = 1
 // Drawn after the video board, which sits behind it.
 const ORDER = 10
 
-const BUTTONS: { choice: RoutineDoneChoice; label: string; fill: ColorToken; border: ColorToken; ink: ColorToken }[] = [
-  { choice: "again", label: "Run it again", fill: "active", border: "active", ink: "activeInk" },
-  { choice: "practice", label: "Keep practicing", fill: "panel", border: "ink", ink: "ink" },
-  { choice: "back", label: "Back", fill: "panel", border: "soft", ink: "ink" },
+const PAD = 32
+// From the card's top (px): eyebrow 16, title 48, pills 32, the card button 80, the buttons 56, each 16 apart.
+const EYEBROW_Y = PAD
+const TITLE_Y = EYEBROW_Y + 16 + SPACE.attached
+const PILLS_Y = TITLE_Y + 48 + SPACE.attached
+const RECORD_Y = PILLS_Y + 32 + SPACE.attached
+const BUTTONS_Y = RECORD_Y + 80 + SPACE.attached
+const PILL_H = 32
+// "Record your dance" is Sora 800 20/28, sitting above an empty 20-high caption line, bottom-aligned: its centre is 42 down the card.
+const RECORD_STYLE: TextStyle = { family: "sora", size: 20, lineHeight: 28, weight: 800 }
+const RECORD_LABEL_DY = 2
+// A digit in Sora 700 14 is about this wide (px), for centring a number with its tick.
+const NUMBER_W = 9
+const TOAST_W = 420
+const TOAST_H = 48
+
+const BUTTONS: { choice: RoutineDoneChoice; label: string }[] = [
+  { choice: "again", label: "Run it again" },
+  { choice: "practice", label: "Keep practicing" },
+  { choice: "back", label: "Back to dances" },
 ]
+
+interface Tile {
+  object: SceneObject
+  rect: RoundedRectangle
+  text: Text
+  labelObject: SceneObject
+  tick: Icon
+}
 
 @component
 export class PopupCard extends BaseScriptComponent {
@@ -36,8 +60,10 @@ export class PopupCard extends BaseScriptComponent {
 
   private camera: SceneObject | null = null
   private card: SceneObject
-  private head: Text
-  private tiles: { object: SceneObject; rect: RoundedRectangle; text: Text }[] = []
+  private eyebrow: Text
+  private tiles: Tile[] = []
+  private toastObject: SceneObject
+  private toastText: Text
   private follow = new PopupFollow()
   // Where the pop-up is measured from: your head when it opened, gliding after you when it follows.
   private anchor = vec3.zero()
@@ -47,40 +73,54 @@ export class PopupCard extends BaseScriptComponent {
   private readonly h = SCREENS.G.popup![3]
 
   onAwake() {
-    const pad = SPACING.popupPad
     this.card = childObject("Card", this.sceneObject)
-    const bg = makeRect(this.card, "panel", ORDER)
-    bg.border = true
-    bg.borderSize = pxToCm(1)
-    bg.borderColor = themeColor("stroke")
-    setRectSize(bg, this.w, this.h, RADII.popup)
+    makeSurface(this.card, { fill: "panelSolid", border: "border", borderPx: 1, radius: RADIUS.lg }, ORDER, this.w, this.h)
 
-    this.head = this.text(TYPE.popupHead, "ink2", pad, pad + 8)
-    this.text(TYPE.popupTitle, "ink", pad, pad + SPACING.popupTitleY).text = "That's the whole routine."
+    this.eyebrow = this.text("eyebrow", "textMuted", PAD, EYEBROW_Y + 8)
+    this.text("titleXl", "text", PAD, TITLE_Y + 24).text = "That's the whole routine."
 
-    const g = SPACING.popupButtonGap
-    const bw = (this.w - pad * 2 - g * (BUTTONS.length - 1)) / BUTTONS.length
-    const bh = SPACING.popupButtonHeight
-    BUTTONS.forEach((b, i) => {
-      const object = childObject(b.label, this.card)
-      object.getTransform().setLocalPosition(this.point(pad + i * (bw + g) + bw / 2, pad + SPACING.popupButtonsY + bh / 2, Z_ITEM))
-      const rect = makeRect(object, b.fill, ORDER + 1)
-      rect.border = true
-      rect.borderSize = pxToCm(1)
-      rect.borderColor = themeColor(b.border)
-      setRectSize(rect, bw, bh, RADII.popupButton)
-      const label = childObject("Label", object)
-      label.getTransform().setLocalPosition(new vec3(0, 0, Z_LABEL))
-      makeText(label, TYPE.popupButton, b.ink, ORDER + 2).text = b.label
-
-      const collider = object.createComponent("ColliderComponent") as ColliderComponent
-      collider.fitVisual = false
-      const shape = Shape.createBoxShape()
-      shape.size = new vec3(pxToCm(bw), pxToCm(bh), HIT_DEPTH)
-      collider.shape = shape
-      const interactable = object.createComponent(Interactable.getTypeName()) as Interactable
-      interactable.onTriggerEnd.add(() => this.onChoose(b.choice))
+    const inner = this.w - PAD * 2
+    makeDialogButton(this.card, this.w, this.h, {
+      label: "Record your dance",
+      x: PAD + inner / 2,
+      y: RECORD_Y + 40,
+      w: inner,
+      h: 80,
+      radius: RADIUS.lg,
+      fill: "volt",
+      ink: "onColor",
+      style: RECORD_STYLE,
+      order: ORDER + 1,
+      labelDy: RECORD_LABEL_DY,
+      onPress: () => this.onChoose("record"),
     })
+
+    const g = SPACE.between
+    const bw = (inner - g * (BUTTONS.length - 1)) / BUTTONS.length
+    BUTTONS.forEach((b, i) => {
+      makeDialogButton(this.card, this.w, this.h, {
+        label: b.label,
+        x: PAD + i * (bw + g) + bw / 2,
+        y: BUTTONS_Y + 28,
+        w: bw,
+        h: 56,
+        radius: RADIUS.pill,
+        fill: "control",
+        ink: "text",
+        style: "button",
+        order: ORDER + 1,
+        onPress: () => this.onChoose(b.choice),
+      })
+    })
+
+    // The toast: a scrim pill 16 under the card.
+    this.toastObject = childObject("Toast", this.sceneObject)
+    this.toastObject.getTransform().setLocalPosition(new vec3(0, -pxToCm(this.h / 2 + SPACE.attached + TOAST_H / 2), Z_ITEM))
+    makePill(this.toastObject, "scrim", ORDER + 3, TOAST_W, TOAST_H)
+    const toastLabel = childObject("Label", this.toastObject)
+    toastLabel.getTransform().setLocalPosition(new vec3(0, 0, Z_LABEL))
+    this.toastText = makeText(toastLabel, "chip", "text", ORDER + 4)
+    this.toastObject.enabled = false
 
     this.sceneObject.enabled = false
     this.createEvent("UpdateEvent").bind(() => this.update())
@@ -97,12 +137,15 @@ export class PopupCard extends BaseScriptComponent {
     this.open = show
     this.sceneObject.enabled = show
     if (!show) return
-    const key = `${view.sectionCount}|${view.doneSections.join(",")}`
+    const eyebrow = routineDoneEyebrow(view)
+    const key = `${eyebrow}|${view.sectionCount}|${view.doneSections.join(",")}`
     if (key !== this.tilesKey) {
       this.tilesKey = key
-      this.head.text = `ROUTINE DONE · ${view.sectionCount} SECTIONS`
+      this.eyebrow.text = eyebrow
       this.renderTiles(view)
     }
+    this.toastObject.enabled = !!view.toast
+    if (view.toast) this.toastText.text = view.toast
   }
 
   private openInFront() {
@@ -135,40 +178,41 @@ export class PopupCard extends BaseScriptComponent {
     return Math.atan2(look.x, look.z)
   }
 
-  /** One tile per section across the card, filled and ticked for the sections you've danced. */
+  /** One pill per section across the card; "n ✓" (tick in volt) for the sections you've danced. */
   private renderTiles(view: ViewState) {
-    const pad = SPACING.popupPad
     const n = view.sectionCount
-    const gap = SPACING.tileGap
-    const tw = (this.w - pad * 2 - gap * (n - 1)) / n
-    const th = SPACING.popupTileHeight
+    const gap = SPACE.group
+    const tw = (this.w - PAD * 2 - gap * (n - 1)) / n
     while (this.tiles.length < n) {
       const object = childObject(`Tile${this.tiles.length + 1}`, this.card)
-      const rect = makeRect(object, "panel", ORDER + 1)
-      rect.border = true
-      rect.borderSize = pxToCm(1)
-      const label = childObject("Label", object)
-      label.getTransform().setLocalPosition(new vec3(0, 0, Z_LABEL))
-      this.tiles.push({ object, rect, text: makeText(label, TYPE.popupTile, "ink", ORDER + 2) })
+      const rect = makePill(object, "control", ORDER + 1, tw, PILL_H)
+      const labelObject = childObject("Label", object)
+      const text = makeText(labelObject, "chip", "text", ORDER + 2)
+      const tick = makeIcon(object, "check", "volt", ORDER + 2, 12)
+      this.tiles.push({ object, rect, text, labelObject, tick })
     }
     this.tiles.forEach((tile, i) => {
       tile.object.enabled = i < n
       if (i >= n) return
       const done = view.doneSections.indexOf(i + 1) >= 0
-      tile.object.getTransform().setLocalPosition(this.point(pad + i * (tw + gap) + tw / 2, pad + SPACING.popupTilesY + th / 2, Z_ITEM))
-      setRectSize(tile.rect, tw, th, RADII.popupTile)
-      tile.rect.backgroundColor = themeColor(done ? "active" : "panel")
-      tile.rect.borderColor = themeColor(done ? "active" : "soft")
-      tile.text.text = done ? `${i + 1} ✓` : `${i + 1}`
-      tile.text.textFill.color = themeColor(done ? "activeInk" : "ink")
+      tile.object.getTransform().setLocalPosition(this.point(PAD + i * (tw + gap) + tw / 2, PILLS_Y + PILL_H / 2, Z_ITEM))
+      tile.rect.size = new vec2(pxToCm(tw), pxToCm(PILL_H))
+      tile.rect.cornerRadius = pxToCm(PILL_H / 2)
+      tile.text.text = String(i + 1)
+      tile.tick.object.enabled = done
+      // The number and its tick, centred together (the tick is 12 wide, 4 after the number).
+      const numberW = NUMBER_W * String(i + 1).length
+      const groupW = done ? numberW + 4 + 12 : numberW
+      tile.labelObject.getTransform().setLocalPosition(new vec3(pxToCm(-groupW / 2 + numberW / 2), 0, Z_LABEL))
+      tile.tick.object.getTransform().setLocalPosition(new vec3(pxToCm(groupW / 2 - 6), 0, Z_LABEL))
     })
   }
 
-  /** A line of left-aligned text at (x, y) px from the card's top-left. */
-  private text(sizePx: number, token: ColorToken, xPx: number, yPx: number): Text {
+  /** A line of left-aligned text at (x, y centre) px from the card's top-left. */
+  private text(style: "eyebrow" | "titleXl", token: "text" | "textMuted", xPx: number, yPx: number): Text {
     const so = childObject("Text", this.card)
     so.getTransform().setLocalPosition(this.point(xPx, yPx, Z_ITEM))
-    return makeText(so, sizePx, token, ORDER + 2, "left")
+    return makeText(so, style, token, ORDER + 2, "left")
   }
 
   /** (x, y) px from the card's top-left (y down, as in the prototype) → cm from its centre. */

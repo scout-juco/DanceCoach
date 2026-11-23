@@ -312,12 +312,12 @@ describe("edge: takes deleted on the phone", () => {
     lb.enter(2, takes(3))
     expect(lb.view!.selected).toBe(2)
     expect(lb.setTakes(takes(2))).toMatchObject({ selected: 1 })
-    expect(lb.view!.attempts.map((t) => t.number)).toEqual([1, 2])
+    expect(lb.view).toMatchObject({ stepper: false, canBack: true, canForward: false })
   })
 
   it("leave I when every take is deleted", () => {
     const lb = new LookbackController()
     lb.enter(2, takes(2))
-    expect(lb.setTakes([])).toMatchObject({ screen: "I", selected: -1, attempts: [] })
+    expect(lb.setTakes([])).toMatchObject({ screen: "I", selected: -1, stepper: false, canBack: false, canForward: false })
   })
 })
