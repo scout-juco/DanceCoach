@@ -121,25 +121,6 @@ export function runLabel(view: ViewState): string {
 /** True for runs that play several sections (From the top, Full and a range). */
 export const isMultiSection = (view: ViewState) => view.runKind !== "section" || view.runStop > view.section
 
-/**
- * The From the top icon, |→, centred on the object's position: a bar for the top,
- * then an arrow. Drawn from rectangles so it doesn't depend on the font.
- */
-export function makeTopIcon(so: SceneObject, token: ColorToken, renderOrder: number, widthPx: number) {
-  const part = (name: string, x: number, y: number, w: number, h: number, angleDeg = 0) => {
-    const o = childObject(name, so)
-    setRectSize(makeRect(o, token, renderOrder), w, h, 1)
-    o.getTransform().setLocalPosition(new vec3(pxToCm(x), pxToCm(y), 0))
-    if (angleDeg) o.getTransform().setLocalRotation(quat.angleAxis((angleDeg * Math.PI) / 180, vec3.forward()))
-  }
-  // As in the prototype: 12 px tall, a bar, a shaft and a two-stroke head.
-  const half = widthPx / 2
-  part("Bar", -half, 0, 2, 12)
-  part("Shaft", 0, 0, widthPx, 2)
-  part("HeadUp", half - 3, 2.5, 8, 2, -45)
-  part("HeadDown", half - 3, -2.5, 8, 2, 45)
-}
-
 /** Moves an object on the window plane (centimetres), z in front of the video. */
 export function place(so: SceneObject, xy: vec2, z: number) {
   so.getTransform().setLocalPosition(new vec3(xy.x, xy.y, z))
@@ -178,6 +159,30 @@ export function setSurfaceBorder(rect: RoundedRectangle, token: ColorToken | nul
 /** A pill (radius 999): buttons, segments, tiles, chips. An optional 1–2 px border. */
 export function makePill(so: SceneObject, fill: ColorToken | null, renderOrder: number, wPx: number, hPx: number, border?: ColorToken, borderPx = 1): RoundedRectangle {
   return makeSurface(so, { fill, border, borderPx, radius: RADIUS.pill }, renderOrder, wPx, hPx)
+}
+
+/**
+ * A 1 px dashed outline wPx × hPx, centred on the object (the section bar's "beyond the stop" segments): 3 px dashes
+ * 3 apart along the top and bottom between the rounded ends, and a short upright at each end. Built from rectangles,
+ * so build it once and toggle it.
+ */
+export function makeDashedOutline(so: SceneObject, token: ColorToken, renderOrder: number, wPx: number, hPx: number, dashPx = 3): SceneObject {
+  const line = 1
+  const r = hPx / 2
+  const part = (x: number, y: number, w: number, h: number) => {
+    const o = childObject("Dash", so)
+    setRectSize(makeRect(o, token, renderOrder), w, h)
+    o.getTransform().setLocalPosition(new vec3(pxToCm(x), pxToCm(y), 0))
+  }
+  const run = wPx - 2 * r
+  for (let x = 0; x < run; x += dashPx * 2) {
+    const w = Math.min(dashPx, run - x)
+    const cx = -wPx / 2 + r + x + w / 2
+    part(cx, hPx / 2 - line / 2, w, line)
+    part(cx, -hPx / 2 + line / 2, w, line)
+  }
+  for (const side of [-1, 1]) part(side * (wPx / 2 - line / 2), 0, line, hPx / 2)
+  return so
 }
 
 /** The video window's outline: 4 px, radius 32, no fill. Volt while a clip plays, pink in Lookback, control otherwise. */

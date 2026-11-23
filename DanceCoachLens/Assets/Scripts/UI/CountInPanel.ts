@@ -1,29 +1,54 @@
 /**
- * CountInPanel: the 5, 6, 7, 8 before every run, centred in front of you.
+ * CountInPanel: the 05 06 07 08 before every run (B0), a column of tick bars and numbers (BUILD_SPEC §6.12).
  *
  * It isn't on the video board: wherever the window is, it opens straight ahead of your
  * head (Layout.COUNT_IN) and glides back in front of you if you turn more than
  * COUNT_IN.followDeg away (PopupFollow). If straight ahead would cover the video, it slides
- * just clear of the video's nearer edge instead (ClearOfVideo). The starting pose adds a "Get in your starting
- * pose" heading above the circle; the "SECTION n IN" label and the 5 6 7 8 row sit under it.
+ * just clear of the video's nearer edge instead (ClearOfVideo).
+ * The column is 152 wide: the "SECTION n IN" eyebrow, then a row per count, 12 apart. The current row's bar is 40 wide
+ * and volt, done rows 24 and white, upcoming rows 24 in tick-off with a disabled number. It steps on the beat, no easing.
  * A shallow view: render() shows the view state's count-in; setup() gives it the camera and the video.
  */
+import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { ViewState } from "../Core/PlaybackController"
 import { AngleBox, clearYaw } from "./ClearOfVideo"
 import { COUNT_IN as PLACE, pxToCm } from "./Layout"
 import { PopupFollow } from "./PopupFollow"
-import { SPACING, TYPE } from "./Theme"
+import { ColorToken, RADIUS, SIZE, SPACE, TEXT } from "./Theme"
 import { VideoWindow } from "./VideoWindow"
 import { childObject, makeRect, makeText, runLabel, setRectSize, themeColor } from "./Visuals"
 
-const COUNT_IN = [5, 6, 7, 8]
+const COUNTS = [5, 6, 7, 8]
+// The column's size (prototype px): the eyebrow's line, then each row as tall as its number's line, 12 apart.
+const WIDTH = 152
+const ROW = TEXT.countMd.lineHeight
+const HEIGHT = TEXT.eyebrow.lineHeight + COUNTS.length * (SPACE.between + ROW)
+const Z = 0.05
+
+/** Places a part of the column, x from its left edge and y down from its top (px); the column's centre is the panel's origin. */
+const at = (so: SceneObject, x: number, y: number) => so.getTransform().setLocalPosition(new vec3(pxToCm(x - WIDTH / 2), pxToCm(HEIGHT / 2 - y), Z))
+
+interface Row {
+  bar: RoundedRectangle
+  barObject: SceneObject
+  numberObject: SceneObject
+  number: Text
+  y: number
+}
+
+/** A row's look: upcoming, current or done. */
+type RowState = "upcoming" | "current" | "done"
+const BAR: Record<RowState, ColorToken> = { upcoming: "tickOff", current: "volt", done: "text" }
+const NUMBER: Record<RowState, ColorToken> = { upcoming: "textDisabled", current: "volt", done: "text" }
+
+/** Which way a row looks when the count-in is on `number`. */
+const rowState = (count: number, number: number): RowState => (count === number ? "current" : count < number ? "done" : "upcoming")
 
 @component
 export class CountInPanel extends BaseScriptComponent {
-  private head: SceneObject
-  private number: Text
-  private label: Text
-  private row: Text[] = []
+  private eyebrow: Text
+  private rows: Row[] = []
+  private lastNumber = -1
   private layoutKey = ""
   private camera: SceneObject | null = null
   private video: VideoWindow | null = null
@@ -33,32 +58,36 @@ export class CountInPanel extends BaseScriptComponent {
   private open = false
 
   onAwake() {
-    // Laid out around the circle's centre, which is the panel's origin.
-    this.head = childObject("StartingPose", this.sceneObject)
-    makeText(this.head, TYPE.countInHead, "ink", 2).text = "GET IN YOUR STARTING POSE"
-    this.head.getTransform().setLocalPosition(new vec3(0, pxToCm(PLACE.headUp), 0))
+    const eyebrowObject = childObject("Eyebrow", this.sceneObject)
+    this.eyebrow = makeText(eyebrowObject, "eyebrow", "textSubtle", 2, "left")
+    at(eyebrowObject, 0, TEXT.eyebrow.lineHeight / 2)
 
-    const circle = childObject("Circle", this.sceneObject)
-    setRectSize(makeRect(circle, "active", 1), SPACING.countInCircle, SPACING.countInCircle, SPACING.countInCircle / 2)
-    const numberObject = childObject("Number", circle)
-    this.number = makeText(numberObject, TYPE.countInNumber, "activeInk", 2)
-    // Inside the circle, the number a little above centre (prototype: 92 of 200).
-    const r = SPACING.countInCircle / 2
-    numberObject.getTransform().setLocalPosition(new vec3(0, pxToCm(r - 92), 0.05))
-    // Under the circle, the label, then the 5 6 7 8 row.
-    const labelObject = childObject("Label", circle)
-    this.label = makeText(labelObject, TYPE.countInLabel, "ink2", 2)
-    labelObject.getTransform().setLocalPosition(new vec3(0, pxToCm(r - SPACING.countInLabelY), 0.05))
-
-    COUNT_IN.forEach((n, i) => {
-      const so = childObject(`Count${n}`, circle)
-      const text = makeText(so, TYPE.countIn, "soft", 2)
-      text.text = String(n)
-      so.getTransform().setLocalPosition(new vec3(pxToCm((i - 1.5) * SPACING.countInRowGap), pxToCm(r - SPACING.countInRowY), 0.05))
-      this.row.push(text)
+    COUNTS.forEach((n, i) => {
+      const y = TEXT.eyebrow.lineHeight + SPACE.between + i * (SPACE.between + ROW) + ROW / 2
+      const barObject = childObject(`Bar${n}`, this.sceneObject)
+      const bar = makeRect(barObject, "tickOff", 1)
+      const numberObject = childObject(`Count${n}`, this.sceneObject)
+      const number = makeText(numberObject, "countMd", "textDisabled", 2, "left")
+      number.text = `0${n}`
+      this.rows.push({ bar, barObject, numberObject, number, y })
     })
+    this.setNumber(COUNTS[0])
     this.sceneObject.enabled = false
     this.createEvent("UpdateEvent").bind(() => this.update())
+  }
+
+  /** Steps the rows to a count: each bar's width and colour, and its number just right of it. */
+  private setNumber(number: number) {
+    this.lastNumber = number
+    this.rows.forEach((row, i) => {
+      const state = rowState(COUNTS[i], number)
+      const w = state === "current" ? SIZE.barWidthCurrent : SIZE.barWidth
+      setRectSize(row.bar, w, SIZE.bar, RADIUS.sm)
+      row.bar.backgroundColor = themeColor(BAR[state])
+      row.number.textFill.color = themeColor(NUMBER[state])
+      at(row.barObject, w / 2, row.y)
+      at(row.numberObject, w + SPACE.between, row.y)
+    })
   }
 
   /** The camera the count-in opens in front of, and the video it keeps clear of. */
@@ -80,11 +109,9 @@ export class CountInPanel extends BaseScriptComponent {
     const key = `${view.screen}|${view.runKind}|${view.section}`
     if (key !== this.layoutKey) {
       this.layoutKey = key
-      this.label.text = `${runLabel(view)} IN`
-      this.head.enabled = ci!.kind === "startingPose"
+      this.eyebrow.text = `${runLabel(view)} IN`
     }
-    this.number.text = String(ci!.number)
-    this.row.forEach((t, i) => (t.textFill.color = themeColor(COUNT_IN[i] === ci!.number ? "ink" : "soft")))
+    if (ci!.number !== this.lastNumber) this.setNumber(ci!.number)
   }
 
   private openInFront() {

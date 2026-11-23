@@ -1,5 +1,6 @@
 /**
- * SkipButton: "Skip to Section 1" under the video during the first look.
+ * SkipButton: "Skip to Section 1 ›" during the first look (A1): a 56-tall secondary pill (control fill, Sora 16/24 600),
+ * 24 under the section bar and right-aligned to the video (Layout.SCREENS.PV.skip).
  *
  * A pinch calls onPress. A shallow view: render() shows it on screens with a skip panel
  * (Layout.SCREENS), so it can only be pressed during the first look.
@@ -7,8 +8,7 @@
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { ViewState } from "../Core/PlaybackController"
 import { panelsFor, pointInPanelCm, pxToCm, SCREENS } from "./Layout"
-import { RADII } from "./Theme"
-import { childObject, makeRect, makeText, place, setRectSize, themeColor } from "./Visuals"
+import { childObject, makePill, makeText, place } from "./Visuals"
 
 const Z = 0.2
 // Collider depth, in cm.
@@ -25,11 +25,7 @@ export class SkipButton extends BaseScriptComponent {
   onAwake() {
     const [, , w, h] = SCREENS.PV.skip!
     this.button = childObject("Button", this.sceneObject)
-    const rect = makeRect(this.button, "panel", 2)
-    rect.border = true
-    rect.borderSize = pxToCm(1)
-    rect.borderColor = themeColor("stroke")
-    setRectSize(rect, w, h, RADII.button)
+    makePill(this.button, "control", 2, w, h)
     const label = childObject("Label", this.button)
     label.getTransform().setLocalPosition(new vec3(0, 0, 0.05))
     makeText(label, "button", "text", 3).text = "Skip to Section 1 ›"

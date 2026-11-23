@@ -174,8 +174,6 @@ export const RADII = {
   chip: 10,
   button: 11,
   progress: RADIUS.sm,
-  segment: RADIUS.sm,
-  banner: 12,
   tile: 10,
   bar: 18,
   control: 12,
@@ -190,12 +188,8 @@ export const TYPE = {
   countBadgeSub: 10,
   chip: 11,
   button: 12,
-  countIn: 20,
   countInNumber: 110,
   countInLabel: 11,
-  countInHead: 13,
-  segLabel: 11,
-  banner: 13,
   tile: 13,
   icon: 18,
   modeName: 13,
@@ -218,20 +212,6 @@ export const SPACING = {
   countBadge: 84,
   chipHeight: 20,
   chipGap: 6,
-  /** The count-in circle's diameter, then the "SECTION n IN" label and the 5 6 7 8 row under it. */
-  countInCircle: 200,
-  countInLabelY: 216,
-  countInRowY: 248,
-  countInRowGap: 26,
-  /** The line marking where the section starts on 1 along the progress bar. */
-  progressMarker: 2,
-  /** The segmented bar: each section's segment height, the gap between them, and the label line under them. */
-  segHeight: 8,
-  segGap: 4,
-  segLabelY: 20,
-  /** The banner's icon, from its left edge, and its text. */
-  bannerIcon: 22,
-  bannerText: 58,
   tileGap: 8,
   /** The control bar: padding around its items, the gap between them, and each item's width. */
   barPad: 12,

@@ -12,7 +12,7 @@ import { Placement } from "../Core/WindowPlacement"
 /** [x, y, width, height] in prototype pixels. */
 export type PxRect = [number, number, number, number]
 
-export type PanelId = "video" | "progress" | "segBar" | "banner" | "sections" | "controls" | "poseLine" | "poseBar" | "lookPanel" | "attempts" | "countdown" | "toast" | "skip" | "popup" | "take" | "sbsBar"
+export type PanelId = "video" | "progress" | "segBar" | "sections" | "controls" | "poseLine" | "poseBar" | "lookPanel" | "attempts" | "countdown" | "toast" | "skip" | "popup" | "take" | "sbsBar"
 
 /** The video window's three sizes (BUILD_SPEC §6.1), all at x 792, y 40. */
 const VIDEO_FULL: PxRect = [792, 40, 340, 604]
@@ -24,10 +24,10 @@ const PROGRESS: PxRect = [792, 660, 340, 8]
 const SEG_BAR: PxRect = [792, 660, 340, 28]
 
 /**
- * The legacy panels have no B2 surface: "banner" goes with From the top's rebuild (#47) and "attempts" with Lookback's (#49).
- * Until then they sit 24 clear of their neighbours, out of the way.
+ * The legacy panels have no B2 surface: "attempts" goes with Lookback's rebuild (#49).
+ * Until then it sits 24 clear of its neighbours, out of the way.
  */
-export const LEGACY_PANELS: PanelId[] = ["banner", "attempts"]
+export const LEGACY_PANELS: PanelId[] = ["attempts"]
 
 /** Floating panels: they aren't surfaces on the board (a toast, a pop-up that opens in front of you). */
 export const FLOATING_PANELS: PanelId[] = ["toast", "popup"]
@@ -39,12 +39,14 @@ export const FLOATING_PANELS: PanelId[] = ["toast", "popup"]
  */
 export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // A1, First look: the section bar 16 under the video, "Skip to Section 1 ›" 24 under that, right-aligned.
-  PV: { banner: [428, 40, 340, 40], video: VIDEO_FULL, segBar: SEG_BAR, skip: [948, 712, 184, 56] },
-  // B0: the starting pose (BI) or a lead-in (B0); the count-in opens in front of you (COUNT_IN), not on the board.
+  PV: { video: VIDEO_FULL, segBar: SEG_BAR, skip: [948, 712, 184, 56] },
+  // B0: the starting pose (BI) or a lead-in (B0), the progress bar with its start marker and caption 8 under it.
+  // The count-in opens in front of you (COUNT_IN), not on the board.
   BI: { video: VIDEO_FULL, progress: PROGRESS },
   B0: { video: VIDEO_FULL, progress: PROGRESS },
   B: { video: VIDEO_FULL, progress: PROGRESS },
-  F: { banner: [428, 40, 340, 40], video: VIDEO_FULL, segBar: SEG_BAR },
+  // From the top: the section bar with its stop point, and no banner.
+  F: { video: VIDEO_FULL, segBar: SEG_BAR },
   // Clip ended: tiles 24 under the video, the mode panel 24 under them. The toast sits left, 24 above the tiles.
   C: { video: VIDEO_TILES, sections: [604, 568, 488, 56], controls: [488, 648, 604, 144], toast: [360, 496, 420, 48] },
   // Last section done: the panel widens for Finish routine.
@@ -104,20 +106,18 @@ export const PICKER = {
 
 /**
  * The count-in isn't on the board either: it opens centred in front of you, wherever the window is,
- * and follows (like a pop-up) once you turn more than followDeg away.
+ * and follows (like a pop-up) once you turn more than followDeg away. It's B2's 152×192 column (BUILD_SPEC §6.12).
  */
 export const COUNT_IN = {
   distanceCm: 200,
   dropCm: 0,
   followDeg: 10,
-  /** The starting-pose heading's centre, above the circle's centre (prototype px). */
-  headUp: 140,
-  /** How far it reaches from the circle's centre: each side (the heading), up and down (the 5 6 7 8 row), in prototype px. */
-  halfWidth: 110,
-  reachUp: 152,
-  reachDown: 262,
-  /** When it slides clear of the video, the space it keeps from the video's edge (prototype px at its distance). */
-  videoGap: 24,
+  /** How far it reaches from the column's centre: each side, up and down, in prototype px (half of 152×192). */
+  halfWidth: 76,
+  reachUp: 96,
+  reachDown: 96,
+  /** When it slides clear of the video, the space it keeps from the video's edge (prototype px at its distance): the "beside the video" tier. */
+  videoGap: 32,
 }
 
 /** Centimetres per prototype pixel (1 px = 1.5 mm). */

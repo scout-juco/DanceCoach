@@ -19,7 +19,6 @@ import { PoseController, PoseView } from "./Core/PoseController"
 import { decodeSettings, encodeSettings, finishReadyKey, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
 import { ClipPlayer, VideoDriver } from "./Core/VideoDriver"
 import { decodePlacement, encodePlacement, Placement, PLACEMENT_KEY } from "./Core/WindowPlacement"
-import { Banner } from "./UI/Banner"
 import { ModePanel } from "./UI/ModePanel"
 import { ModeControl, nextSpeed } from "./UI/ModeRow"
 import { CountInPanel } from "./UI/CountInPanel"
@@ -151,7 +150,6 @@ export class DanceCoach extends BaseScriptComponent {
   private recordCountdown: RecordCountdown
   private recordPopup: RecordPopup
   private segBar: SegBar
-  private banner: Banner
   private sections: SectionRow
   private controls: ModePanel
   private toast: Toast
@@ -327,7 +325,6 @@ export class DanceCoach extends BaseScriptComponent {
       this.render(this.controller.view)
     }
     this.segBar = childObject("SegBar", plane).createComponent(SegBar.getTypeName()) as SegBar
-    this.banner = childObject("Banner", plane).createComponent(Banner.getTypeName()) as Banner
     this.sections = childObject("Sections", plane).createComponent(SectionRow.getTypeName()) as SectionRow
     this.sections.onTap = (id) => this.tapSection(id)
     this.sections.onRange = (first, last) => this.render(this.controller.tapRange(first, last))
@@ -816,7 +813,6 @@ export class DanceCoach extends BaseScriptComponent {
     this.countIn.render(view)
     this.progress.render(view)
     this.segBar.render(view)
-    this.banner.render(view)
     this.sections.render(view)
     this.controls.render(view, this.lookbackView)
     this.toast.render(view)
