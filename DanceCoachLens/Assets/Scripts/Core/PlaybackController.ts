@@ -31,9 +31,10 @@
  * on the current section, with the video paused on its start; PoseController runs Pose from
  * there. Playthrough's commands are ignored while in Pose.
  *
- * M4-02: the mode button cycles Playthrough → Pose → Lookback → Playthrough. Lookback opens on screen I
- * (a placeholder until the later M4 tickets) on the current section; its mode button comes back to Clip ended
- * for that section. A dance without stills skips Pose; a dance from the bundled source can't enter Lookback.
+ * M4-02: Lookback opens on screen I on the current section; leaving it comes back to Clip ended for that section.
+ * A dance without stills can't open Pose; a dance from the bundled source can't enter Lookback.
+ *
+ * M5-04: the mode panel's three segments replace the cycling mode button: selectMode(mode) goes straight to a mode.
  *
  * M3-07: Play from here leaves Pose for Playthrough and runs the section from the frozen count to its end,
  * counting in with a 5, 6, 7, 8 over the 4 counts before that count (dimmed), or the frozen still without footage that early.
@@ -54,7 +55,7 @@ export type CountInKind = "startingPose" | "leadIn"
 /** What a section tile runs: a section, or the whole routine. */
 export type SectionTap = number | "full"
 
-/** The practice modes, in the order the mode button cycles through them. */
+/** The practice modes, in the order the mode panel's segments show them. */
 export const MODES = ["Playthrough", "Pose", "Lookback"] as const
 
 export type Mode = (typeof MODES)[number]
@@ -355,21 +356,18 @@ export class PlaybackController {
   }
 
   /**
-   * The mode button cycles Playthrough → Pose → Lookback → Playthrough, each on the current section (or, from Pose,
-   * the section stepping carried it to: poseSection). Pose and Lookback open with the video paused on the section's start;
-   * Playthrough lands on Clip ended, ready to replay it. A dance without stills skips Pose with a toast, and a bundled
-   * dance can't enter Lookback (a toast, and Playthrough). Ignored while the controls are locked.
+   * A mode segment: switches straight to that mode, on the current section (or, from Pose, the section stepping
+   * carried it to: poseSection). Pose and Lookback open with the video paused on the section's start; Playthrough
+   * lands on Clip ended, ready to replay it. A dance without stills can't open Pose, and a bundled dance can't open
+   * Lookback: each toasts and stays where it is. Ignored while the controls are locked, and on the current mode.
    */
-  tapMode(poseSection?: number): ViewState {
+  selectMode(mode: Mode, poseSection?: number): ViewState {
     const s = this.state
-    if (s.controlsLocked) return s
+    if (s.controlsLocked || mode === s.mode) return s
     const n = poseSection ?? s.section
-    if (s.mode === "Playthrough") {
-      if (this.hasStills) return this.enter("Pose", "D", n)
-      return this.canLookback ? this.enter("Lookback", "I", n, NO_STILLS_TOAST) : this.toast(NO_STILLS_TOAST)
-    }
-    if (s.mode === "Pose" && this.canLookback) return this.enter("Lookback", "I", n)
-    return this.toLanded(n, s.mode === "Pose" ? NO_SERVER_TOAST : null)
+    if (mode === "Pose") return this.hasStills ? this.enter("Pose", "D", n) : this.toast(NO_STILLS_TOAST)
+    if (mode === "Lookback") return this.canLookback ? this.enter("Lookback", "I", n) : this.toast(NO_SERVER_TOAST)
+    return this.toLanded(n, null)
   }
 
   /** Opens Pose or Lookback on section n, the video paused on its start. */

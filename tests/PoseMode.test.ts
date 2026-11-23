@@ -22,24 +22,24 @@ function runSection(pc: PlaybackController, n: number): ViewState {
   return pc.view
 }
 
-describe("Mode button: Playthrough → Pose", () => {
+describe("Mode panel: Playthrough → Pose", () => {
   it("enters Pose from Clip ended, on the section the dancer was on", () => {
     const pc = new PlaybackController(makeDance())
     runSection(pc, 2)
-    const v = pc.tapMode()
+    const v = pc.selectMode("Pose")
     expect(v).toMatchObject({ mode: "Pose", screen: "D", section: 2, toast: null, controlsLocked: false })
   })
 
   it("enters Pose from C2 too", () => {
     const pc = new PlaybackController(makeDance())
     expect(runSection(pc, 3).screen).toBe("C2")
-    expect(pc.tapMode()).toMatchObject({ mode: "Pose", screen: "D", section: 3 })
+    expect(pc.selectMode("Pose")).toMatchObject({ mode: "Pose", screen: "D", section: 3 })
   })
 
   it("holds the video paused on the section's start, with no count showing", () => {
     const pc = new PlaybackController(makeDance())
     const ended = runSection(pc, 2)
-    const v = pc.tapMode()
+    const v = pc.selectMode("Pose")
     expect(v.video).toMatchObject({ seekTo: 5, playing: false, dim: false, holdFrame: false })
     expect(v.video.seekId).not.toBe(ended.video.seekId)
     expect(v.count).toBe(0)
@@ -48,7 +48,7 @@ describe("Mode button: Playthrough → Pose", () => {
   it("stays put while it ticks", () => {
     const pc = new PlaybackController(makeDance())
     runSection(pc, 2)
-    const entered = pc.tapMode()
+    const entered = pc.selectMode("Pose")
     const v = pc.tick(5, 1)
     expect(v).toMatchObject({ mode: "Pose", screen: "D", section: 2, video: { playing: false, seekId: entered.video.seekId } })
   })
@@ -56,30 +56,29 @@ describe("Mode button: Playthrough → Pose", () => {
   it("is ignored while the controls are locked", () => {
     const pc = new PlaybackController(makeDance())
     pc.tapSection(2)
-    expect(pc.tapMode()).toMatchObject({ mode: "Playthrough", screen: "B0", toast: null })
+    expect(pc.selectMode("Pose")).toMatchObject({ mode: "Playthrough", screen: "B0", toast: null })
     pc.tick(6)
-    expect(pc.tapMode()).toMatchObject({ mode: "Playthrough", screen: "B" })
+    expect(pc.selectMode("Lookback")).toMatchObject({ mode: "Playthrough", screen: "B" })
   })
 
   it("is ignored during the first look", () => {
     const pc = new PlaybackController(makeDance())
     pc.open()
-    expect(pc.tapMode()).toMatchObject({ mode: "Playthrough", screen: "PV" })
+    expect(pc.selectMode("Pose")).toMatchObject({ mode: "Playthrough", screen: "PV" })
   })
 })
 
-/** Pose → Lookback → Playthrough: two taps of the mode button. */
+/** Pose → Playthrough: the Playthrough segment. */
 function leavePose(pc: PlaybackController, poseSection?: number): ViewState {
-  pc.tapMode(poseSection)
-  return pc.tapMode()
+  return pc.selectMode("Playthrough", poseSection)
 }
 
-describe("Mode button: Pose → Lookback → Playthrough", () => {
+describe("Mode panel: Pose, Lookback and back to Playthrough", () => {
   it("enters Lookback (screen I) on the same section, paused on its start", () => {
     const pc = new PlaybackController(makeDance())
     runSection(pc, 2)
-    pc.tapMode()
-    const v = pc.tapMode()
+    pc.selectMode("Pose")
+    const v = pc.selectMode("Lookback")
     expect(v).toMatchObject({ mode: "Lookback", screen: "I", section: 2, toast: null, controlsLocked: false })
     expect(v.video).toMatchObject({ seekTo: pc.clock.sectionStart(2), playing: false, runEnd: pc.clock.sectionEnd(2) })
   })
@@ -87,8 +86,7 @@ describe("Mode button: Pose → Lookback → Playthrough", () => {
   it("puts the video back, paused, on the section's start after a recording", () => {
     const pc = new PlaybackController(makeDance())
     runSection(pc, 2)
-    pc.tapMode()
-    const before = pc.tapMode()
+    const before = pc.selectMode("Lookback")
     const v = pc.restartLookback()
     expect(v.video.seekId).toBeGreaterThan(before.video.seekId)
     expect(v).toMatchObject({ mode: "Lookback", section: 2 })
@@ -104,14 +102,14 @@ describe("Mode button: Pose → Lookback → Playthrough", () => {
   it("goes back to Clip ended for the same section", () => {
     const pc = new PlaybackController(makeDance())
     runSection(pc, 2)
-    pc.tapMode()
+    pc.selectMode("Pose")
     expect(leavePose(pc)).toMatchObject({ mode: "Playthrough", screen: "C", section: 2, toast: null, controlsLocked: false })
   })
 
   it("lands on C2 once Finish routine has unlocked", () => {
     const pc = new PlaybackController(makeDance(), { finishReady: true })
     runSection(pc, 1)
-    pc.tapMode()
+    pc.selectMode("Pose")
     expect(leavePose(pc)).toMatchObject({ mode: "Playthrough", screen: "C2", section: 1 })
   })
 
@@ -121,26 +119,39 @@ describe("Mode button: Pose → Lookback → Playthrough", () => {
     holdPose(pc, 2)
     for (let t = 1; t <= 9.1; t += 0.05) pc.tick(t, 0.05)
     expect(pc.view.screen).toBe("C")
-    pc.tapMode()
-    const back = pc.tapMode() && pc.tapMode()
+    pc.selectMode("Pose")
+    const back = pc.selectMode("Lookback") && pc.selectMode("Playthrough")
     expect(back).toMatchObject({ section: 1, runKind: "section", runSection: 1, runStop: 1, count: 8 })
     expect(pc.replay()).toMatchObject({ screen: "BI", section: 1, runStop: 1 })
   })
 
-  it("cycles all three modes, and again", () => {
+  it("goes straight to any mode from any other, and again", () => {
     const pc = new PlaybackController(makeDance())
     runSection(pc, 2)
     for (let lap = 0; lap < 2; lap++) {
-      expect(pc.tapMode()).toMatchObject({ mode: "Pose", screen: "D", toast: null })
-      expect(pc.tapMode()).toMatchObject({ mode: "Lookback", screen: "I", toast: null })
-      expect(pc.tapMode()).toMatchObject({ mode: "Playthrough", screen: "C", toast: null })
+      expect(pc.selectMode("Lookback")).toMatchObject({ mode: "Lookback", screen: "I", section: 2, toast: null })
+      expect(pc.selectMode("Pose")).toMatchObject({ mode: "Pose", screen: "D", section: 2, toast: null })
+      expect(pc.selectMode("Playthrough")).toMatchObject({ mode: "Playthrough", screen: "C", section: 2, toast: null })
+      expect(pc.selectMode("Pose")).toMatchObject({ mode: "Pose", screen: "D", toast: null })
+      expect(pc.selectMode("Lookback")).toMatchObject({ mode: "Lookback", screen: "I", toast: null })
+      expect(pc.selectMode("Playthrough")).toMatchObject({ mode: "Playthrough", screen: "C", toast: null })
     }
+  })
+
+  it("does nothing on the current mode", () => {
+    const pc = new PlaybackController(makeDance())
+    const ended = runSection(pc, 2)
+    expect(pc.selectMode("Playthrough")).toBe(ended)
+    const pose = pc.selectMode("Pose")
+    expect(pc.selectMode("Pose")).toBe(pose)
+    const look = pc.selectMode("Lookback")
+    expect(pc.selectMode("Lookback")).toBe(look)
   })
 
   it("is ignored while the controls are locked", () => {
     const pc = new PlaybackController(makeDance())
     pc.tapSection(2)
-    expect(pc.tapMode()).toMatchObject({ mode: "Playthrough", controlsLocked: true })
+    for (const m of ["Pose", "Lookback"] as const) expect(pc.selectMode(m)).toMatchObject({ mode: "Playthrough", controlsLocked: true, toast: null })
   })
 
   it("keeps speed, mirror and counts across all three modes", () => {
@@ -150,14 +161,13 @@ describe("Mode button: Pose → Lookback → Playthrough", () => {
     pc.toggleMirror()
     pc.toggleCounts()
     const settings = pc.view.settings
-    for (let i = 0; i < 3; i++) expect(pc.tapMode().settings).toEqual(settings)
+    for (const m of ["Pose", "Lookback", "Playthrough"] as const) expect(pc.selectMode(m).settings).toEqual(settings)
   })
 
   it("changes speed, mirror and counts in Lookback", () => {
     const pc = new PlaybackController(makeDance())
     runSection(pc, 2)
-    pc.tapMode()
-    pc.tapMode()
+    pc.selectMode("Lookback")
     pc.setSpeed(0.5)
     pc.toggleMirror()
     expect(pc.view).toMatchObject({ mode: "Lookback", settings: { speed: 0.5, mirror: true } })
@@ -166,25 +176,24 @@ describe("Mode button: Pose → Lookback → Playthrough", () => {
   it("ignores Playthrough's runs in Lookback", () => {
     const pc = new PlaybackController(makeDance())
     runSection(pc, 2)
-    pc.tapMode()
-    pc.tapMode()
+    pc.selectMode("Lookback")
     expect(pc.tapSection(1)).toMatchObject({ mode: "Lookback", screen: "I" })
     expect(pc.replay().screen).toBe("I")
   })
 
-  it("lets a toast from entering Lookback time out", () => {
+  it("lets a mode's toast time out", () => {
     const pc = new PlaybackController(makeDance(), undefined, false)
     runSection(pc, 2)
-    expect(pc.tapMode().toast).toBe(NO_STILLS_TOAST)
+    expect(pc.selectMode("Pose").toast).toBe(NO_STILLS_TOAST)
     expect(pc.tick(5, TOAST_SEC + 0.1).toast).toBeNull()
   })
 })
 
-describe("Mode button: Playthrough's controls in Pose", () => {
+describe("Mode panel: Playthrough's controls in Pose", () => {
   it("ignores section taps, runs, speed and Finish routine while in Pose", () => {
     const pc = new PlaybackController(makeDance(), { finishReady: true })
     runSection(pc, 2)
-    const pose = pc.tapMode()
+    const pose = pc.selectMode("Pose")
     expect(pc.tapSection(1)).toBe(pose)
     expect(pc.tapRange(1, 3)).toBe(pose)
     expect(pc.replay()).toBe(pose)
@@ -197,8 +206,8 @@ describe("Mode button: Playthrough's controls in Pose", () => {
     const settings = { speed: 0.75 as const, mirror: true, counts: false, halfCounts: true }
     const pc = new PlaybackController(makeDance(), { settings })
     runSection(pc, 2)
-    expect(pc.tapMode().settings).toEqual(settings)
-    expect(pc.tapMode().settings).toEqual(settings)
+    expect(pc.selectMode("Pose").settings).toEqual(settings)
+    expect(pc.selectMode("Playthrough").settings).toEqual(settings)
     expect(pc.tapSection(2).video.rate).toBe(0.75)
   })
 })
@@ -419,9 +428,9 @@ describe("Pose: Half counts", () => {
   it("is kept through Pose and back", () => {
     const pc = new PlaybackController(makeDance())
     runSection(pc, 2)
-    pc.tapMode()
+    pc.selectMode("Pose")
     expect(pc.toggleHalfCounts().settings.halfCounts).toBe(true)
-    expect(pc.tapMode().settings.halfCounts).toBe(true)
+    expect(pc.selectMode("Playthrough").settings.halfCounts).toBe(true)
   })
 })
 
@@ -429,9 +438,16 @@ describe("Leaving Pose after stepping into another section", () => {
   it("lands on Clip ended for the section Pose was on", () => {
     const pc = new PlaybackController(makeDance())
     runSection(pc, 1)
-    pc.tapMode()
-    expect(pc.tapMode(3)).toMatchObject({ mode: "Lookback", section: 3 })
-    expect(pc.tapMode()).toMatchObject({ mode: "Playthrough", screen: "C", section: 3, runSection: 3 })
+    pc.selectMode("Pose")
+    expect(pc.selectMode("Lookback", 3)).toMatchObject({ mode: "Lookback", section: 3 })
+    expect(pc.selectMode("Playthrough")).toMatchObject({ mode: "Playthrough", screen: "C", section: 3, runSection: 3 })
+  })
+
+  it("goes straight back to Playthrough on that section", () => {
+    const pc = new PlaybackController(makeDance())
+    runSection(pc, 1)
+    pc.selectMode("Pose")
+    expect(pc.selectMode("Playthrough", 3)).toMatchObject({ mode: "Playthrough", screen: "C", section: 3, runSection: 3 })
   })
 })
 
@@ -557,18 +573,18 @@ describe("Pose: scrubbing the bar", () => {
 describe("Pose: Mirror", () => {
   it("is the same setting as Playthrough's, and carries between modes", () => {
     const pc = new PlaybackController(makeDance())
-    pc.tapMode()
+    pc.selectMode("Pose")
     expect(pc.toggleMirror().settings.mirror).toBe(true)
     expect(pc.view.mode).toBe("Pose")
-    pc.tapMode()
+    pc.selectMode("Lookback")
     expect(pc.view.settings.mirror).toBe(true)
-    pc.tapMode()
+    pc.selectMode("Playthrough")
     expect(pc.view.settings.mirror).toBe(true)
   })
 
   it("is kept into a Play from here run", () => {
     const pc = new PlaybackController(makeDance())
-    pc.tapMode()
+    pc.selectMode("Pose")
     pc.toggleMirror()
     expect(pc.playFromHere(1, 4).settings.mirror).toBe(true)
   })
@@ -580,7 +596,7 @@ describe("Pose: Play from here", () => {
     const pc = new PlaybackController(makeDance())
     pc.setSpeed(speed)
     runSection(pc, n)
-    pc.tapMode()
+    pc.selectMode("Pose")
     return { pc, v: pc.playFromHere(n, step) }
   }
 
@@ -660,40 +676,53 @@ describe("Pose: Play from here", () => {
 })
 
 describe("Dances without stills", () => {
-  it("skips Pose with the toast and opens Lookback", () => {
+  it("toasts and stays in Playthrough when Pose is selected", () => {
     const pc = new PlaybackController(makeDance(), undefined, false)
-    runSection(pc, 2)
-    const v = pc.tapMode()
-    expect(v).toMatchObject({ mode: "Lookback", screen: "I", section: 2, toast: NO_STILLS_TOAST, controlsLocked: false })
-    expect(v.video.playing).toBe(false)
-    expect(pc.tapMode()).toMatchObject({ mode: "Playthrough", screen: "C", section: 2, toast: null })
-  })
-
-  it("stays in Playthrough with the toast when Lookback isn't available either", () => {
-    const pc = new PlaybackController(makeDance(), undefined, false, false)
-    runSection(pc, 2)
-    expect(pc.tapMode()).toMatchObject({ mode: "Playthrough", screen: "C", toast: NO_STILLS_TOAST })
+    const ended = runSection(pc, 2)
+    const v = pc.selectMode("Pose")
+    expect(v).toMatchObject({ mode: "Playthrough", screen: "C", section: 2, toast: NO_STILLS_TOAST, controlsLocked: false })
+    expect(v.video.seekId).toBe(ended.video.seekId)
     expect(pc.tick(5, TOAST_SEC + 0.1).toast).toBeNull()
     expect(pc.replay()).toMatchObject({ mode: "Playthrough", section: 2 })
+  })
+
+  it("still opens Lookback", () => {
+    const pc = new PlaybackController(makeDance(), undefined, false)
+    runSection(pc, 2)
+    expect(pc.selectMode("Lookback")).toMatchObject({ mode: "Lookback", screen: "I", section: 2, toast: null })
+  })
+
+  it("toasts and stays in Lookback when Pose is selected there", () => {
+    const pc = new PlaybackController(makeDance(), undefined, false)
+    runSection(pc, 2)
+    pc.selectMode("Lookback")
+    expect(pc.selectMode("Pose")).toMatchObject({ mode: "Lookback", screen: "I", toast: NO_STILLS_TOAST })
   })
 
   it("enters Pose once the dance has stills", () => {
     const pc = new PlaybackController(makeDance(), undefined, true)
     runSection(pc, 2)
-    expect(pc.tapMode()).toMatchObject({ mode: "Pose", toast: null })
+    expect(pc.selectMode("Pose")).toMatchObject({ mode: "Pose", toast: null })
   })
 })
 
 describe("Bundled dance (no server)", () => {
-  it("shows the server toast instead of entering Lookback, and returns to Clip ended", () => {
+  it("toasts and stays in Playthrough when Lookback is selected", () => {
     const pc = new PlaybackController(makeDance(), undefined, true, false)
-    runSection(pc, 2)
-    expect(pc.tapMode().mode).toBe("Pose")
-    const v = pc.tapMode()
+    const ended = runSection(pc, 2)
+    const v = pc.selectMode("Lookback")
     expect(v).toMatchObject({ mode: "Playthrough", screen: "C", section: 2, toast: NO_SERVER_TOAST })
+    expect(v.video.seekId).toBe(ended.video.seekId)
     expect(NO_SERVER_TOAST).toBe("Lookback needs the dance server")
     expect(pc.tick(5, TOAST_SEC + 0.1).toast).toBeNull()
-    expect(pc.tapMode().mode).toBe("Pose")
+    expect(pc.selectMode("Pose").mode).toBe("Pose")
+  })
+
+  it("toasts and stays in Pose when Lookback is selected there", () => {
+    const pc = new PlaybackController(makeDance(), undefined, true, false)
+    runSection(pc, 2)
+    pc.selectMode("Pose")
+    expect(pc.selectMode("Lookback")).toMatchObject({ mode: "Pose", screen: "D", section: 2, toast: NO_SERVER_TOAST })
   })
 })
 
@@ -703,7 +732,7 @@ describe("Pose edges", () => {
     const pc = new PlaybackController(dance)
     expect(pc.clock.sectionCount).toBe(3)
     runSection(pc, 3)
-    const v = pc.tapMode()
+    const v = pc.selectMode("Pose")
     const pose = new PoseController()
     pose.enter(v.section, v.sectionCount, true)
     for (let i = 0; i < 15; i++) pose.stepForward()
@@ -717,7 +746,7 @@ describe("Pose edges", () => {
     const pc = new PlaybackController(dance)
     expect(pc.clock.sectionCount).toBe(1)
     runSection(pc, 1)
-    const v = pc.tapMode()
+    const v = pc.selectMode("Pose")
     const pose = new PoseController()
     pose.enter(v.section, v.sectionCount)
     expect(pose.stepBack().step).toBe(0)
@@ -731,7 +760,7 @@ describe("Pose edges", () => {
   it("opens another dance in Playthrough, even after leaving the old one in Pose", () => {
     const first = new PlaybackController(makeDance())
     runSection(first, 2)
-    expect(first.tapMode().mode).toBe("Pose")
+    expect(first.selectMode("Pose").mode).toBe("Pose")
     const second = new PlaybackController(makeDance({ id: "other" }))
     expect(second.view.mode).toBe("Playthrough")
     expect(second.open()).toMatchObject({ mode: "Playthrough", section: 1 })

@@ -184,8 +184,7 @@ describe("edge: the server can't be reached in Lookback", () => {
 describe("edge: picking another dance while in Lookback", () => {
   it("leaves Lookback with nothing pending, and the new dance opens in Playthrough", () => {
     const first = new PlaybackController(makeDance({ id: "a" }), undefined, true, true)
-    expect(first.tapMode().mode).toBe("Pose")
-    expect(first.tapMode().mode).toBe("Lookback")
+    expect(first.selectMode("Lookback").mode).toBe("Lookback")
     const lb = new LookbackController()
     lb.enter(1, takes(1, 1))
     lb.phoneStatus(true)
@@ -278,8 +277,7 @@ describe("edge: a one-section dance", () => {
   it("has one section, and Lookback records and plays it side by side", () => {
     expect(clock.sectionCount).toBe(1)
     const pc = new PlaybackController(dance, undefined, true, true)
-    pc.tapMode()
-    expect(pc.tapMode()).toMatchObject({ mode: "Lookback", section: 1 })
+    expect(pc.selectMode("Lookback")).toMatchObject({ mode: "Lookback", section: 1 })
     const lb = new LookbackController()
     lb.enter(1, [])
     lb.phoneStatus(true)

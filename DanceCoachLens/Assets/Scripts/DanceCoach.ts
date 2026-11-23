@@ -14,13 +14,14 @@ import { ClipRequest, LookbackController, LookbackView, SideBySideView } from ".
 import { RemoteClip, RemoteDanceSource } from "./Core/RemoteDanceSource"
 import { TakesClient } from "./Core/TakesClient"
 import { AND_CALL, CountCaller } from "./Core/CountCaller"
-import { PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
+import { MODES, PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
 import { PoseController, PoseView } from "./Core/PoseController"
 import { decodeSettings, encodeSettings, finishReadyKey, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
 import { ClipPlayer, VideoDriver } from "./Core/VideoDriver"
 import { decodePlacement, encodePlacement, Placement, PLACEMENT_KEY } from "./Core/WindowPlacement"
 import { Banner } from "./UI/Banner"
-import { ControlBar, ControlCommand } from "./UI/ControlBar"
+import { ModePanel } from "./UI/ModePanel"
+import { ModeControl, nextSpeed } from "./UI/ModeRow"
 import { CountInPanel } from "./UI/CountInPanel"
 import { DancePickerPanel } from "./UI/DancePickerPanel"
 import { DancesButton } from "./UI/DancesButton"
@@ -152,7 +153,7 @@ export class DanceCoach extends BaseScriptComponent {
   private segBar: SegBar
   private banner: Banner
   private sections: SectionRow
-  private controls: ControlBar
+  private controls: ModePanel
   private toast: Toast
   private skip: SkipButton
   private popup: PopupCard
@@ -330,8 +331,9 @@ export class DanceCoach extends BaseScriptComponent {
     this.sections = childObject("Sections", plane).createComponent(SectionRow.getTypeName()) as SectionRow
     this.sections.onTap = (id) => this.tapSection(id)
     this.sections.onRange = (first, last) => this.render(this.controller.tapRange(first, last))
-    this.controls = childObject("Controls", plane).createComponent(ControlBar.getTypeName()) as ControlBar
+    this.controls = childObject("ModePanel", plane).createComponent(ModePanel.getTypeName()) as ModePanel
     this.controls.onPress = (command) => this.press(command)
+    this.controls.onSelect = (mode) => this.switchMode(this.controller.selectMode(mode, this.poseView ? this.poseView.section : undefined))
     this.toast = childObject("Toast", plane).createComponent(Toast.getTypeName()) as Toast
     this.skip = childObject("Skip", plane).createComponent(SkipButton.getTypeName()) as SkipButton
     this.skip.onPress = () => {
@@ -413,7 +415,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.render(this.controller.routineDone(choice))
   }
 
-  private press(command: ControlCommand) {
+  private press(command: ModeControl) {
     const c = this.controller
     switch (command) {
       case "replay":
@@ -424,9 +426,9 @@ export class DanceCoach extends BaseScriptComponent {
         return this.render(c.toggleMirror())
       case "counts":
         return this.render(c.toggleCounts())
-      case "mode":
-        return this.switchMode(c.tapMode())
-      case "speedCycle":
+      case "speed":
+        // Side by side has its own speed; everywhere else it's the setting every run plays at.
+        if (!this.sideBySide()) return this.render(c.setSpeed(nextSpeed(c.view.settings.speed)))
         this.lookbackView = this.lookback.cycleSpeed()
         return this.render(c.view)
       case "recordAgain":
@@ -436,8 +438,6 @@ export class DanceCoach extends BaseScriptComponent {
         return this.render(c.view)
       case "finish":
         return this.render(c.finish())
-      default:
-        return this.render(c.setSpeed(command))
     }
   }
 
@@ -446,8 +446,11 @@ export class DanceCoach extends BaseScriptComponent {
     if (!this.poseView) return
     this.poseView = this.pose.use()
     switch (command) {
-      case "mode":
-        return this.switchMode(this.controller.tapMode(this.poseView.section))
+      case "mode": {
+        // The Pose bar's old mode button (until #48): the mode after Pose.
+        const next = MODES[(MODES.indexOf(this.controller.view.mode) + 1) % MODES.length]
+        return this.switchMode(this.controller.selectMode(next, this.poseView.section))
+      }
       case "mirror":
         return this.render(this.controller.toggleMirror())
       case "halfCounts":
@@ -464,7 +467,7 @@ export class DanceCoach extends BaseScriptComponent {
     }
   }
 
-  /** After the mode button: enters the Pose or Lookback controller when the mode becomes theirs, and leaves it when the mode moves on. */
+  /** After a mode change: enters the Pose or Lookback controller when the mode becomes theirs, and leaves it when the mode moves on. */
   private switchMode(view: ViewState) {
     if (view.mode === "Pose" && !this.poseView) {
       print(`DanceCoach: Pose on Section ${view.section}`)

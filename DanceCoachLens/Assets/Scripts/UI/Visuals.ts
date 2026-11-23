@@ -185,7 +185,7 @@ export function makeOutline(so: SceneObject, token: ColorToken, renderOrder: num
   return makeSurface(so, { fill: null, border: token, borderPx: SIZE.outline, radius: RADIUS.xl }, renderOrder, wPx, hPx)
 }
 
-export type IconName = "padlock" | "mirror" | "counts" | "play" | "back" | "forward" | "plus"
+export type IconName = "padlock" | "mirror" | "counts" | "play" | "back" | "forward" | "plus" | "replay" | "check"
 
 /** An icon: its object (centred on its parent's origin) and a way to recolour it. */
 export interface Icon {
@@ -195,7 +195,7 @@ export interface Icon {
 
 /**
  * An icon drawn from rectangles, so it doesn't depend on a font: the padlock, the mirror (a line between two
- * mirrored triangles), Counts (a circled 8), play, ‹, › and +. sizePx is its box (20–24 in buttons, 12 for the lock).
+ * mirrored triangles), Counts (a circled 8), play, ‹, ›, +, replay (↺) and a tick (✓). sizePx is its box (20–24 in buttons, 12 for the lock).
  */
 export function makeIcon(so: SceneObject, name: IconName, token: ColorToken, renderOrder: number, sizePx: number = SIZE.icon): Icon {
   const object = childObject(`Icon_${name}`, so)
@@ -281,6 +281,28 @@ export function makeIcon(so: SceneObject, name: IconName, token: ColorToken, ren
       part(0, 0, 18, 2.5, 1.25)
       part(0, 0, 2.5, 18, 1.25)
       break
+    case "check":
+      // ✓ (neither Sora nor Inter has the glyph).
+      line(-8, 1, -3, -5, 2.5)
+      line(-3, -5, 8, 6, 2.5)
+      break
+    case "replay": {
+      // ↺: an open circle from short strokes, starting top-left and going round anticlockwise, with a head at the start.
+      const r = 8
+      const from = 120
+      const sweep = 290
+      const steps = 14
+      const at = (deg: number) => [r * Math.cos((deg * Math.PI) / 180), r * Math.sin((deg * Math.PI) / 180)]
+      for (let i = 0; i < steps; i++) {
+        const [x1, y1] = at(from + (sweep * i) / steps)
+        const [x2, y2] = at(from + (sweep * (i + 1)) / steps)
+        line(x1, y1, x2, y2, 2)
+      }
+      const [hx, hy] = at(from)
+      line(hx, hy, hx - 5, hy, 2)
+      line(hx, hy, hx, hy + 5, 2)
+      break
+    }
   }
 
   return {

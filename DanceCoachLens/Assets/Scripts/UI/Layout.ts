@@ -34,8 +34,8 @@ export const FLOATING_PANELS: PanelId[] = ["toast", "popup"]
 
 /**
  * Every rect is measured from design/b2-handoff/layout.json and snapped to the 4 px grid. Surfaces are 24 apart;
- * the mode panel and section tiles are right-aligned to the video's right edge. `controls` is the mode panel's box
- * (the old control bar still sizes itself to its buttons, right-aligned inside it, until #46).
+ * the mode panel and section tiles are right-aligned to the video's right edge. `controls` is the mode panel's box,
+ * sized to what it holds on that screen (ModeRow.modePanelSize).
  */
 export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // A1, First look: the section bar 16 under the video, "Skip to Section 1 ›" 24 under that, right-aligned.
@@ -51,9 +51,9 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   C2: { video: VIDEO_TILES, sections: [604, 568, 488, 56], controls: [320, 648, 772, 144], toast: [360, 496, 420, 48] },
   // Routine done: a dialog centred in the frame. It opens in front of you (POPUP), so on device only its size counts.
   G: { video: VIDEO_FULL, popup: [320, 220, 640, 360] },
-  // Pose, collapsed: the thin scrub 24 under the video. B2 has no panel here; until #48 the old mode button
-  // sits left of the video's bottom corner so the mode can still change.
-  D: { video: VIDEO_FULL, poseLine: [792, 668, 340, 8], controls: [568, 564, 200, 80] },
+  // Pose, collapsed: the thin scrub 24 under the video. B2 has no panel here; until #48 the mode track alone
+  // sits 24 under the scrub, right-aligned, so the mode can still change.
+  D: { video: VIDEO_FULL, poseLine: [792, 668, 340, 8], controls: [732, 700, 400, 72] },
   // Pose, open: the mode panel with the scrub and step controls, 24 under the video.
   E: { video: VIDEO_BESIDE, poseBar: [592, 584, 500, 200] },
   // Lookback: the side panel 24 left of the video, the mode panel 24 under the video. The old ATTEMPTS row
@@ -66,7 +66,7 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // The original stays where it was, on the right, and the take takes the side panel's place on the left
   // (eyebrows 24 above each). The play bar is 16 under them and the mode panel 8 under that (as in B2's render),
   // right-aligned to the video.
-  M: { video: VIDEO_BESIDE, take: [468, 40, 300, 520], sbsBar: [468, 576, 624, 48], controls: [528, 632, 564, 144] },
+  M: { video: VIDEO_BESIDE, take: [468, 40, 300, 520], sbsBar: [468, 576, 624, 48], controls: [520, 632, 572, 144] },
   // Lookback countdown: the 152-wide column 32 left of the video, then the section records like Playthrough.
   K: { countdown: [608, 236, 152, 192], video: VIDEO_FULL, progress: PROGRESS },
 }

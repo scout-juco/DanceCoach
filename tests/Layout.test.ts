@@ -66,7 +66,7 @@ describe("Layout on the B2 grid", () => {
       ["C2", "video", "below", "sections"],
       ["C2", "sections", "below", "controls"],
       ["D", "video", "below", "poseLine"],
-      ["D", "controls", "right", "video"],
+      ["D", "poseLine", "below", "controls"],
       ["E", "video", "below", "poseBar"],
       ["I", "lookPanel", "right", "video"],
       ["I", "video", "below", "controls"],
@@ -101,8 +101,7 @@ describe("Layout on the B2 grid", () => {
       const edge = right(panels.video!)
       for (const p of ["controls", "sections", "skip", "poseBar"] as PanelId[]) {
         const r = panels[p]
-        // Pose's collapsed screen keeps the old mode button left of the video until #48.
-        if (r && !(id === "D" && p === "controls")) expect(right(r), `${id}.${p}`).toBe(edge)
+        if (r) expect(right(r), `${id}.${p}`).toBe(edge)
       }
     }
   })

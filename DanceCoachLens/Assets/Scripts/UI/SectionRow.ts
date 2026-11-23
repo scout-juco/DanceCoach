@@ -1,9 +1,9 @@
 /**
  * SectionRow: the Full, 1, 2, … N tiles under the video on Clip ended.
  *
- * Sized to the dance's number of sections. The current section is highlighted and
- * sections you've danced show a tick. A pinch on a tile calls onTap with the section
- * number, or "full".
+ * Sized to the dance's number of sections, right-aligned to the video, 8 apart (BUILD_SPEC §6.7): 56-tall pills,
+ * the current one volt with dark text, done ones "n ✓" in muted text with a border, the rest white with a border.
+ * A pinch on a tile calls onTap with the section number, or "full".
  * A shallow view: render() shows the view state, placed by the screen's sections panel
  * in Layout.SCREENS. It's hidden on screens without one, so it can't be pressed mid-run.
  */
@@ -11,20 +11,24 @@ import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interact
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { SectionTap, ViewState } from "../Core/PlaybackController"
 import { panelsFor, pointInPanelCm, pxToCm } from "./Layout"
-import { ColorToken, RADII, SPACING, TYPE } from "./Theme"
-import { childObject, makeRect, makeText, place, setRectSize, themeColor } from "./Visuals"
+import { ColorToken, RADIUS, SPACE } from "./Theme"
+import { childObject, Icon, makeIcon, makePill, makeText, place, setRectSize, setSurfaceBorder, themeColor } from "./Visuals"
 
 const Z = 0.1
 // Collider depth, in cm.
 const HIT_DEPTH = 1
 // How long a tile is held before it starts a range selection, in seconds.
 const HOLD_SEC = 0.6
+// A done tile's "n ✓": the tick is drawn (the fonts have no ✓), this big, with the pair centred on the tile.
+const TICK = { size: 14, shift: 7 }
 
 interface Tile {
   id: SectionTap
   object: SceneObject
   rect: RoundedRectangle
+  label: SceneObject
   text: Text
+  tick: Icon
   collider: ColliderComponent
 }
 
@@ -64,11 +68,11 @@ export class SectionRow extends BaseScriptComponent {
     this.lastKey = key
 
     const n = this.tiles.length
-    const tw = (box[2] - SPACING.tileGap * (n - 1)) / n
+    const tw = (box[2] - SPACE.group * (n - 1)) / n
     const th = box[3]
     this.tiles.forEach((tile, i) => {
-      place(tile.object, pointInPanelCm(box, i * (tw + SPACING.tileGap) + tw / 2, th / 2), Z)
-      setRectSize(tile.rect, tw, th, RADII.tile)
+      place(tile.object, pointInPanelCm(box, i * (tw + SPACE.group) + tw / 2, th / 2), Z)
+      setRectSize(tile.rect, tw, th, RADIUS.pill)
       const shape = Shape.createBoxShape()
       shape.size = new vec3(pxToCm(tw), pxToCm(th), HIT_DEPTH)
       tile.collider.shape = shape
@@ -80,12 +84,14 @@ export class SectionRow extends BaseScriptComponent {
       else if (selecting || view.runKind === "section") current = inRange(tile.id)
       else current = view.runKind === "top" && tile.id === view.section
       const done = typeof tile.id === "number" && !current && view.doneSections.indexOf(tile.id) >= 0
-      const bg: ColorToken = current ? "active" : done || tile.id === "full" ? "done" : "panel"
-      tile.rect.backgroundColor = themeColor(bg)
-      tile.rect.borderColor = themeColor(current ? "active" : "soft")
-      tile.text.textFill.color = themeColor(current ? "activeInk" : "ink")
-      const label = tile.id === "full" ? "Full" : String(tile.id)
-      tile.text.text = done ? `${label} ✓` : label
+      tile.rect.backgroundColor = themeColor(current ? "volt" : "panel")
+      setSurfaceBorder(tile.rect, current ? null : "border", 1)
+      const ink: ColorToken = current ? "onColor" : done ? "textMuted" : "text"
+      tile.text.textFill.color = themeColor(ink)
+      tile.text.text = tile.id === "full" ? "Full" : String(tile.id)
+      tile.label.getTransform().setLocalPosition(new vec3(pxToCm(done ? -TICK.shift : 0), 0, 0.05))
+      tile.tick.object.enabled = done
+      tile.tick.setColor(ink)
     })
   }
 
@@ -96,16 +102,16 @@ export class SectionRow extends BaseScriptComponent {
     for (let i = 1; i <= sectionCount; i++) ids.push(i)
     for (const id of ids) {
       const object = childObject(`Tile ${id}`, this.sceneObject)
-      const rect = makeRect(object, "panel", 1)
-      rect.border = true
-      rect.borderSize = pxToCm(1)
+      const rect = makePill(object, "panel", 1, 92, 56, "border")
       const textObject = childObject("Label", object)
       textObject.getTransform().setLocalPosition(new vec3(0, 0, 0.05))
-      const text = makeText(textObject, TYPE.tile, "ink", 2)
+      const text = makeText(textObject, "buttonStrong", "text", 2)
+      const tick = makeIcon(object, "check", "textMuted", 2, TICK.size)
+      tick.object.getTransform().setLocalPosition(new vec3(pxToCm(TICK.shift + 2), 0, 0.05))
       const collider = object.createComponent("ColliderComponent") as ColliderComponent
       collider.fitVisual = false
       const interactable = object.createComponent(Interactable.getTypeName()) as Interactable
-      const tile: Tile = { id, object, rect, text, collider }
+      const tile: Tile = { id, object, rect, label: textObject, text, tick, collider }
       interactable.onTriggerStart.add(() => {
         this.holding = tile
         this.heldSec = 0
