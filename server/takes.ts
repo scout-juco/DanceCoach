@@ -6,13 +6,14 @@
  * it to the section's length at the recorded speed, and transcodes it to H.264 mp4 with no audio at the
  * clip size, into <storage>/<id>/takes/, indexed by takes.json.
  *
- * Alignment is music-start detection (the first sustained loud audio after silence: the phone's mic
- * hears the glasses start the clip), chosen by the M4-01 spike over cross-correlation, which failed at
- * 0.75×. If no music is heard, the server's own clock stands in: the take ends when the glasses said stop.
+ * Alignment is by the clock: the phone says when its recorder began (in the server's time, worked out from its
+ * polls) and the glasses said when the clip started, so the clip starts that long into the recording. Without the
+ * phone's time, music-start detection (the first sustained loud audio after silence: the phone's mic hears the
+ * glasses start the clip) stands in, and then the recording's end: the take ends when the glasses said stop.
  */
 import { execFile } from "node:child_process"
 import { randomBytes } from "node:crypto"
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { CountClock } from "../DanceCoachLens/Assets/Scripts/Core/CountClock"
@@ -29,6 +30,10 @@ export const PHONE_TIMEOUT_MS = 3000
 export const UPLOAD_TIMEOUT_MS = 60_000
 /** The reason a take fails when the phone went away before sending its recording. */
 export const PHONE_STOPPED_REASON = "The phone stopped filming. Record again?"
+/** How long the phone keeps filming after the glasses say stop, so the music reaching its mic late doesn't cut the take's end short. */
+export const RECORD_TAIL_SEC = 1
+/** How far the glasses may move the start they were heard to say, in ms: more than a network delay is a mistake. */
+const MAX_START_CORRECTION_MS = 5000
 const TAKE_FPS = 30
 const MIN_SPEED = 0.25
 const MAX_SPEED = 2
@@ -62,6 +67,8 @@ export interface SessionView {
 }
 
 interface Session extends SessionView {
+  /** Where in the original video the clip was when the glasses said start, in seconds, if they said. */
+  startVideoTime?: number
   startedAt?: number
   stoppedAt?: number
 }
@@ -157,20 +164,28 @@ export class Recorder {
     return this.view(this.session)
   }
 
-  start(sid: string): SessionView {
+  start(sid: string, videoTimeSec?: number): SessionView {
     const s = this.find(sid)
     if (s.state !== "armed") throw new UploadError("That take isn't armed.")
     s.state = "recording"
     s.startedAt = this.now()
+    if (typeof videoTimeSec === "number" && isFinite(videoTimeSec) && videoTimeSec >= 0) s.startVideoTime = videoTimeSec
     return this.view(s)
   }
 
-  stop(sid: string): SessionView {
+  /** `startedAtServer`: when the glasses worked out the clip really started, in this server's time (their message took a while to arrive). */
+  stop(sid: string, startedAtServer?: number): SessionView {
     const s = this.find(sid)
     if (s.state !== "recording") throw new UploadError("That take isn't recording.")
+    if (typeof startedAtServer === "number" && s.startedAt !== undefined && Math.abs(s.startedAt - startedAtServer) <= MAX_START_CORRECTION_MS) s.startedAt = startedAtServer
     s.state = "uploading"
     s.stoppedAt = this.now()
     return this.view(s)
+  }
+
+  /** The server's clock, for the glasses and phone to line themselves up with. */
+  time(): number {
+    return this.now()
   }
 
   /** The phone's poll: counts as its heartbeat, and says what to film, if anything. */
@@ -194,10 +209,10 @@ export class Recorder {
   }
 
   /** Lines the raw recording up, cuts the take, lists it, and marks the session ready (or failed with a reason). */
-  async finishUpload(sid: string, raw: string, pkg: DancePackage): Promise<SessionView> {
+  async finishUpload(sid: string, raw: string, pkg: DancePackage, recorderStartedAt?: number): Promise<SessionView> {
     const s = this.find(sid)
     try {
-      s.take = await this.process(s, raw, pkg)
+      s.take = await this.process(s, raw, pkg, recorderStartedAt)
       s.state = "ready"
       await rm(raw, { force: true })
     } catch (err) {
@@ -236,26 +251,36 @@ export class Recorder {
         s.reason = "The phone never sent the recording. Check it is still on and connected, then record again."
       }
     }
-    const { startedAt, stoppedAt, ...view } = s
+    const { startedAt, stoppedAt, startVideoTime, ...view } = s
     return view
   }
 
-  private async process(s: Session, raw: string, pkg: DancePackage): Promise<Take> {
+  private async process(s: Session, raw: string, pkg: DancePackage, recorderStartedAt?: number): Promise<Take> {
     const info = await probeVideo(raw)
     const clock = new CountClock(pkg)
     const lead = clock.leadIn(s.section)
-    // The clip the glasses played starts at its lead-in, which is when the music starts in the take.
-    const countOneInClip = clock.sectionStart(s.section) - (lead ? lead.start : clock.sectionStart(s.section))
-    let musicStart = info.hasAudio ? findMusicStart(await decodeAudio(raw), SAMPLE_RATE) : null
+    // The clip started where the glasses say it was when they said start (a player only stops near its lead-in), else at the lead-in.
+    const sectionStart = clock.sectionStart(s.section)
+    const clipStart = s.startVideoTime !== undefined && s.startVideoTime <= sectionStart ? s.startVideoTime : lead ? lead.start : sectionStart
+    const countOneInClip = sectionStart - clipStart
+    // The clip began when the glasses said start; the recording began when the phone's recorder did, so the clip is that far in.
+    let musicStart: number | null = null
+    if (recorderStartedAt !== undefined && s.startedAt !== undefined) {
+      const sinceStart = (s.startedAt - recorderStartedAt) / 1000
+      if (sinceStart >= 0 && sinceStart < info.durationSec) musicStart = sinceStart
+    }
+    if (musicStart === null && info.hasAudio) musicStart = findMusicStart(await decodeAudio(raw), SAMPLE_RATE)
     if (musicStart === null && s.startedAt !== undefined && s.stoppedAt !== undefined) {
-      // The recording ends when the glasses said stop, and the clip began when they said start.
-      musicStart = info.durationSec - (s.stoppedAt - s.startedAt) / 1000
+      // The recording ends a tail after the glasses said stop, and the clip began when they said start.
+      musicStart = info.durationSec - RECORD_TAIL_SEC - (s.stoppedAt - s.startedAt) / 1000
     }
     if (musicStart === null || musicStart < 0) {
       throw new UploadError("We couldn't tell when the section started in that recording. Record again with the sound on.")
     }
     const offset = musicStart + countOneInClip / s.speed
     const length = (clock.sectionEnd(s.section) - clock.sectionStart(s.section)) / s.speed
+    console.log(`take s${s.section} x${s.speed}: raw ${info.durationSec.toFixed(2)} s, music at ${musicStart.toFixed(2)} s, offset ${offset.toFixed(2)} s, needs ${(offset + length).toFixed(2)} s, video at start ${s.startVideoTime ?? "?"}, glasses start to stop ${s.startedAt !== undefined && s.stoppedAt !== undefined ? ((s.stoppedAt - s.startedAt) / 1000).toFixed(2) : "?"} s`)
+    await copyFile(raw, join(takesDir(this.options.storageDir, s.danceId), `last-raw${raw.slice(raw.lastIndexOf("."))}`)).catch(() => {})
     if (offset >= info.durationSec - 0.1) throw new UploadError("That recording ended before the section started. Record again.")
 
     const dir = takesDir(this.options.storageDir, s.danceId)
@@ -265,7 +290,7 @@ export class Recorder {
     const out = join(dir, `${name}.tmp.mp4`)
     try {
       await run("ffmpeg", ["-y", "-loglevel", "error", "-ss", offset.toFixed(3), "-i", raw, "-t", length.toFixed(3),
-        "-vf", `${SCALE_FILTER},fps=${TAKE_FPS}`, "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+        "-vf", `${SCALE_FILTER},fps=${TAKE_FPS},tpad=stop_mode=clone:stop_duration=${RECORD_TAIL_SEC}`, "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
         "-movflags", "+faststart", out])
     } catch {
       await rm(out, { force: true })

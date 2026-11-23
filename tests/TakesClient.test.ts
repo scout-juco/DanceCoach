@@ -89,7 +89,7 @@ describe("TakesClient: requests' shapes", () => {
   it("starts and stops a session", async () => {
     const { transport, requests } = fakeTransport({ [`${BASE}/takes/session/s9/start`]: {}, [`${BASE}/takes/session/s9/stop`]: {} })
     const client = new TakesClient(BASE, transport)
-    await client.start("s9")
+    await client.start("s9", 4.2)
     await client.stop("s9")
     expect(requests.map((r) => `${r.method} ${r.url}`)).toEqual([`POST ${BASE}/takes/session/s9/start`, `POST ${BASE}/takes/session/s9/stop`])
   })

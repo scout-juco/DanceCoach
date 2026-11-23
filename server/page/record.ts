@@ -9,6 +9,8 @@ interface Take { name: string; section: number; speed: number; mirror: boolean; 
 interface Session { id: string; danceId: string; state: string }
 
 const POLL_MS = 300
+/** Keeps filming this long after the glasses stop (the same as the server's RECORD_TAIL_SEC), so the take's end isn't cut short. */
+const TAIL_MS = 1000
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
 const preview = $<HTMLVideoElement>("preview")
@@ -20,7 +22,9 @@ let stream: MediaStream | null = null
 let facing: "environment" | "user" = "environment"
 let wakeLock: { release(): Promise<void> } | null = null
 /** What the phone is filming now; null when idle. */
-let rec: { sid: string; danceId: string; recorder: MediaRecorder; chunks: Blob[]; discard: boolean } | null = null
+let rec: { sid: string; danceId: string; recorder: MediaRecorder; chunks: Blob[]; discard: boolean; startedAt: number } | null = null
+/** The server's clock minus this phone's, in ms, worked out from each poll (the server's time is taken at the poll's midpoint). */
+let clockOffset = 0
 let uploading = false
 let message = ""
 let lastSeenBeat = false
@@ -89,12 +93,14 @@ function startRecording(session: Session) {
   if (!stream) return
   const mime = ["video/mp4", "video/webm;codecs=vp9,opus", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m))
   const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : {})
-  const current = { sid: session.id, danceId: session.danceId, recorder, chunks: [] as Blob[], discard: false }
+  const current = { sid: session.id, danceId: session.danceId, recorder, chunks: [] as Blob[], discard: false, startedAt: 0 }
   recorder.ondataavailable = (e) => e.data.size && current.chunks.push(e.data)
   recorder.onstop = () => {
     if (!current.discard) void upload(current)
   }
   recorder.start(1000)
+  // The recording's first frame is when start() was called, in the server's time: what the server lines the clip up from.
+  current.startedAt = Date.now() + clockOffset
   rec = current
   setMessage("")
 }
@@ -105,7 +111,9 @@ function stopRecording(discard: boolean) {
   const current = rec
   rec = null
   current.discard = discard
-  if (current.recorder.state !== "inactive") current.recorder.stop()
+  const stop = () => current.recorder.state !== "inactive" && current.recorder.stop()
+  if (discard) stop()
+  else setTimeout(stop, TAIL_MS)
 }
 
 function upload(current: NonNullable<typeof rec>): Promise<void> {
@@ -118,6 +126,7 @@ function upload(current: NonNullable<typeof rec>): Promise<void> {
     const xhr = new XMLHttpRequest()
     xhr.open("POST", `/takes/session/${current.sid}/upload`)
     xhr.setRequestHeader("Content-Type", blob.type || "video/mp4")
+    xhr.setRequestHeader("X-Recording-Started", String(current.startedAt))
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) progress.value = e.loaded / e.total
     }
@@ -151,8 +160,10 @@ async function poll() {
   if (polling) return
   polling = true
   try {
+    const sent = Date.now()
     const res = await fetch("/recorder/state", { cache: "no-store" })
-    const { session } = (await res.json()) as { session: Session | null }
+    const { session, serverTime } = (await res.json()) as { session: Session | null; serverTime: number }
+    if (typeof serverTime === "number") clockOffset = serverTime - (sent + Date.now()) / 2
     lastSeenBeat = true
     const active = session && (session.state === "armed" || session.state === "recording") ? session : null
     if (active && !uploading) {

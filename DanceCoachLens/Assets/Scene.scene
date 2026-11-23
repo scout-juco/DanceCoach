@@ -1168,7 +1168,7 @@
         - !<reference> 178658eb-572f-4b26-adaa-4873921f7576
       poseStills: !<reference.Texture[]>
         []
-      serverUrl: "http://localhost:8792/"
+      serverUrl: ""
       internetModule: !<reference.InternetModule> eebf6808-5aba-4e36-93fe-1f953128779f
       remoteMediaModule: !<reference.RemoteMediaModule> c503e25e-d86a-45bc-97ce-b44a45c4b6b1
       count1: !<reference.AudioTrackAsset> 4229a75b-d5e9-41b2-80df-fe4a184cd282

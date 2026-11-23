@@ -17,8 +17,8 @@
  * I or L with a message.
  *
  * M4-07: side by side (screen M). Play side by side on L asks for the selected take's video (a "load" request), then
- * opens M on count 1, paused. The original plays at the take's speed and the take at 1×, both scaled by M's speed button
- * (0.5×, 0.75× or 1× of the recorded tempo). Each clip gets a request (originalClip, takeClip) the Lens hands its player:
+ * opens M on count 1, paused. Both play at M's speed button (0.5×, 0.75× or 1× of the dance's real tempo, opening at the
+ * take's own speed): the original at that rate and the take sped up by the speed it was filmed at. Each clip gets a request (originalClip, takeClip) the Lens hands its player:
  * the player can't seek, so a seek restarts the clip, and the clips play only once the Lens says both have landed (landed).
  * Scrubbing snaps to a count and seeks on release, since a seek is too slow to follow a drag.
  *
@@ -55,7 +55,8 @@ export type RecordPhase = "confirm" | "arming" | "countdown" | "recording" | "sa
 /** What the Lens should ask of the server. */
 export type LookbackRequest =
   | { type: "arm"; params: TakeParams }
-  | { type: "start"; sessionId: string }
+  /** The section starts playing; videoTimeSec is where in the original video it plays from. */
+  | { type: "start"; sessionId: string; videoTimeSec: number }
   | { type: "stop"; sessionId: string }
   /** The take is ready on the server: download it, then call downloaded (or downloadFailed). */
   | { type: "download"; take: Take }
@@ -80,10 +81,8 @@ export interface RecordView {
   progress: number
 }
 
-/** The speeds side by side's speed button cycles through, as a share of the recorded tempo. */
-export const SBS_SPEEDS = [0.5, 0.75, 1] as const
-
-export type SbsSpeed = (typeof SBS_SPEEDS)[number]
+/** The speeds side by side's speed button cycles through, as a share of the dance's real tempo. */
+export const SBS_SPEEDS = [0.5, 0.75, 1]
 
 /** Where the section sits in the original video: seconds, and the length of a count. */
 export interface SideBySideSetup {
@@ -112,7 +111,8 @@ export interface SideBySideView {
   playing: boolean
   /** A seek is under way: the Lens calls landed() when both clips are on their frame. */
   seeking: boolean
-  speed: SbsSpeed
+  /** The tempo both play at, as a share of the dance's real tempo: a take filmed at 0.75× opens at 0.75×. */
+  speed: number
   /** How many counts the section has, 1–8: fewer in a short last section. */
   counts: number
   originalClip: ClipRequest
@@ -256,7 +256,7 @@ export class LookbackController {
     const s = this.state
     if (!s || !this.loadingTake || this.loadingTake.name !== take.name) return s
     this.loadingTake = null
-    this.state = { ...s, screen: "M", message: null, sideBySide: this.seekView(take, 1, 1, false) }
+    this.state = { ...s, screen: "M", message: null, sideBySide: this.seekView(take, 1, take.speed, false) }
     return this.state
   }
 
@@ -301,11 +301,11 @@ export class LookbackController {
     return v ? this.setSbs(this.seekView(v.take, v.count, v.speed, false)) : this.state
   }
 
-  /** The speed button: 0.5× → 0.75× → 1× → 0.5×, scaling both. A player only takes a rate when it starts, so both restart on the count they're on. */
+  /** The speed button: up through 0.5×, 0.75× and 1× of the real tempo, then back to 0.5×. The take is sped up to match when it was filmed slower. A player only takes a rate when it starts, so both restart on the count they're on. */
   cycleSpeed(): LookbackView | null {
     const v = this.sbs()
     if (!v) return this.state
-    const speed = SBS_SPEEDS[(SBS_SPEEDS.indexOf(v.speed) + 1) % SBS_SPEEDS.length]
+    const speed = SBS_SPEEDS.find(x => x > v.speed + EPS) ?? SBS_SPEEDS[0]
     return this.setSbs(this.seekView(v.take, v.count, speed, v.playing))
   }
 
@@ -326,7 +326,7 @@ export class LookbackController {
   }
 
   /** A side-by-side view whose clips are sent to `count`'s frame, held until they've landed. */
-  private seekView(take: Take, count: number, speed: SbsSpeed, playing: boolean): SideBySideView {
+  private seekView(take: Take, count: number, speed: number, playing: boolean): SideBySideView {
     this.seekId++
     this.seekCount = count
     const counts = sectionCounts(this.setup.start, this.setup.end, this.setup.beatSec)
@@ -341,8 +341,8 @@ export class LookbackController {
     const running = next.playing && !next.seeking
     return {
       ...next,
-      originalClip: { seekTo: start + u, seekId: this.seekId, playing: running, rate: next.take.speed * next.speed },
-      takeClip: { seekTo: u / next.take.speed, seekId: this.seekId, playing: running, rate: next.speed },
+      originalClip: { seekTo: start + u, seekId: this.seekId, playing: running, rate: next.speed },
+      takeClip: { seekTo: u / next.take.speed, seekId: this.seekId, playing: running, rate: next.speed / next.take.speed },
     }
   }
 
@@ -503,7 +503,7 @@ export class LookbackController {
         return
       }
       // The count has run out: the server hears the run started, and the section plays from this frame.
-      this.requests.push({ type: "start", sessionId: this.sessionId! })
+      this.requests.push({ type: "start", sessionId: this.sessionId!, videoTimeSec })
       this.state = { ...s, record: { ...r, phase: "recording", countdown: 0, progress: 0 } }
     } else if (r.phase === "recording") {
       const { start, end } = this.range

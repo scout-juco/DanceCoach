@@ -284,8 +284,20 @@ export function createIngestServer(options: IngestOptions): Server {
       const sessionRoute = url.pathname.match(/^\/takes\/session\/([^/]+)\/(start|stop|upload)$/)
       if (req.method === "POST" && sessionRoute) {
         const [, sid, action] = sessionRoute
-        if (action === "start") return send(res, 200, recorder.start(sid))
-        if (action === "stop") return send(res, 200, recorder.stop(sid))
+        if (action === "start") {
+          let videoTime: unknown
+          try {
+            videoTime = JSON.parse((await readBody(req)) || "{}").videoTimeSec
+          } catch {}
+          return send(res, 200, { ...recorder.start(sid, typeof videoTime === "number" ? videoTime : undefined), serverTime: recorder.time() })
+        }
+        if (action === "stop") {
+          let startedAt: unknown
+          try {
+            startedAt = JSON.parse((await readBody(req)) || "{}").startedAtServer
+          } catch {}
+          return send(res, 200, recorder.stop(sid, typeof startedAt === "number" ? startedAt : undefined))
+        }
         const waiting = recorder.beginUpload(sid)
         const pkg = await readReady(options.storageDir, waiting.danceId)
         if (!pkg) return send(res, 404, { error: "That dance is gone." })
@@ -299,7 +311,8 @@ export function createIngestServer(options: IngestOptions): Server {
         } catch {
           return send(res, 422, { error: recorder.fail(sid, "The recording didn't arrive in full. Record again.").reason })
         }
-        const done = await recorder.finishUpload(sid, raw, pkg)
+        const startedHeader = Number(req.headers["x-recording-started"])
+        const done = await recorder.finishUpload(sid, raw, pkg, Number.isFinite(startedHeader) ? startedHeader : undefined)
         return done.state === "ready" ? send(res, 200, done) : send(res, 422, { error: done.reason, session: done })
       }
       const takesRoute = url.pathname.match(/^\/dances\/([^/]+)\/takes(?:\/([^/]+))?$/)

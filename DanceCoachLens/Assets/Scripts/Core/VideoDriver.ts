@@ -93,6 +93,13 @@ export class VideoDriver {
     return clip.start + (this.ended ? this.endedAt : player.currentTime)
   }
 
+  /** The time of the last frame the active player put on screen, in the original video: what's actually showing. */
+  get frameTime(): number {
+    if (this.active < 0) return 0
+    const { clip, player } = this.clips[this.active]
+    return clip.start + player.lastFrameTime
+  }
+
   /** Stops whatever is playing, for when the dance is swapped out. */
   stop() {
     for (const i of [this.active, this.ahead]) {

@@ -99,12 +99,16 @@ export class TakesClient {
     return raw.id
   }
 
-  async start(sessionId: string): Promise<void> {
-    await this.transport.postJson(`${this.base}/takes/session/${encodeURIComponent(sessionId)}/start`, {})
+  /** The section starts playing from `videoTimeSec` in the original video, which the server counts on to find count 1 in the take. */
+  async start(sessionId: string, videoTimeSec: number): Promise<number | null> {
+    const raw: any = await this.transport.postJson(`${this.base}/takes/session/${encodeURIComponent(sessionId)}/start`, { videoTimeSec })
+    // The server's clock when it answered, in ms.
+    return raw && typeof raw.serverTime === "number" ? raw.serverTime : null
   }
 
-  async stop(sessionId: string): Promise<void> {
-    await this.transport.postJson(`${this.base}/takes/session/${encodeURIComponent(sessionId)}/stop`, {})
+  /** `startedAtServer`: when the clip really started, in the server's time, as the glasses worked it out from how long "start" took to get there. */
+  async stop(sessionId: string, startedAtServer?: number): Promise<void> {
+    await this.transport.postJson(`${this.base}/takes/session/${encodeURIComponent(sessionId)}/stop`, startedAtServer === undefined ? {} : { startedAtServer })
   }
 
   /** Downloads a take's video like a clip. */

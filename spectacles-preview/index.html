@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Dance Coach Specs Preview</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap">
 <style>
   :root { --bg:#1B1B1A; --panel:rgba(24,24,23,.92); --ink:#ECECE8; --muted:#A3A29C; --line:#3A3A37; --hot:#7C97FF }
   html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:14px system-ui, -apple-system, sans-serif; overflow:hidden }
@@ -44,6 +45,7 @@
   <div class="row" role="group" aria-label="Theme">
     <button type="button" data-theme="light">Wireframe light</button>
     <button type="button" data-theme="dark">Specs dark</button>
+    <button type="button" data-theme="kit">Style kit (B2)</button>
   </div>
   <label class="sl">Distance <input id="dist" type="range" min="0.6" max="3" step="0.05"><output id="distv"></output></label>
   <label class="sl">To the right <input id="yaw" type="range" min="-60" max="60" step="1"><output id="yawv"></output></label>
@@ -111,11 +113,17 @@ const MODE_ENTRY = ['C', 'D', 'I', 'C'];            // where the mode button tak
 const THEMES = {
   light: { panel:'#FFFFFF', video:'#D6D6D2', ink:'#1F1F1E', ink2:'#3D3D3A', stroke:'#2B2B2A', muted:'#5E5E5A', soft:'#9A9A96',
            chip:'#FFFFFF', countBg:'rgba(255,255,255,0.88)', active:'#1F1F1E', activeInk:'#FFFFFF', on:'#E3E3DF', done:'#F4F4F1',
-           track:'#D6D6D2', take:'#B9B9B4', ghost:'#F4F4F1', ghostLine:'#B9B9B4', you:'#1F1F1E' },
+           track:'#D6D6D2', take:'#B9B9B4', ghost:'#F4F4F1', ghostLine:'#B9B9B4', you:'#1F1F1E', rec:'#1F1F1E', recInk:'#FFFFFF' },
   dark:  { panel:'#121212', video:'#262626', ink:'#F2F2EE', ink2:'#D0D0CA', stroke:'#8E8E89', muted:'#B9B9B3', soft:'#5E5E5A',
            chip:'#121212', countBg:'rgba(0,0,0,0.72)', active:'#F2F2EE', activeInk:'#111111', on:'#34342F', done:'#1A1A1A',
-           track:'#2E2E2E', take:'#3A3A36', ghost:'#161616', ghostLine:'#3A3A36', you:'#F2F2EE' },
+           track:'#2E2E2E', take:'#3A3A36', ghost:'#161616', ghostLine:'#3A3A36', you:'#F2F2EE', rec:'#F2F2EE', recInk:'#111111' },
+  // Style kit (B2 · Pulse, refined): volt = now/active, pink = recording, white text, dark glass panels.
+  // Near-black renders transparent on Spectacles, so panels are dark grey, not black.
+  kit:   { panel:'#23262B', video:'#3A3F46', ink:'#FFFFFF', ink2:'#C9CCD1', stroke:'#6B7179', muted:'#9EA3AA', soft:'#6B7179',
+           chip:'#16181B', countBg:'#16181B', active:'#D4FF3A', activeInk:'#0E0F10', on:'#3A3F46', done:'#3A3F46',
+           track:'#3A3F46', take:'#3A3F46', ghost:'#16181B', ghostLine:'#3A3F46', you:'#FFFFFF', rec:'#FF5FA8', recInk:'#0E0F10' },
 };
+const THEME_ORDER = ['light', 'dark', 'kit'];
 
 /* ------------------------------ state ------------------------------ */
 const S = { ...DEFAULTS, run: { kind: 'section', stop: 4 }, runSec: 2, ci: 0, done: [1], finishReady: false, toast: null, hrPhase: 'count', hrCount: 3, hrTime: 0, speed: 0.75, mirror: true, counts: true, section: 2, count: 1, pose: 9,
@@ -202,8 +210,13 @@ function layoutPanels() {
 
 /* ---------------------------- drawing helpers ----------------------------- */
 const T = () => THEMES[S.theme] || THEMES.light;
-const SANS = 'system-ui, -apple-system, "Segoe UI", sans-serif', MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+const BASE_SANS = 'system-ui, -apple-system, "Segoe UI", sans-serif', BASE_MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+let SANS = BASE_SANS, MONO = BASE_MONO;
+const KIT = () => S.theme === 'kit';
+// kit: Sora for labels and numbers, Inter for small all-caps meta text
+function applyFonts() { SANS = KIT() ? 'Sora, Inter, system-ui, sans-serif' : BASE_SANS; MONO = KIT() ? 'Inter, system-ui, sans-serif' : BASE_MONO; }
 function rr(ctx, x, y, w, h, r, fill, stroke, lw = 1.5, dash) {
+  if (KIT() && r > 0 && h <= 64) r = Math.min(h, w) / 2;
   ctx.beginPath(); ctx.roundRect(x + lw / 2, y + lw / 2, w - lw, h - lw, r);
   if (fill) { ctx.fillStyle = fill; ctx.fill(); }
   if (stroke) { ctx.setLineDash(dash || []); ctx.lineWidth = lw; ctx.strokeStyle = stroke; ctx.stroke(); ctx.setLineDash([]); }
@@ -225,8 +238,9 @@ function wrap(ctx, s, x, y, maxW, lh, opts = {}) {
 function chipW(s) { measureCtx.font = `400 11px ${MONO}`; return measureCtx.measureText(s).width + 16; }
 function chip(ctx, s, x, y, dark = false) {
   const w = chipW(s);
-  rr(ctx, x, y, w, 20, 10, dark ? T().active : T().chip, null);
-  text(ctx, s, x + 8, y + 10.5, { size: 11, font: MONO, color: dark ? T().activeInk : T().ink });
+  const rec = dark === 'rec';
+  rr(ctx, x, y, w, 20, 10, rec ? T().rec : dark ? T().active : T().chip, null);
+  text(ctx, s, x + 8, y + 10.5, { size: 11, font: MONO, weight: rec ? 700 : 400, color: rec ? T().recInk : dark ? T().activeInk : T().ink });
   return w;
 }
 function chipsRight(ctx, list, right, y) { let x = right; for (let i = list.length - 1; i >= 0; i--) { const [s, dark] = list[i]; x -= chipW(s); chip(ctx, s, x, y, dark); x -= 6; } }
@@ -308,7 +322,7 @@ function drawItems(ctx, p, items, x, y, H) {
       rr(ctx, x, y, w, H, 12, t.panel, t.soft);
       [0.5, 0.75, 1].forEach((s, i) => {
         const bx = x + i * 44, on = S.speed === s;
-        if (on) { ctx.save(); ctx.beginPath(); ctx.roundRect(x + 1.5, y + 1.5, w - 3, H - 3, 11); ctx.clip(); ctx.fillStyle = t.active; ctx.fillRect(bx, y, 44, H); ctx.restore(); }
+        if (on) { ctx.save(); ctx.beginPath(); ctx.roundRect(x + 1.5, y + 1.5, w - 3, H - 3, KIT() ? (H - 3) / 2 : 11); ctx.clip(); ctx.fillStyle = t.active; ctx.fillRect(bx, y, 44, H); ctx.restore(); }
         text(ctx, `${s}×`, bx + 22, y + H / 2, { size: 12, weight: 600, font: MONO, color: on ? t.activeInk : t.ink, align: 'center' });
         p.hits.push({ x: bx, y, w: 44, h: H, id: 'speed:' + s });
       });
@@ -353,7 +367,7 @@ function drawVideo(ctx, p) {
   ctx.restore();
   if (S.counts && sc !== 'BI' && sc !== 'B0') countBadge(ctx, 14, 14, 84, label, size, sub);
   const chips = [];
-  if (sc === 'K' && S.kPhase === 'play') chips.push(['● REC', true]);
+  if (sc === 'K' && S.kPhase === 'play') chips.push(['● REC', 'rec']);
   if (['B', 'B0', 'BI', 'K', 'F'].includes(sc)) chips.push([`${S.speed}×`]);
   if (sc === 'HR') chips.push(['1×']);
   if ((['B', 'B0', 'BI', 'K', 'HR'].includes(sc) || pose) && S.mirror) chips.push(['MIRRORED']);
@@ -374,11 +388,22 @@ function drawProgress(ctx, p) {
 }
 function drawCiHead(ctx, p) { text(ctx, 'GET IN YOUR STARTING POSE', p.w / 2, p.h / 2, { size: 13, font: MONO, weight: 600, align: 'center' }); }
 function drawCountIn(ctx, p) {
+  if (KIT()) return drawCountInKit(ctx, p);
   const t = T(), cx = p.w / 2;
   ctx.beginPath(); ctx.arc(cx, 100, 100, 0, Math.PI * 2); ctx.fillStyle = t.active; ctx.fill();
   text(ctx, String(5 + S.ci), cx, 92, { size: 110, weight: 600, color: t.activeInk, align: 'center' });
   text(ctx, `${S.screen === 'B0' ? 'SECTION ' + S.section : runLabel()} IN`, cx, 216, { size: 11, font: MONO, color: t.ink2, align: 'center' });
   [5, 6, 7, 8].forEach((n, i) => text(ctx, String(n), cx + (i - 1.5) * 26, 248, { size: 20, font: MONO, weight: 600, color: i === S.ci ? t.ink : t.soft, align: 'center' }));
+}
+function drawCountInKit(ctx, p) {
+  // bars fill on the beat: upcoming = soft, current = volt and wider, done = white
+  const t = T();
+  text(ctx, `${S.screen === 'B0' ? 'SECTION ' + S.section : runLabel()} IN`, 16, 16, { size: 12, weight: 700, font: MONO, color: t.muted });
+  [5, 6, 7, 8].forEach((n, i) => {
+    const y = 64 + i * 56, now = i === S.ci, done = i < S.ci;
+    rr(ctx, 16, y - 6, now ? 64 : 40, 12, 6, now ? t.active : done ? t.ink : t.soft, null);
+    text(ctx, '0' + n, 96, y, { size: 40, weight: 700, color: now ? t.active : done ? t.ink : t.soft });
+  });
 }
 function drawSegBar(ctx, p) {
   const t = T(), gap = 4, sw = (p.w - gap * 3) / 4, top = S.run.kind === 'top', stop = top ? S.run.stop : 4;
@@ -396,7 +421,7 @@ function drawSegBar(ctx, p) {
 }
 function drawBanner(ctx, p) {
   const t = T(), cy = p.h / 2;
-  rr(ctx, 0, 0, p.w, p.h, 12, t.active, null);
+  rr(ctx, 0, 0, p.w, p.h, 12, S.screen !== 'F' && S.hrPhase === 'play' ? t.rec : t.active, null);
   let label;
   if (S.screen === 'F') {
     label = `From the top · Section 1 → end of Section ${S.run.stop}`;
@@ -413,9 +438,9 @@ function drawBanner(ctx, p) {
 function drawCamThumb(ctx, p) {
   const t = T(), vh = p.h - 22;
   text(ctx, 'PHONE CAMERA', 0, 6, { size: 10, font: MONO, color: t.ink2 });
-  rr(ctx, 0, 22, p.w, vh, 10, S.theme === 'dark' ? '#3A3A36' : '#7A7A76', t.stroke);
+  rr(ctx, 0, 22, p.w, vh, 10, S.theme !== 'light' ? '#3A3A36' : '#7A7A76', t.stroke);
   const keep = S.mirror; S.mirror = false; figure(ctx, p.w / 2, 22 + vh / 2, 0.45, S.count, '#ECECE8'); S.mirror = keep;
-  if (S.hrPhase === 'play') { rr(ctx, 6, 28, 46, 16, 8, t.active, null); text(ctx, '● REC', 12, 36.5, { size: 9, font: MONO, weight: 600, color: t.activeInk }); }
+  if (S.hrPhase === 'play') { rr(ctx, 6, 28, 46, 16, 8, t.rec, null); text(ctx, '● REC', 12, 36.5, { size: 9, font: MONO, weight: 600, color: t.recInk }); }
   else { rr(ctx, 6, 28, 52, 16, 8, t.chip, null); text(ctx, 'READY', 12, 36.5, { size: 9, font: MONO, weight: 600 }); }
 }
 function drawToast(ctx, p) {
@@ -475,7 +500,7 @@ function drawLookPanel(ctx, p) {
     if (isNew) chip(ctx, 'NEW', bx + 8, by + 8);
     text(ctx, `TAKE ${S.sel + 1} · ${take.speed}×`, bx + 8, by + bh - 14, { size: 11, font: MONO });
     const cy = by + bh / 2;
-    ctx.beginPath(); ctx.arc(w / 2, cy, 38, 0, Math.PI * 2); ctx.fillStyle = S.theme === 'dark' ? 'rgba(18,18,18,0.92)' : 'rgba(255,255,255,0.92)'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = t.ink; ctx.stroke();
+    ctx.beginPath(); ctx.arc(w / 2, cy, 38, 0, Math.PI * 2); ctx.fillStyle = S.theme !== 'light' ? 'rgba(18,18,18,0.92)' : 'rgba(255,255,255,0.92)'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = t.ink; ctx.stroke();
     playIcon(ctx, w / 2 + 2, cy, 16, t.ink);
     text(ctx, 'Play side by side', w / 2, cy + 56, { size: 12, weight: 600, align: 'center' });
     p.hits.push({ x: bx, y: by, w: bw, h: bh, id: 'sbs' });
@@ -531,7 +556,7 @@ function btn(ctx, p, x, y, w, h, id, label, { sub, primary = false, quiet = fals
   const ink = primary ? t.activeInk : t.ink;
   if (sub) {
     text(ctx, label, x + 20, y + h / 2 - 10, { size: 18, weight: 600, color: ink });
-    text(ctx, sub, x + 20, y + h / 2 + 13, { size: 13, color: primary ? (S.theme === 'dark' ? '#3D3D3A' : '#D6D6D2') : t.muted });
+    text(ctx, sub, x + 20, y + h / 2 + 13, { size: 13, color: primary ? (S.theme !== 'light' ? '#3D3D3A' : '#D6D6D2') : t.muted });
   } else text(ctx, label, x + w / 2, y + h / 2, { size, weight: 600, color: ink, align: 'center' });
   p.hits.push({ x, y, w, h, id });
 }
@@ -562,7 +587,7 @@ function drawRecDance(ctx, p) {
 function drawPhoneCam(ctx, p) {
   const t = T(), vh = p.h - 22;
   text(ctx, 'PHONE CAMERA · LIVE', 0, 7, { size: 11, font: MONO, color: t.ink2 });
-  rr(ctx, 0, 22, p.w, vh, 14, S.theme === 'dark' ? '#3A3A36' : '#7A7A76', t.stroke);
+  rr(ctx, 0, 22, p.w, vh, 14, S.theme !== 'light' ? '#3A3A36' : '#7A7A76', t.stroke);
   const keep = S.mirror; S.mirror = false;
   figure(ctx, p.w / 2, 22 + vh / 2, 0.9, 2, '#ECECE8');
   S.mirror = keep;
@@ -570,9 +595,9 @@ function drawPhoneCam(ctx, p) {
 }
 function drawCountdown(ctx, p) {
   const t = T(), r = p.w / 2;
-  ctx.beginPath(); ctx.arc(r, r, r, 0, Math.PI * 2); ctx.fillStyle = t.active; ctx.fill();
-  text(ctx, String(S.kCount), r, r - 8, { size: 110, weight: 600, color: t.activeInk, align: 'center' });
-  text(ctx, 'GET IN POSITION', r, r + 58, { size: 11, font: MONO, color: t.activeInk, align: 'center' });
+  ctx.beginPath(); ctx.arc(r, r, r, 0, Math.PI * 2); ctx.fillStyle = t.rec; ctx.fill();
+  text(ctx, String(S.kCount), r, r - 8, { size: 110, weight: 600, color: t.recInk, align: 'center' });
+  text(ctx, 'GET IN POSITION', r, r + 58, { size: 11, font: MONO, color: t.recInk, align: 'center' });
 }
 function drawSbs(you) {
   return (ctx, p) => {
@@ -684,7 +709,7 @@ function tweakAct(id) {
     case 'prev': return jump(JUMPS[(i + JUMPS.length - 1) % JUMPS.length]);
     case 'next': return jump(JUMPS[(i + 1) % JUMPS.length]);
     case 'skip': return skip();
-    case 'theme': S.theme = S.theme === 'light' ? 'dark' : 'light'; break;
+    case 'theme': S.theme = THEME_ORDER[(THEME_ORDER.indexOf(S.theme) + 1) % THEME_ORDER.length]; break;
     case 'recenter': needRecenter = true; break;
     case 'hidebar': tweak.mesh.visible = false; break;
     case 'popnear': S.popDist = Math.max(0.4, +(S.popDist - 0.1).toFixed(2)); break;
@@ -758,6 +783,7 @@ function go(screen) {
   refresh();
 }
 function refresh() {
+  applyFonts();
   const sc = SCREENS[S.screen], want = { ...panelsOf(S.screen), ...viewOf(S.screen) };
   for (const [name, p] of Object.entries(PANELS)) {
     if (p === tweak) continue;
@@ -910,6 +936,8 @@ function syncUI() {
   document.querySelectorAll('[data-screen]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.screen === currentJump())));
   document.querySelectorAll('[data-theme]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.theme === S.theme)));
 }
+
+if (document.fonts) Promise.all(['700 40px Sora', '600 16px Sora', '700 12px Inter', '400 12px Inter'].map(f => document.fonts.load(f))).then(() => { if (KIT()) refresh(); }).catch(() => {});
 
 /* ------------------------------ loop ------------------------------ */
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });

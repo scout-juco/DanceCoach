@@ -24,7 +24,8 @@ export async function probeVideo(file: string): Promise<VideoInfo> {
     const info = JSON.parse(stdout)
     streams = info.streams ?? []
     duration = Number(info.format?.duration)
-  } catch {
+  } catch (err) {
+    console.error(`ffprobe failed on ${file}:`, err)
     throw new UploadError("That file isn't a video we can read. Try an MP4 or MOV.")
   }
   if (!streams.some((s) => s.codec_type === "video") || !isFinite(duration) || duration <= 0) {

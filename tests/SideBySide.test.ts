@@ -43,13 +43,13 @@ describe("opening side by side (screen M)", () => {
 
   it("opens on count 1, paused, with both clips sent to count 1", () => {
     const v = sbs(onM())
-    expect(v).toMatchObject({ count: 1, fraction: 0, playing: false, seeking: true, speed: 1 })
+    expect(v).toMatchObject({ count: 1, fraction: 0, playing: false, seeking: true, speed: 0.75 })
     expect(v.originalClip).toMatchObject({ seekTo: 10, playing: false })
     expect(v.takeClip).toMatchObject({ seekTo: 0, playing: false })
     expect(onM().view!.screen).toBe("M")
   })
 
-  it("plays the original at the take's speed and the take at 1×", () => {
+  it("opens at the speed the take was filmed at: the original at it and the take at 1×", () => {
     const v = sbs(onM())
     expect(v.originalClip.rate).toBeCloseTo(0.75)
     expect(v.takeClip.rate).toBe(1)
@@ -210,24 +210,24 @@ describe("scrub", () => {
 })
 
 describe("speed", () => {
-  it("cycles 0.5×, 0.75× and 1× of the recorded tempo", () => {
+  it("cycles up through 0.5×, 0.75× and 1× of the real tempo, from where it opened", () => {
     const lb = landed()
     const seen: number[] = []
     for (let i = 0; i < 4; i++) seen.push(lb.cycleSpeed()!.sideBySide!.speed)
-    expect(seen).toEqual([0.5, 0.75, 1, 0.5])
+    expect(seen).toEqual([1, 0.5, 0.75, 1])
   })
 
-  it("scales both rates together, the original still at the take's speed", () => {
+  it("speeds a slow take up to the real tempo: the original at 1× and the take faster", () => {
     const lb = landed()
     lb.cycleSpeed()
-    expect(sbs(lb).takeClip.rate).toBe(0.5)
-    expect(sbs(lb).originalClip.rate).toBeCloseTo(0.375)
+    expect(sbs(lb).originalClip.rate).toBe(1)
+    expect(sbs(lb).takeClip.rate).toBeCloseTo(1 / 0.75)
     lb.cycleSpeed()
-    expect(sbs(lb).takeClip.rate).toBe(0.75)
-    expect(sbs(lb).originalClip.rate).toBeCloseTo(0.5625)
+    expect(sbs(lb).originalClip.rate).toBe(0.5)
+    expect(sbs(lb).takeClip.rate).toBeCloseTo(0.5 / 0.75)
     lb.cycleSpeed()
+    expect(sbs(lb).originalClip.rate).toBe(0.75)
     expect(sbs(lb).takeClip.rate).toBe(1)
-    expect(sbs(lb).originalClip.rate).toBeCloseTo(0.75)
   })
 
   it("restarts both on the count they're on, since a rate only applies when a clip starts", () => {
@@ -279,14 +279,14 @@ describe("Record again and Back to takes", () => {
     expect(lb.backToTakes()).toMatchObject({ screen: "L", selected: 1, sideBySide: null })
   })
 
-  it("starts again from count 1 at 1× next time", () => {
+  it("starts again from count 1 at the take's speed next time", () => {
     const lb = landed()
     lb.cycleSpeed()
     lb.backToTakes()
     lb.playSideBySide(SETUP)
     lb.takeRequests()
     lb.takeLoaded(take(2, 0.75))
-    expect(sbs(lb)).toMatchObject({ count: 1, speed: 1, playing: false })
+    expect(sbs(lb)).toMatchObject({ count: 1, speed: 0.75, playing: false })
   })
 
   it("keeps side by side across a late takes listing, and leaves it with Lookback", () => {

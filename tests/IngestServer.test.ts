@@ -421,6 +421,43 @@ describe("takes", { timeout: 120_000 }, () => {
     expect(readdirSync(join(storage, id, "takes")).filter((f) => f.startsWith("raw-"))).toEqual([])
   }, 120_000)
 
+  it("lines the take up by the clock when the phone says when its recorder began, whatever the sound", async () => {
+    const id = await readyDance()
+    const { session } = await arm(id)
+    await call("GET", "/recorder/state")
+    await call("POST", `/takes/session/${session.id}/start`)
+    await call("POST", `/takes/session/${session.id}/stop`)
+    // The recorder began 3 s before the glasses said start; the music in the recording starts at 1 s, which must be ignored.
+    const res = await fetch(`${url}/takes/session/${session.id}/upload`, { method: "POST", headers: { "X-Recording-Started": String(now - 3000) }, body: filmed(10, 1) })
+    // Count 1 of the clip is at 3 s, and section 2's count 1 is 2 s (4 counts) later at 1×.
+    expect((await res.json()).take.offset).toBeCloseTo(5, 2)
+  }, 120_000)
+
+  it("counts count 1 from where the glasses say the clip was when it started", async () => {
+    const id = await readyDance()
+    const { session } = await arm(id)
+    await call("GET", "/recorder/state")
+    // Section 2 leads in from 2.5 s and starts at 4.5 s; the player was paused 0.2 s past its lead-in's start, and the recorder began 3 s earlier.
+    await call("POST", `/takes/session/${session.id}/start`, { videoTimeSec: 2.7 })
+    await call("POST", `/takes/session/${session.id}/stop`)
+    const res = await fetch(`${url}/takes/session/${session.id}/upload`, { method: "POST", headers: { "X-Recording-Started": String(now - 3000) }, body: filmed(10, null) })
+    // Count 1 is 4.5 - 2.7 = 1.8 s into the clip, which is 3 s into the recording.
+    expect((await res.json()).take.offset).toBeCloseTo(4.8, 2)
+  }, 120_000)
+
+  it("takes the start the glasses worked out for themselves, since their \"start\" took a while to arrive", async () => {
+    const id = await readyDance()
+    const { session } = await arm(id)
+    await call("GET", "/recorder/state")
+    const started = await (await call("POST", `/takes/session/${session.id}/start`, { videoTimeSec: 2.5 })).json()
+    expect(started.serverTime).toBe(now)
+    // They worked out the clip really started 0.4 s before the server heard "start".
+    await call("POST", `/takes/session/${session.id}/stop`, { startedAtServer: now - 400 })
+    const res = await fetch(`${url}/takes/session/${session.id}/upload`, { method: "POST", headers: { "X-Recording-Started": String(now - 3000) }, body: filmed(10, null) })
+    // The clip began 2.6 s into the recording, and count 1 is 2 s (4 counts) after that at 1×.
+    expect((await res.json()).take.offset).toBeCloseTo(4.6, 2)
+  }, 120_000)
+
   it("falls back to the server's clock when the recording has no sound", async () => {
     const id = await readyDance()
     const { session } = await arm(id)
@@ -428,8 +465,8 @@ describe("takes", { timeout: 120_000 }, () => {
     now += 6000 // the clip: 2 s of lead-in and the 4 s section
     await call("GET", "/recorder/state") // the phone is still polling
     await call("POST", `/takes/session/${session.id}/stop`)
-    const res = await call("POST", `/takes/session/${session.id}/upload`, filmed(8, null))
-    // The clip began 6 s before the end of an 8 s recording, so count 1 is at 2 + 2 = 4 s.
+    const res = await call("POST", `/takes/session/${session.id}/upload`, filmed(9, null))
+    // The phone films a 1 s tail after stop, so the clip began 6 s before the 8 s mark of a 9 s recording: count 1 is at 2 + 2 = 4 s.
     expect((await res.json()).take.offset).toBeCloseTo(4, 2)
   }, 120_000)
 

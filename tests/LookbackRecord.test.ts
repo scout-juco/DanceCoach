@@ -125,7 +125,7 @@ describe("Recording: arming and the countdown (screen K)", () => {
     lb.tick(1)
     expect(lb.takeRequests()).toEqual([])
     lb.tick(1)
-    expect(lb.takeRequests()).toEqual([{ type: "start", sessionId: "s9" }])
+    expect(lb.takeRequests()).toEqual([{ type: "start", sessionId: "s9", videoTimeSec: expect.any(Number) }])
     expect(lb.view!.record).toMatchObject({ phase: "recording", countdown: 0, progress: 0 })
   })
 
