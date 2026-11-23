@@ -12,7 +12,7 @@ import { STILLS_PER_SECTION } from "../Core/DancePackage"
 import { PoseView, scrubLabel } from "../Core/PoseController"
 import { ViewState } from "../Core/PlaybackController"
 import { panelsFor, pointInPanelCm, pxToCm } from "./Layout"
-import { RADII, TYPE } from "./Theme"
+import { RADII } from "./Theme"
 import { childObject, makeRect, makeText, place, setRectSize } from "./Visuals"
 
 const Z = 0.1
@@ -53,7 +53,7 @@ export class PoseLine extends BaseScriptComponent {
     this.fillObject = childObject("Fill", this.sceneObject)
     this.fill = makeRect(this.fillObject, "muted", 2)
     this.labelObject = childObject("Label", this.sceneObject)
-    this.label = makeText(this.labelObject, TYPE.banner, "ink2", 2)
+    this.label = makeText(this.labelObject, "label", "textMuted", 2)
     this.sceneObject.enabled = false
   }
 

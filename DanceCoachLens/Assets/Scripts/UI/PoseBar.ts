@@ -129,7 +129,7 @@ export class PoseBar extends BaseScriptComponent {
   }
 
   render(view: ViewState, pose: PoseView | null) {
-    const box = panelsFor(view).poseBar
+    const box = this.fit(panelsFor(view).poseBar)
     this.sceneObject.enabled = !!box && !!pose
     if (!box || !pose) {
       // A hidden bar sends no hover-exit.
@@ -164,6 +164,18 @@ export class PoseBar extends BaseScriptComponent {
     // The steps' size: a count, or half of one.
     this.backLabel.text = pose.halfCounts ? "‹ ½" : "‹ 1"
     this.forwardLabel.text = pose.halfCounts ? "½ ›" : "1 ›"
+  }
+
+  /**
+   * The box widened to fit the buttons, keeping its right edge: the B2 mode panel's place is narrower than
+   * this wireframe bar, which goes when the mode panel replaces it (#48).
+   */
+  private fit(box: PxRect | undefined): PxRect | undefined {
+    if (!box) return box
+    const pad = SPACING.barPad + 2
+    const buttons = this.buttons.reduce((sum, b) => sum + b.widthPx + BUTTON_GAP, 0) + BUTTON_GAP
+    const w = Math.max(box[2], 2 * pad + buttons - BUTTON_GAP)
+    return [box[0] + box[2] - w, box[1], w, box[3]]
   }
 
   private layout(box: PxRect) {

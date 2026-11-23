@@ -15,7 +15,7 @@ import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interact
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { LookbackView } from "../Core/LookbackController"
 import { MODES, Mode, Speed, ViewState } from "../Core/PlaybackController"
-import { panelsFor, pointInPanelCm, pxToCm, PxRect, SCREENS } from "./Layout"
+import { panelsFor, pointInPanelCm, pxToCm, PxRect } from "./Layout"
 import { ColorToken, RADII, SPACING, TYPE } from "./Theme"
 import { childObject, makeRect, makeText, makeTopIcon, place, setRectSize, themeColor } from "./Visuals"
 
@@ -183,7 +183,7 @@ export class ControlBar extends BaseScriptComponent {
     this.finishSub.text = ready ? "✓ ALL SECTIONS" : `AFTER SEC ${view.sectionCount}`
   }
 
-  /** Sizes the bar to its controls and lays them out left to right from the panel's top-left. In Pose only the mode button shows; in Lookback, it, speed, Mirror and Counts; on side by side, the mode button, the cycling speed, Mirror, Counts, Record again and Back to takes. */
+  /** Sizes the bar to its controls and right-aligns it in the panel, laying them out left to right. In Pose only the mode button shows; in Lookback, it, speed, Mirror and Counts; on side by side, the mode button, the cycling speed, Mirror, Counts, Record again and Back to takes. */
   private layout(box: PxRect, mode: Mode, sideBySide: boolean) {
     const H = this.itemHeight()
     const pad = SPACING.barPad
@@ -195,10 +195,12 @@ export class ControlBar extends BaseScriptComponent {
     const items = shown.map((i) => all[i])
     const widths = shown.map((i) => allWidths[i])
     const w = 2 * pad + widths.reduce((a, b) => a + b, 0) + SPACING.controlGap * (items.length - 1)
-    const h = box[3]
-    place(this.barObject, pointInPanelCm(box, w / 2, h / 2), Z_BAR)
+    const h = 2 * pad + H
+    // Right-aligned to the box (the mode panel's place, right-aligned to the video), so it grows to the left.
+    const left = box[2] - w
+    place(this.barObject, pointInPanelCm(box, left + w / 2, h / 2), Z_BAR)
     setRectSize(this.bar, w, h, RADII.bar)
-    let x = pad
+    let x = left + pad
     items.forEach((item, i) => {
       place(item.object, pointInPanelCm(box, x + widths[i] / 2, pad + H / 2), Z_CONTROL)
       x += widths[i] + SPACING.controlGap
@@ -206,8 +208,8 @@ export class ControlBar extends BaseScriptComponent {
   }
 
   private itemHeight(): number {
-    // Every screen with controls uses the same bar height.
-    return SCREENS.C.controls![3] - 2 * SPACING.barPad
+    // Every screen with controls uses the same button height.
+    return SPACING.controlHeight
   }
 
   /** A rounded control with a border, pressable when it has a command. */

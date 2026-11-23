@@ -7,7 +7,7 @@
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { ViewState } from "../Core/PlaybackController"
 import { panelsFor, pointInPanelCm, pxToCm, SCREENS } from "./Layout"
-import { RADII, TYPE } from "./Theme"
+import { RADII } from "./Theme"
 import { childObject, makeRect, makeText, place, setRectSize, themeColor } from "./Visuals"
 
 const Z = 0.2
@@ -32,7 +32,7 @@ export class SkipButton extends BaseScriptComponent {
     setRectSize(rect, w, h, RADII.button)
     const label = childObject("Label", this.button)
     label.getTransform().setLocalPosition(new vec3(0, 0, 0.05))
-    makeText(label, TYPE.button, "ink", 3).text = "Skip to Section 1  ›"
+    makeText(label, "button", "text", 3).text = "Skip to Section 1 ›"
 
     const collider = this.button.createComponent("ColliderComponent") as ColliderComponent
     collider.fitVisual = false

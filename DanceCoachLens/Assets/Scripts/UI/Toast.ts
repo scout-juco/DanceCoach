@@ -6,7 +6,6 @@
  */
 import { ViewState } from "../Core/PlaybackController"
 import { panelsFor, pointInPanelCm, SCREENS } from "./Layout"
-import { TYPE } from "./Theme"
 import { childObject, makeRect, makeText, place, setRectSize } from "./Visuals"
 
 // In front of the other panels, in cm.
@@ -26,7 +25,7 @@ export class Toast extends BaseScriptComponent {
     setRectSize(rect, box[2], box[3], box[3] / 2)
     const textObject = childObject("Text", this.pill)
     textObject.getTransform().setLocalPosition(new vec3(0, 0, 0.05))
-    this.text = makeText(textObject, TYPE.toast, "activeInk", 6)
+    this.text = makeText(textObject, "chip", "activeInk", 6)
     this.sceneObject.enabled = false
   }
 
