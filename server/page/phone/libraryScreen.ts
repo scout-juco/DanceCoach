@@ -1,5 +1,5 @@
 /** P1, the Library: "Your dances", the resume card, the three tabs and the dance rows. */
-import { button, el, iconButton, segmented, sectionsBar, sectionsLearnedText, setStatusChip, statusChip, thumbnail } from "./kit"
+import { button, el, segmented, sectionsBar, sectionsLearnedText, setStatusChip, statusChip, thumbnail } from "./kit"
 import { openDanceOnSpecs } from "./commands"
 import { EMPTY_TEXT, metaLine, NO_DANCES_TEXT, progressOf, resumeChoice, resumeLine, resumeSection, TABS, tabContents, trailingValue, withLiveProgress, type LibraryDance, type Tab } from "./library"
 import { NETWORK_ERROR } from "./pairing"
@@ -99,11 +99,4 @@ export function libraryScreen(ctx: Ctx): Screen {
   })
   void load()
   return { root, dispose: off }
-}
-
-/** Stand-in for the screens later tickets build (P2, P4, P5), so the Library's buttons land somewhere. */
-export function comingScreen(ctx: Ctx, title: string): Screen {
-  const root = el("main", "screen")
-  root.append(el("div", "back-header", {}, iconButton("back", "Back", { onClick: () => ctx.go("#/") }), el("h1", "title", {}, title)), el("p", "empty", {}, "This screen is coming soon."))
-  return { root, dispose: () => {} }
 }

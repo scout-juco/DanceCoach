@@ -186,3 +186,26 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .input.start-input { width: 96px; height: 44px; padding: 0 12px; text-align: center; font-variant-numeric: tabular-nums; }
 .input.start-input:focus { padding: 0 11px; }
 .trim-stage.small { border-radius: var(--radius-md); }
+
+/* While you practice (P5). */
+.screen.practice { gap: var(--space-5); padding-top: calc(var(--safe-top) + 40px); }
+.practice-head { display: flex; flex-direction: column; gap: var(--space-2); }
+.live-row { display: flex; align-items: center; gap: var(--space-2); }
+.now-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-lg); background: var(--panel-solid); }
+.now-card .section-heading { overflow-wrap: anywhere; }
+.chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.banner { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-lg); }
+.banner.pink { background: var(--pink); color: var(--on-pink); }
+.banner.pink .body-text { color: var(--on-pink); }
+.banner-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--on-pink); }
+.banner-text { display: flex; flex-direction: column; gap: var(--space-1); }
+.banner.away { background: var(--panel-solid); border: 1px solid var(--border); }
+.lookbacks { display: flex; flex-direction: column; gap: var(--space-2); }
+.group-label { margin-top: var(--space-1); }
+.take-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2); border-radius: var(--radius-lg); background: var(--panel-solid); }
+.take-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.small-title { font: 700 14px/20px var(--display); }
+.small-meta { font-size: 12px; line-height: 16px; }
+a.icon-btn { color: var(--text); text-decoration: none; }
+.watch-video { width: 100%; max-height: 60dvh; border-radius: var(--radius-md); background: #000; }
+.btn.confirm-delete { background: var(--control); color: var(--text); }

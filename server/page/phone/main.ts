@@ -3,7 +3,8 @@ import { LinkPoller, TOKEN_KEY, type PollerDeps } from "./linkState"
 import { resolveRoute } from "./router"
 import { addScreen, processingScreen } from "./addScreen"
 import { linkFromShare } from "./add"
-import { comingScreen, libraryScreen } from "./libraryScreen"
+import { libraryScreen } from "./libraryScreen"
+import { practiceScreen } from "./practiceScreen"
 import { readyScreen } from "./readyScreen"
 import { sectionsScreen } from "./sectionsScreen"
 import { trimScreen } from "./trimScreen"
@@ -63,26 +64,25 @@ function render() {
   if (sharedLink && route === "home") ({ route, hash } = resolveRoute("#/add", true))
   if (location.hash !== hash) history.replaceState(null, "", hash)
   current?.dispose()
-  // P5 is another ticket: a stand-in until it lands.
   const takeShared = () => {
     const link = sharedLink
     sharedLink = undefined
     return link
   }
-  const screens = { pair: () => pairScreen(ctx), kit: () => kitScreen(ctx), add: () => addScreen(ctx, takeShared()), trim: () => trimScreen(ctx, id!), processing: () => processingScreen(ctx, id!), dance: () => readyScreen(ctx, id!), sections: () => sectionsScreen(ctx, id!), practice: () => comingScreen(ctx, "While you practice"), home: () => libraryScreen(ctx) }
+  const screens = { pair: () => pairScreen(ctx), kit: () => kitScreen(ctx), add: () => addScreen(ctx, takeShared()), trim: () => trimScreen(ctx, id!), processing: () => processingScreen(ctx, id!), dance: () => readyScreen(ctx, id!), sections: () => sectionsScreen(ctx, id!), practice: () => practiceScreen(ctx), home: () => libraryScreen(ctx) }
   current = screens[route]()
   app.replaceChildren(current.root)
   window.scrollTo(0, 0)
 }
 
 // A lost pairing (the server restarted) clears the token; the guard then sends the app to pair. The sheet
-// opens when a connected Specs goes quiet, on the screens that show the link.
+// opens when a connected Specs goes quiet, on the Library; P5 shows a banner instead and keeps its list.
 let last = link.snapshot.status
 link.subscribe((s) => {
   const was = last
   last = s.status
   if (s.status === "unpaired" && was !== "unpaired" && resolveRoute(location.hash, readToken() !== null).route === "pair") render()
-  else if (was === "connected" && s.status === "not-connected" && ["home", "practice"].includes(resolveRoute(location.hash, true).route)) showNotConnected(ctx)
+  else if (was === "connected" && s.status === "not-connected" && ["home"].includes(resolveRoute(location.hash, true).route)) showNotConnected(ctx)
 })
 
 window.addEventListener("hashchange", render)
