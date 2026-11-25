@@ -401,6 +401,20 @@ describe("takes", { timeout: 120_000 }, () => {
     expect(second.take.number).toBe(2)
   }, 120_000)
 
+  it("takes the whole routine as section 0: named full-t<n>, listed under section 0, as long as every section together", async () => {
+    const id = await readyDance()
+    const { res } = await record(id, filmed(12, 1), { section: 0 })
+    const done = await res.json()
+    expect(done.state).toBe("ready")
+    expect(done.take).toMatchObject({ name: "full-t1", section: 0, number: 1 })
+    expect(await (await call("GET", `/dances/${id}/takes?section=0`)).json()).toEqual([done.take])
+    expect(await (await call("GET", `/dances/${id}/takes?section=2`)).json()).toEqual([])
+    // Section 1 starts at 0.5 s and the last section ends by the 10 s trim: far more than one 4 s section.
+    expect(Number(probe(join(storage, id, "takes", "full-t1.mp4")).format.duration)).toBeGreaterThan(8)
+    expect((await (await record(id, filmed(12, 1), { section: 0 })).res.json()).take.name).toBe("full-t2")
+    expect((await arm(id, { section: 9 })).res.status).toBe(422)
+  }, 120_000)
+
   it("starts the take on the section's count 1, within one frame of a known offset", async () => {
     const id = await readyDance()
     // Music starts at 1.0 s; section 2's count 1 is 2 s (4 counts) later at 1×.
@@ -504,7 +518,7 @@ describe("takes", { timeout: 120_000 }, () => {
 
   it("refuses to arm a take that makes no sense", async () => {
     const id = await readyDance()
-    for (const bad of [{ section: 0 }, { section: 9 }, { section: 1.5 }, { speed: 0 }, { speed: "fast" }, { mirror: "no" }]) {
+    for (const bad of [{ section: -1 }, { section: 9 }, { section: 1.5 }, { speed: 0 }, { speed: "fast" }, { mirror: "no" }]) {
       expect((await arm(id, bad)).res.status).toBe(422)
     }
     expect((await call("POST", `/dances/000000000000/takes/session`, { section: 1, speed: 1, mirror: false })).status).toBe(404)

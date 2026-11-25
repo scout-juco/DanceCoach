@@ -41,8 +41,9 @@ const MAX_SPEED = 2
 export class NotFoundError extends Error {}
 
 export interface Take {
-  /** The file name without .mp4, e.g. s2-t3. */
+  /** The file name without .mp4, e.g. s2-t3, or full-t1 for the whole routine. */
   name: string
+  /** 1 and up, or 0 for the whole routine. */
   section: number
   speed: number
   mirror: boolean
@@ -153,8 +154,9 @@ export class Recorder {
   arm(pkg: DancePackage, params: { section: unknown; speed: unknown; mirror: unknown }): SessionView {
     const { section, speed, mirror } = params
     const sectionCount = new CountClock(pkg).sectionCount
-    if (typeof section !== "number" || !Number.isInteger(section) || section < 1 || section > sectionCount) {
-      throw new UploadError(`Pick a section from 1 to ${sectionCount}.`)
+    // Section 0 is the whole routine.
+    if (typeof section !== "number" || !Number.isInteger(section) || section < 0 || section > sectionCount) {
+      throw new UploadError(`Pick a section from 1 to ${sectionCount}, or 0 for the whole routine.`)
     }
     if (typeof speed !== "number" || !(speed >= MIN_SPEED && speed <= MAX_SPEED)) {
       throw new UploadError(`The speed must be between ${MIN_SPEED} and ${MAX_SPEED}.`)
@@ -258,9 +260,12 @@ export class Recorder {
   private async process(s: Session, raw: string, pkg: DancePackage, recorderStartedAt?: number): Promise<Take> {
     const info = await probeVideo(raw)
     const clock = new CountClock(pkg)
-    const lead = clock.leadIn(s.section)
+    // Section 0 is the whole routine: from section 1's start to the last section's end, counted in as section 1.
+    const first = s.section === 0 ? 1 : s.section
+    const last = s.section === 0 ? clock.sectionCount : s.section
+    const lead = clock.leadIn(first)
     // The clip started where the glasses say it was when they said start (a player only stops near its lead-in), else at the lead-in.
-    const sectionStart = clock.sectionStart(s.section)
+    const sectionStart = clock.sectionStart(first)
     const clipStart = s.startVideoTime !== undefined && s.startVideoTime <= sectionStart ? s.startVideoTime : lead ? lead.start : sectionStart
     const countOneInClip = sectionStart - clipStart
     // The clip began when the glasses said start; the recording began when the phone's recorder did, so the clip is that far in.
@@ -278,7 +283,7 @@ export class Recorder {
       throw new UploadError("We couldn't tell when the section started in that recording. Record again with the sound on.")
     }
     const offset = musicStart + countOneInClip / s.speed
-    const length = (clock.sectionEnd(s.section) - clock.sectionStart(s.section)) / s.speed
+    const length = (clock.sectionEnd(last) - clock.sectionStart(first)) / s.speed
     console.log(`take s${s.section} x${s.speed}: raw ${info.durationSec.toFixed(2)} s, music at ${musicStart.toFixed(2)} s, offset ${offset.toFixed(2)} s, needs ${(offset + length).toFixed(2)} s, video at start ${s.startVideoTime ?? "?"}, glasses start to stop ${s.startedAt !== undefined && s.stoppedAt !== undefined ? ((s.stoppedAt - s.startedAt) / 1000).toFixed(2) : "?"} s`)
     await copyFile(raw, join(takesDir(this.options.storageDir, s.danceId), `last-raw${raw.slice(raw.lastIndexOf("."))}`)).catch(() => {})
     if (offset >= info.durationSec - 0.1) throw new UploadError("That recording ended before the section started. Record again.")
@@ -286,7 +291,7 @@ export class Recorder {
     const dir = takesDir(this.options.storageDir, s.danceId)
     const takes = await readTakes(this.options.storageDir, s.danceId)
     const number = Math.max(0, ...takes.filter((t) => t.section === s.section).map((t) => t.number)) + 1
-    const name = `s${s.section}-t${number}`
+    const name = `${s.section === 0 ? "full" : `s${s.section}`}-t${number}`
     const out = join(dir, `${name}.tmp.mp4`)
     try {
       await run("ffmpeg", ["-y", "-loglevel", "error", "-ss", offset.toFixed(3), "-i", raw, "-t", length.toFixed(3),
