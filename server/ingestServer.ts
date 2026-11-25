@@ -8,7 +8,7 @@
  *   POST /dances/link         body = { url } (JSON): fetches the video with yt-dlp, then as an upload
  *     201 { package, confidence }   the same draft; its source is the link
  *   DELETE /dances/<id>       removes the dance and its files (200 { deleted: true })
- *   GET /dances               the ready dances: [{ id, title, difficulty, sections, lengthSec }]
+ *   GET /dances               the ready dances: [{ id, title, difficulty, sections, lengthSec, thumbnail }]
  *   GET /dances/<id>/package  a ready dance's package
  *   GET /dances/<id>/clips/<name>  one of its clips, named <video>_<clip id>.mp4
  *   GET /dances/<id>/stills/<name> one of its stills (a JPEG per half-count), as listed in the package's stills
@@ -16,8 +16,14 @@
  *   POST /dances/<id>/takes/session   body = { section, speed, mirror }: arms a take (replacing any session) -> 201 the session
  *   POST /takes/session/<sid>/start | /stop   sent by the glasses
  *   POST /takes/session/<sid>/upload          body = the phone's recording; lines it up, trims and transcodes it -> the session
- *   GET /recorder/state       for the phone: { session } while armed or recording; counts as its heartbeat
+ *   GET /recorder/state       alias of GET /link/phone/beat without a token: { session } while armed or recording; counts as the phone's heartbeat
  *   GET /recorder/status      for the glasses: { phoneConnected, session } (armed, recording, uploading, processing, ready, failed)
+ *   POST /link/specs/beat     body = { specsId, state, repair? }: the Specs' beat -> { pairCode?, paired, phoneConnected, commands }
+ *                             body { ack: <commandId> } also clears that command
+ *   POST /link/pair           body = { code } -> { phoneToken }, or 422 with a readable error
+ *   GET /link/phone/beat      Bearer token: { specs: connected | not-connected | unpaired, state?, session, serverTime }
+ *   POST /link/phone/command  Bearer token, body = { type: "open-dance", danceId, section? } | { type: "end-session" } -> 201 the command
+ *   Once a phone is paired, DELETE/PUT /dances/<id> and DELETE /dances/<id>/takes/<name> need its token (401 without).
  *   GET /dances/<id>/takes?section=n          the takes (all, or one section's): [{ name, section, speed, mirror, created, offset, number }]
  *   GET /dances/<id>/takes/<name>.mp4         one take;  DELETE /dances/<id>/takes/<name> removes it
  *   GET /                     the adjust page; GET /app.js is its script, bundled from server/page
@@ -44,6 +50,7 @@ import { clipAssetName, planClips } from "../DanceCoachLens/Assets/Scripts/Core/
 import { stillNames } from "../DanceCoachLens/Assets/Scripts/Core/StillPlan"
 import { detectBeats } from "./detectBeats"
 import { decodeAudio, fetchWithYtDlp, probeVideo, UploadError, VideoFetcher } from "./media"
+import { AuthError, cleanState, Link, LinkError } from "./link"
 import { deleteTake, NotFoundError, rawUploadPath, readTakes, Recorder, takeFile } from "./takes"
 
 const MAX_UPLOAD_BYTES = 1024 ** 3
@@ -133,6 +140,14 @@ async function draftFromLink(body: string, options: IngestOptions): Promise<Draf
       throw new UploadError("We couldn't get a video from that link. It may be private or from a site we can't read. Try uploading the file instead.")
     }
   })
+}
+
+async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+  try {
+    const body = JSON.parse((await readBody(req)) || "{}")
+    if (body && typeof body === "object") return body
+  } catch {}
+  throw new LinkError("That isn't valid JSON.")
 }
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -277,11 +292,30 @@ async function sendFile(req: IncomingMessage, res: ServerResponse, file: string,
 
 export function createIngestServer(options: IngestOptions): Server {
   const recorder = new Recorder(options)
+  const link = new Link({ now: options.now })
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost")
+    const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1]
     try {
-      if (req.method === "GET" && url.pathname === "/recorder/state") return send(res, 200, recorder.phoneState())
-      if (req.method === "GET" && url.pathname === "/recorder/status") return send(res, 200, recorder.status())
+      const phoneWrite = (req.method === "PUT" || req.method === "DELETE") && /^\/dances\/[^/]+(\/takes\/[^/]+)?$/.test(url.pathname)
+      if (phoneWrite && !link.mayWrite(bearer)) throw new AuthError("Pair your phone with your Specs first.")
+      if (req.method === "GET" && url.pathname === "/recorder/state") {
+        link.phoneSeen()
+        return send(res, 200, recorder.phoneState())
+      }
+      if (req.method === "GET" && url.pathname === "/recorder/status") return send(res, 200, { ...recorder.status(), phoneConnected: link.phoneConnected() })
+      if (req.method === "POST" && url.pathname === "/link/specs/beat") {
+        const body = await readJson(req)
+        if (typeof body.specsId !== "string" || !body.specsId) throw new LinkError("Say which Specs you are.")
+        if (typeof body.ack === "string") link.ack(body.specsId, body.ack)
+        return send(res, 200, link.specsBeat(body.specsId, cleanState(body.state), body.repair === true))
+      }
+      if (req.method === "POST" && url.pathname === "/link/pair") return send(res, 200, link.pair((await readJson(req)).code))
+      if (req.method === "GET" && url.pathname === "/link/phone/beat") {
+        const beat = link.phoneBeat(bearer)
+        return send(res, 200, beat.specs === "unpaired" ? beat : { ...beat, ...recorder.phoneState() })
+      }
+      if (req.method === "POST" && url.pathname === "/link/phone/command") return send(res, 201, link.command(bearer, await readJson(req)))
       const sessionRoute = url.pathname.match(/^\/takes\/session\/([^/]+)\/(start|stop|upload)$/)
       if (req.method === "POST" && sessionRoute) {
         const [, sid, action] = sessionRoute
@@ -413,6 +447,8 @@ export function createIngestServer(options: IngestOptions): Server {
       send(res, 404, { error: "Not found." })
     } catch (err) {
       if (err instanceof NotFoundError) return send(res, 404, { error: err.message })
+      if (err instanceof AuthError) return send(res, 401, { error: err.message })
+      if (err instanceof LinkError) return send(res, 422, { error: err.message })
       if (err instanceof UploadError) return send(res, 422, { error: err.message })
       console.error(err)
       send(res, 500, { error: "Something went wrong on the server." })
