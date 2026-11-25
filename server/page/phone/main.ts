@@ -4,6 +4,8 @@ import { resolveRoute } from "./router"
 import { addScreen, processingScreen } from "./addScreen"
 import { linkFromShare } from "./add"
 import { comingScreen, libraryScreen } from "./libraryScreen"
+import { readyScreen } from "./readyScreen"
+import { sectionsScreen } from "./sectionsScreen"
 import { trimScreen } from "./trimScreen"
 import { kitScreen, pairScreen, showNotConnected, type Ctx, type Screen } from "./screens"
 
@@ -61,13 +63,13 @@ function render() {
   if (sharedLink && route === "home") ({ route, hash } = resolveRoute("#/add", true))
   if (location.hash !== hash) history.replaceState(null, "", hash)
   current?.dispose()
-  // P4 and P5 are other tickets: stand-ins until they land.
+  // P5 is another ticket: a stand-in until it lands.
   const takeShared = () => {
     const link = sharedLink
     sharedLink = undefined
     return link
   }
-  const screens = { pair: () => pairScreen(ctx), kit: () => kitScreen(ctx), add: () => addScreen(ctx, takeShared()), trim: () => trimScreen(ctx, id!), processing: () => processingScreen(ctx, id!), dance: () => comingScreen(ctx, "Ready to learn"), practice: () => comingScreen(ctx, "While you practice"), home: () => libraryScreen(ctx) }
+  const screens = { pair: () => pairScreen(ctx), kit: () => kitScreen(ctx), add: () => addScreen(ctx, takeShared()), trim: () => trimScreen(ctx, id!), processing: () => processingScreen(ctx, id!), dance: () => readyScreen(ctx, id!), sections: () => sectionsScreen(ctx, id!), practice: () => comingScreen(ctx, "While you practice"), home: () => libraryScreen(ctx) }
   current = screens[route]()
   app.replaceChildren(current.root)
   window.scrollTo(0, 0)

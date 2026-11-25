@@ -1,18 +1,18 @@
 /** The phone app's hash router, and its guard. Pure: main.ts reads and writes the real location. */
 
-export type RouteName = "home" | "pair" | "kit" | "add" | "practice" | "dance" | "trim" | "processing"
+export type RouteName = "home" | "pair" | "kit" | "add" | "practice" | "dance" | "sections" | "trim" | "processing"
 
 const ROUTES: Record<string, RouteName> = { "/": "home", "/pair": "pair", "/kit": "kit", "/add": "add", "/practice": "practice" }
 /** Reachable without a token: the pair screen itself, and the kit page used to check components against the renders. */
 const OPEN: RouteName[] = ["pair", "kit"]
-const HASH: Record<RouteName, string> = { home: "#/", pair: "#/pair", kit: "#/kit", add: "#/add", practice: "#/practice", dance: "#/dance", trim: "#/trim", processing: "#/processing" }
-/** The routes about one dance: P4, P3 and the processing screen. */
-const ID_ROUTES = ["dance", "trim", "processing"] as const
+const HASH: Record<RouteName, string> = { home: "#/", pair: "#/pair", kit: "#/kit", add: "#/add", practice: "#/practice", dance: "#/dance", sections: "#/sections", trim: "#/trim", processing: "#/processing" }
+/** The routes about one dance: P4, its section editor, P3 and the processing screen. */
+const ID_ROUTES = ["dance", "sections", "trim", "processing"] as const
 
 const pathOf = (hash: string) => hash.replace(/^#/, "").split("?")[0] || "/"
 /** "#/dance/ab12" -> { route: "dance", id: "ab12" }. */
 const idRouteOf = (hash: string) => {
-  const m = /^\/(dance|trim|processing)\/([^/]+)$/.exec(pathOf(hash))
+  const m = /^\/(dance|sections|trim|processing)\/([^/]+)$/.exec(pathOf(hash))
   return m ? { route: m[1] as (typeof ID_ROUTES)[number], id: m[2] } : undefined
 }
 

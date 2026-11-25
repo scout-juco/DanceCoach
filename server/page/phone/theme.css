@@ -170,3 +170,19 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .trim-handle { position: absolute; top: 8px; width: 16px; height: 40px; padding: 0; border: 0; border-radius: 8px; background: var(--volt); transform: translateX(-50%); }
 .trim-handle::after { content: ""; position: absolute; inset: -4px -14px; } /* a hand-sized target */
 .trim-labels { display: flex; justify-content: space-between; font: 600 12px/16px var(--body); letter-spacing: 0.08em; color: var(--text-subtle); font-variant-numeric: tabular-nums; }
+
+/* Ready to learn (P4) and the section editor. */
+.ready-header { display: flex; gap: var(--space-4); align-items: center; }
+.ready-text { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.ready-text .card-title { overflow-wrap: anywhere; }
+.ready-text .chip { background: var(--track); border: 1px solid var(--border); }
+.section-list { display: flex; flex-direction: column; border-radius: var(--radius-lg); background: var(--panel-solid); overflow: hidden; }
+.section-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); min-height: 56px; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+.section-row:last-child { border-bottom: 0; }
+.time-range { font: 600 14px/20px var(--body); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.btn.inline { display: inline-flex; width: auto; padding: 0 16px; }
+.status-row { align-self: center; }
+.step-controls { display: flex; align-items: center; gap: var(--space-2); }
+.input.start-input { width: 96px; height: 44px; padding: 0 12px; text-align: center; font-variant-numeric: tabular-nums; }
+.input.start-input:focus { padding: 0 11px; }
+.trim-stage.small { border-radius: var(--radius-md); }
