@@ -78,7 +78,9 @@ export function loadDancePackage(raw: unknown): DancePackage {
   if (p.saved !== undefined && typeof p.saved !== "boolean") fail("saved must be true or false")
   if (p.focus !== undefined) {
     const f = p.focus
-    if (![f.x, f.y, f.w, f.h].every(isNum)) fail("focus needs numeric x, y, w, h")
+    if (!f || ![f.x, f.y, f.w, f.h].every(isNum)) fail("focus needs numeric x, y, w, h")
+    const EPS = 1e-6
+    if (f.x < 0 || f.y < 0 || f.w <= 0 || f.h <= 0 || f.x + f.w > 1 + EPS || f.y + f.h > 1 + EPS) fail("focus must be a box inside the frame (fractions from 0 to 1)")
   }
   if (p.stills !== undefined) {
     if (!Array.isArray(p.stills) || p.stills.length === 0) fail("stills must be a list with one entry per section")

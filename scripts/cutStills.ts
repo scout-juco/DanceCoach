@@ -9,7 +9,7 @@ import { copyFileSync, existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { DancePackage } from "../DanceCoachLens/Assets/Scripts/Core/DancePackage"
 import { planStills, stillAssetName } from "../DanceCoachLens/Assets/Scripts/Core/StillPlan"
-import { SCALE_FILTER } from "./cutClips"
+import { videoFilter } from "./cutClips"
 
 export interface CutStill {
   section: number
@@ -42,13 +42,13 @@ export function stillJobs(
   return planStills(pkg).map(({ section, index, time }) => {
     const at = Math.min(time, last)
     const file = join(outDir, stillAssetName(pkg.video, section, index))
-    return { still: { section, index, file, time: at, held: time >= last }, args: stillArgs(sourceVideo, at, file) }
+    return { still: { section, index, file, time: at, held: time >= last }, args: stillArgs(pkg, sourceVideo, at, file) }
   })
 }
 
 // Full-range YUV, which is what JPEG holds (ffmpeg's mjpeg encoder refuses limited range on some frames).
-function stillArgs(sourceVideo: string, at: number, file: string): string[] {
-  return ["-y", "-loglevel", "error", "-ss", at.toFixed(3), "-i", sourceVideo, "-frames:v", "1", "-vf", SCALE_FILTER, "-q:v", "4", "-pix_fmt", "yuvj420p", file]
+function stillArgs(pkg: DancePackage, sourceVideo: string, at: number, file: string): string[] {
+  return ["-y", "-loglevel", "error", "-ss", at.toFixed(3), "-i", sourceVideo, "-frames:v", "1", "-vf", videoFilter(pkg), "-q:v", "4", "-pix_fmt", "yuvj420p", file]
 }
 
 function probeDuration(file: string): number {
@@ -73,7 +73,7 @@ export function cutStills(pkg: DancePackage, sourceVideo: string, outDir: string
     // A seek past the last frame writes nothing and still succeeds: step back until a frame comes.
     for (const back of RETRY_BACKOFFS_SEC) {
       if (existsSync(still.file)) break
-      execFileSync("ffmpeg", stillArgs(sourceVideo, Math.max(still.time - back, 0), still.file), { stdio: "inherit" })
+      execFileSync("ffmpeg", stillArgs(pkg, sourceVideo, Math.max(still.time - back, 0), still.file), { stdio: "inherit" })
     }
     if (!existsSync(still.file)) throw new Error(`ffmpeg wrote no frame at ${still.time.toFixed(3)} s.`)
     if (still.held) held = still.file

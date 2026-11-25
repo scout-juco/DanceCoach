@@ -24,13 +24,23 @@ export interface CutClip {
 /** Shrinks footage so its short side is at most 720 px (never enlarges it): the glasses show a small window, and 4K clips are slow to download. */
 export const SCALE_FILTER = "scale='if(gt(iw,ih),-2,min(720,iw))':'if(gt(iw,ih),min(720,ih),-2)'"
 
+/** Cuts the picture down to the dancer the package picked (its `focus`, fractions of the frame), on even sizes; no focus keeps the whole frame. Goes before SCALE_FILTER. */
+export function cropFilter(focus: DancePackage["focus"]): string {
+  if (!focus) return ""
+  const f = (v: number) => v.toFixed(5)
+  return `crop='trunc(iw*${f(focus.w)}/2)*2':'trunc(ih*${f(focus.h)}/2)*2':'trunc(iw*${f(focus.x)}/2)*2':'trunc(ih*${f(focus.y)}/2)*2',`
+}
+
+/** The video filters for a package: the dancer's crop, then the shrink. */
+export const videoFilter = (pkg: DancePackage) => `${cropFilter(pkg.focus)}${SCALE_FILTER}`
+
 /** The clips the package needs and the ffmpeg arguments that cut each one. Pure: runs nothing. */
 export function clipJobs(pkg: DancePackage, sourceVideo: string, outDir: string): { clip: CutClip; args: string[] }[] {
   return planClips(pkg).map(({ id, start, end }) => {
     const file = join(outDir, `${clipAssetName(pkg.video, id)}.mp4`)
     // Re-encoded so each clip starts exactly on its first frame; ffmpeg stops at the end of the footage.
     const args = ["-y", "-loglevel", "error", "-ss", start.toFixed(3), "-i", sourceVideo, "-t", (end - start).toFixed(3),
-      "-vf", SCALE_FILTER, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
+      "-vf", videoFilter(pkg), "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
       "-movflags", "+faststart", file]
     return { clip: { id, file, start, end }, args }
   })

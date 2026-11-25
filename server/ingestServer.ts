@@ -13,6 +13,8 @@
  *   GET /dances               the ready dances: [{ id, title, difficulty, sections, lengthSec, thumbnail, saved?, learned, added }]
  *                             (learned: the section numbers the paired Specs last said are learned; saved: "Save for later", set by PUT)
  *   GET /dances/<id>/package  a ready dance's package
+ *   GET /dances/<id>/draft    the draft { package, confidence } POST /dances made, for the phone's Trim screen (404 once there is none)
+ *                             A package's `focus` (the dancer picked on P3) is cropped into every clip and still when they are cut.
  *   GET /dances/<id>/clips/<name>  one of its clips, named <video>_<clip id>.mp4
  *   GET /dances/<id>/stills/<name> one of its stills (a JPEG per half-count), as listed in the package's stills
  *   GET /dances/<id>/original the uploaded video (supports Range, so the adjust page can seek)
@@ -108,7 +110,10 @@ async function createDraft(
       firstBeatSec: guess.firstBeatSec,
       source,
     })
-    return { package: pkg, confidence: guess.confidence }
+    const draft = { package: pkg, confidence: guess.confidence }
+    // Kept so the phone's Trim screen can open the draft by its id.
+    await writeFile(join(dir, "draft.json"), JSON.stringify(draft))
+    return draft
   } catch (err) {
     await rm(dir, { recursive: true, force: true })
     throw err
@@ -210,7 +215,7 @@ async function saveDance(id: string, body: string, storageDir: string, onProgres
   const dir = join(storageDir, id)
   // Editing a ready dance's name or difficulty keeps its timing, so its clips and stills are still right.
   const before = await readReady(storageDir, id)
-  const timing = (p: DancePackage) => JSON.stringify([p.video, p.trim, p.bpm, p.firstBeatSec, p.sections])
+  const timing = (p: DancePackage) => JSON.stringify([p.video, p.trim, p.bpm, p.firstBeatSec, p.sections, p.focus])
   const same = before !== null && timing(before) === timing(pkg)
   // A dance made ready before Pose has clips but no stills; saving it again adds them.
   const cut = [
@@ -476,7 +481,7 @@ export function createIngestServer(options: IngestOptions): Server {
       if (req.method === "GET" && url.pathname === "/dances") {
         return send(res, 200, await listReady(options.storageDir, link.progress()))
       }
-      const route = url.pathname.match(/^\/dances\/([^/]+)(?:\/(package|original|clips\/([^/]+)|stills\/([^/]+)))?$/)
+      const route = url.pathname.match(/^\/dances\/([^/]+)(?:\/(package|draft|original|clips\/([^/]+)|stills\/([^/]+)))?$/)
       if (route) {
         const [, id, what, clipFile, stillFile] = route
         if (req.method === "PUT" && !what) {
@@ -501,6 +506,12 @@ export function createIngestServer(options: IngestOptions): Server {
           if (!ID_PATTERN.test(id) || !(await exists(join(options.storageDir, id)))) throw new NotFoundError("There's no such dance.")
           await rm(join(options.storageDir, id), { recursive: true, force: true })
           return send(res, 200, { deleted: true })
+        }
+        if (req.method === "GET" && what === "draft") {
+          const draft = await readFile(join(options.storageDir, id, "draft.json"), "utf8").catch(() => null)
+          if (!draft || !ID_PATTERN.test(id)) throw new NotFoundError("There's no such draft.")
+          res.writeHead(200, { "Content-Type": "application/json" })
+          return void res.end(draft)
         }
         if (req.method === "GET" && what === "original") {
           const original = await findOriginal(options.storageDir, id)

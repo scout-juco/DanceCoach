@@ -3,6 +3,7 @@ import { addFromFile, addFromLink, difficultyDots, EMPTY_LINK_TEXT, fetchStatus,
 import { backHeader, button, chip, el, thumbnail } from "./kit"
 import type { LibraryDance } from "./library"
 import type { Ctx, Screen } from "./screens"
+import { takeSplitFailure } from "./trim"
 
 const stillUrl = (d: LibraryDance) => (d.thumbnail ? `/dances/${encodeURIComponent(d.id)}/stills/${encodeURIComponent(d.thumbnail)}` : undefined)
 
@@ -124,7 +125,8 @@ export function processingScreen(ctx: Ctx, id: string): Screen {
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const poll = async () => {
-    const status = await fetchStatus(id)
+    const refused = takeSplitFailure(id)
+    const status = refused ? ({ status: "failed", error: refused } as const) : await fetchStatus(id)
     if (stopped) return
     const step = status ? processingStep(status) : { next: "wait" as const, done: 0, total: 1 }
     if (step.next === "ready") return ctx.go(`#/dance/${encodeURIComponent(id)}`)
