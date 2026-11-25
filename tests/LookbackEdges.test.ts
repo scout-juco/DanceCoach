@@ -9,6 +9,7 @@ import {
   SAVE_TIMEOUT_SEC,
   scrubCount,
   sectionCounts,
+  takeLabel,
   UNREACHABLE_MESSAGE,
 } from "../DanceCoachLens/Assets/Scripts/Core/LookbackController"
 import { PlaybackController } from "../DanceCoachLens/Assets/Scripts/Core/PlaybackController"
@@ -319,5 +320,40 @@ describe("edge: takes deleted on the phone", () => {
     const lb = new LookbackController()
     lb.enter(2, takes(2))
     expect(lb.setTakes([])).toMatchObject({ screen: "I", selected: -1, stepper: false, canBack: false, canForward: false })
+  })
+})
+
+describe("full-routine takes (section 0)", () => {
+  const dance = makeDance({ trim: { start: 0, end: 20 } })
+  const clock = new CountClock(dance)
+  const fullTake = (number: number): Take => ({ name: `full-t${number}`, section: 0, speed: 1, mirror: false, number })
+
+  it("opens Lookback's video on the whole routine: section 1's start to the last section's end", () => {
+    const pc = new PlaybackController(dance, undefined, true, true)
+    pc.selectMode("Lookback")
+    const v = pc.selectSection(0)
+    expect(v).toMatchObject({ mode: "Lookback", screen: "I", section: 1, video: { seekTo: clock.sectionStart(1), runEnd: clock.sectionEnd(clock.sectionCount), playing: false } })
+    // After a recording the video goes back to the same whole-routine start, and a section tile goes back to one section.
+    expect(pc.restartLookback().video.runEnd).toBe(clock.sectionEnd(clock.sectionCount))
+    expect(pc.selectSection(2).video.runEnd).toBe(clock.sectionEnd(2))
+    expect(pc.restartLookback().video.runEnd).toBe(clock.sectionEnd(2))
+  })
+
+  it("labels its takes FULL TAKE n", () => {
+    expect(takeLabel(fullTake(2))).toBe("FULL TAKE 2 · 1×")
+  })
+
+  it("plays side by side with a stop for every count of every section, and marks its sections", () => {
+    const lb = new LookbackController()
+    lb.enter(0, [fullTake(1)])
+    lb.phoneStatus(true)
+    const start = clock.sectionStart(1)
+    const end = clock.sectionEnd(clock.sectionCount)
+    lb.playSideBySide({ start, end, beatSec: clock.beatSec, sections: clock.sectionCount })
+    lb.takeLoaded(fullTake(1))
+    const sbs = lb.view!.sideBySide!
+    expect(sbs.sections).toBe(clock.sectionCount)
+    expect(sbs.counts).toBeGreaterThan(8)
+    expect(sbs.counts).toBe(sectionCounts(start, end, clock.beatSec, Infinity))
   })
 })

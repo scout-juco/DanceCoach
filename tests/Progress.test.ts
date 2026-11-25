@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest"
+import { thumbnailOf } from "../DanceCoachLens/Assets/Scripts/Core/DanceCards"
+import { makeDance } from "./fixtures"
 import { danceStatus, detailsText, filterDances, levelLabel, statusText } from "../DanceCoachLens/Assets/Scripts/Core/DanceCards"
 import { DanceListing } from "../DanceCoachLens/Assets/Scripts/Core/DanceSource"
 import { decodeDoneSections, doneSectionsKey, encodeDoneSections, finishReadyKey, firstLookKey } from "../DanceCoachLens/Assets/Scripts/Core/SettingsStore"
@@ -66,5 +68,14 @@ describe("card text", () => {
     expect(detailsText({ id: "a", title: "a", sections: 4, lengthSec: 185 })).toBe("3:05 · 4 sections")
     expect(detailsText({ id: "a", title: "a", sections: 1 })).toBe("1 section")
     expect(detailsText({ id: "a", title: "a" })).toBe("")
+  })
+})
+
+describe("a dance's thumbnail", () => {
+  const pkg = (stills?: string[][]) => makeDance({ stills })
+  it("is Section 1's count 5 still, or none without stills", () => {
+    const row = Array.from({ length: 16 }, (_, i) => `s${i}.jpg`)
+    expect(thumbnailOf(pkg([row]))).toBe("s8.jpg")
+    expect(thumbnailOf(pkg())).toBeUndefined()
   })
 })

@@ -1,11 +1,13 @@
 /**
- * SideBySideBar: what screen M shows around its two videos.
+ * SideBySideBar: what screen M shows around its two videos (B2LookWatch, BUILD_SPEC §6).
  *
- * The headings over them ("ORIGINAL · MIRRORED", "YOU · LOOKBACK FROM PHONE"), the "TAKE n · 0.75×" tag on the take, and under
- * them the play/pause button and the scrub bar marked 1–8. Pinching the play button calls onPlay; pinching and dragging the bar
- * calls onScrub with how far along it the hand is (0 to 1) and onScrubEnd when it lets go.
+ * The eyebrows 24 above them ("ORIGINAL · MIRRORED", "YOU · LOOKBACK FROM PHONE"), the "TAKE n · 0.75×" pill on the take's
+ * bottom-left corner, and the play bar 16 under them: a 48 volt play/pause circle, then 12 along an 8-tall scrub track
+ * (white up to a 4×16 volt playhead) with the counts 1–8 under it, the current one volt.
+ * Pinching the play button calls onPlay; pinching and dragging the track calls onScrub with how far along it the hand is
+ * (0 to 1) and onScrubEnd when it lets go.
  * A shallow view: render() shows the Lookback view, placed by the screen's video, take and sbsBar panels in Layout.SCREENS.
- * Hidden on every other screen.
+ * Hidden on every other screen. The outlines and rings (pink on the take, volt on the original) are the VideoWindows' (Overlay).
  */
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { InteractorEvent } from "SpectaclesInteractionKit.lspkg/Core/Interactor/InteractorEvent"
@@ -13,26 +15,32 @@ import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedR
 import { LookbackView, originalHead, TAKE_HEAD, takeLabel } from "../Core/LookbackController"
 import { ViewState } from "../Core/PlaybackController"
 import { panelsFor, pointInPanelCm, pxToCm, PxRect } from "./Layout"
-import { ColorToken, RADII, TYPE } from "./Theme"
-import { childObject, makeRect, makeText, place, setRectSize, themeColor } from "./Visuals"
+import { ColorToken, RADIUS, SIZE, SPACE, TEXT, TextStyleName } from "./Theme"
+import { addHover, childObject, Icon, makeIcon, makePill, makeText, place, setRectSize, themeColor } from "./Visuals"
 
 const Z_ITEM = 0.2
 const Z_LABEL = 0.05
 // Collider depth, in cm.
 const HIT_DEPTH = 1
-// The headings sit this far above their video's top edge (prototype px).
-const HEAD_UP = 11
-// The tag on the take, from the video's left and bottom edges.
-const TAG_INSET = 12
-// Inside the bar (prototype px): the play button's diameter, where the track starts, its top and height, the handle and the marks' row.
-const PLAY_D = 44
-const TRACK_X = 56
-const TRACK_Y = 12
-const TRACK_H = 8
-const HANDLE = { w: 4, h: 18 }
-const MARKS_Y = 34
+/** The eyebrow's line sits this far above its video: 16 of text, 8 gap. */
+const EYEBROW_UP = TEXT.eyebrow.lineHeight + SPACE.group
+/** The take pill: 16 in from the take's left and bottom edges, padded 16 a side; sized from its label (Sora 700, mostly capitals). */
+const TAG_INSET = 16
+const TAG_PAD = 16
+const TAG_CHAR_EM = 0.7
+/** The play bar (prototype px, from the bar's top-left): the 48 circle, then the track 12 along it. */
+const PLAY_D = 48
+const PLAY_ICON = 16
+const TRACK_X = PLAY_D + SPACE.between
+/** The track and its labels are one 32-tall column (8 track, 8 gap, 16 labels), centred on the circle. */
+const TRACK_H = SIZE.bar
+const TRACK_Y = (PLAY_D - (TRACK_H + SPACE.group + TEXT.label.lineHeight)) / 2
+const LABELS_Y = TRACK_Y + TRACK_H + SPACE.group + TEXT.label.lineHeight / 2
+const PLAYHEAD = { w: 4, h: 16 }
+/** The labels are spread edge to edge (the first starts at the track's left, the last ends at its right): about this wide. */
+const LABEL_W = 8
 // The grab area is taller than the track, to be easy to pinch.
-const SCRUB_HIT_H = 44
+const SCRUB_HIT_H = PLAY_D
 
 interface Label {
   object: SceneObject
@@ -50,54 +58,49 @@ export class SideBySideBar extends BaseScriptComponent {
 
   private originalHeadLabel: Label
   private takeHeadLabel: Label
-  private tag: Label
+  private tagObject: SceneObject
   private tagRect: RoundedRectangle
-  private bar: RoundedRectangle
-  private barObject: SceneObject
+  private tag: Label
   private playObject: SceneObject
-  private playDisc: RoundedRectangle
-  private playLabel: Text
+  private playIcon: Icon
+  private pauseIcon: Icon
   private scrubObject: SceneObject
   private scrubWidthCm = 1
   private trackObject: SceneObject
   private track: RoundedRectangle
   private fillObject: SceneObject
   private fill: RoundedRectangle
-  private handleObject: SceneObject
+  private playheadObject: SceneObject
   private marks: Label[] = []
-  private tagObject: SceneObject
   private placed = ""
   private lastKey = ""
 
   onAwake() {
-    this.originalHeadLabel = this.label(this.sceneObject, TYPE.chip, "ink2", "left")
-    this.takeHeadLabel = this.label(this.sceneObject, TYPE.chip, "ink2", "left")
+    this.originalHeadLabel = this.label(this.sceneObject, "eyebrow", "textMuted", "left")
+    this.takeHeadLabel = this.label(this.sceneObject, "eyebrow", "textMuted", "left")
     this.takeHeadLabel.text.text = TAKE_HEAD
-    this.tagObject = childObject("Tag", this.sceneObject)
-    this.tagRect = makeRect(this.tagObject, "chip", 3)
-    this.tag = this.label(this.tagObject, TYPE.chip, "ink", "center")
 
-    this.barObject = childObject("Bar", this.sceneObject)
-    this.bar = makeRect(this.barObject, "panel", 1)
-    this.bar.border = true
-    this.bar.borderSize = pxToCm(1)
-    this.bar.borderColor = themeColor("stroke")
+    this.tagObject = childObject("TakePill", this.sceneObject)
+    this.tagRect = makePill(this.tagObject, "scrim", 3, 1, SIZE.chip)
+    this.tag = this.label(this.tagObject, "chip", "text", "center")
+    place(this.tag.object, new vec2(0, 0), Z_LABEL)
 
     this.playObject = childObject("Play", this.sceneObject)
-    this.playDisc = makeRect(this.playObject, "active", 2)
-    setRectSize(this.playDisc, PLAY_D, PLAY_D, PLAY_D / 2)
+    const playRect = makePill(this.playObject, "volt", 2, PLAY_D, PLAY_D)
     this.hittable(this.playObject, PLAY_D, PLAY_D).onTriggerEnd.add(() => this.onPlay())
-    const playLabel = this.label(this.playObject, TYPE.icon, "activeInk", "center")
-    this.playLabel = playLabel.text
+    addHover(this.playObject, playRect)
+    this.playIcon = makeIcon(this.playObject, "play", "onColor", 3, PLAY_ICON)
+    this.pauseIcon = makeIcon(this.playObject, "pause", "onColor", 3, PLAY_ICON)
+    for (const icon of [this.playIcon, this.pauseIcon]) icon.object.getTransform().setLocalPosition(new vec3(0, 0, Z_LABEL))
 
     this.trackObject = childObject("Track", this.sceneObject)
-    this.track = makeRect(this.trackObject, "track", 2)
+    this.track = makePill(this.trackObject, "control", 2, 1, TRACK_H)
     this.fillObject = childObject("Fill", this.sceneObject)
-    this.fill = makeRect(this.fillObject, "muted", 3)
-    this.handleObject = childObject("Handle", this.sceneObject)
-    setRectSize(makeRect(this.handleObject, "ink", 4), HANDLE.w, HANDLE.h, 2)
+    this.fill = makePill(this.fillObject, "text", 3, 1, TRACK_H)
+    this.playheadObject = childObject("Playhead", this.sceneObject)
+    makePill(this.playheadObject, "volt", 4, PLAYHEAD.w, PLAYHEAD.h)
     for (let i = 1; i <= 8; i++) {
-      const mark = this.label(this.sceneObject, TYPE.chip, "ink2", "center")
+      const mark = this.label(this.sceneObject, "label", "textMuted", "center")
       mark.text.text = String(i)
       this.marks.push(mark)
     }
@@ -124,51 +127,62 @@ export class SideBySideBar extends BaseScriptComponent {
     const placed = [box, panels.video, panels.take].map((r) => r.join(",")).join("|") + `|${sbs.counts}`
     if (placed !== this.placed) {
       this.placed = placed
-      this.layout(box, panels.video, panels.take, sbs.counts)
+      this.lastKey = ""
+      this.layout(box, panels.video, panels.take, sbs.counts, sbs.sections)
     }
     const mirror = view.settings.mirror
-    const key = `${sbs.count}|${sbs.fraction}|${sbs.playing}|${sbs.take.name}|${mirror}`
+    const tag = takeLabel(sbs.take)
+    const key = `${sbs.count}|${sbs.fraction}|${sbs.playing}|${tag}|${mirror}|${sbs.sections}`
     if (key === this.lastKey) return
     this.lastKey = key
     this.originalHeadLabel.text.text = originalHead(mirror)
-    this.tag.text.text = takeLabel(sbs.take)
-    this.playLabel.text = sbs.playing ? "❚❚" : "▶"
+    this.renderTag(panels.take, tag)
+    this.playIcon.object.enabled = !sbs.playing
+    this.pauseIcon.object.enabled = sbs.playing
 
     const tw = box[2] - TRACK_X
     const frac = Math.min(Math.max(sbs.fraction, 0), 1)
-    // The marker sits in the middle of the count on show, as the prototype's does, until the section plays past it.
+    // The playhead sits in the middle of the count on show, as the prototype's does, until the section plays past it.
     const at = sbs.playing || sbs.fraction >= 1 ? frac : (sbs.count - 0.5) / sbs.counts
-    place(this.fillObject, pointInPanelCm(box, TRACK_X + (tw * at) / 2, TRACK_Y + TRACK_H / 2), Z_ITEM + Z_LABEL)
-    setRectSize(this.fill, Math.max(tw * at, 1), TRACK_H, TRACK_H / 2)
-    place(this.handleObject, pointInPanelCm(box, TRACK_X + tw * at, TRACK_Y + TRACK_H / 2), Z_ITEM + 2 * Z_LABEL)
+    const fillW = Math.max(tw * at, TRACK_H)
+    place(this.fillObject, pointInPanelCm(box, TRACK_X + fillW / 2, TRACK_Y + TRACK_H / 2), Z_ITEM + Z_LABEL)
+    setRectSize(this.fill, fillW, TRACK_H, RADIUS.pill)
+    place(this.playheadObject, pointInPanelCm(box, TRACK_X + tw * at, TRACK_Y + TRACK_H / 2), Z_ITEM + 2 * Z_LABEL)
+    // The mark on show: this count, or (a whole routine) the section it's in.
+    const on = sbs.sections ? Math.min(Math.floor(((sbs.count - 1) / sbs.counts) * sbs.sections), sbs.sections - 1) + 1 : sbs.count
     this.marks.forEach((m, i) => {
-      m.text.textFill.color = themeColor(i + 1 === sbs.count ? "ink" : "ink2")
+      m.text.textFill.color = themeColor(i + 1 === on ? "volt" : "textMuted")
     })
   }
 
-  private layout(box: PxRect, video: PxRect, take: PxRect, counts: number) {
-    const [, , w, h] = box
-    const tw = w - TRACK_X
-    place(this.barObject, pointInPanelCm(box, w / 2, h / 2), 0.1)
-    setRectSize(this.bar, w, h, RADII.bar)
-    place(this.playObject, pointInPanelCm(box, PLAY_D / 2, h / 2), Z_ITEM)
+  private layout(box: PxRect, video: PxRect, take: PxRect, counts: number, sections: number) {
+    const tw = box[2] - TRACK_X
+    place(this.playObject, pointInPanelCm(box, PLAY_D / 2, PLAY_D / 2), Z_ITEM)
     place(this.trackObject, pointInPanelCm(box, TRACK_X + tw / 2, TRACK_Y + TRACK_H / 2), Z_ITEM)
-    setRectSize(this.track, tw, TRACK_H, TRACK_H / 2)
-    place(this.scrubObject, pointInPanelCm(box, TRACK_X + tw / 2, h / 2), Z_ITEM + 3 * Z_LABEL)
+    setRectSize(this.track, tw, TRACK_H, RADIUS.pill)
+    place(this.scrubObject, pointInPanelCm(box, TRACK_X + tw / 2, PLAY_D / 2), Z_ITEM + 3 * Z_LABEL)
     this.setHitBox(this.scrubObject, tw, SCRUB_HIT_H)
     this.scrubWidthCm = pxToCm(tw)
-    // A short last section has fewer counts: the bar's stops and marks are spread over those.
+    // A short last section has fewer counts: its marks are spread over the same track.
+    const step = counts > 1 ? (tw - LABEL_W) / (counts - 1) : 0
     this.marks.forEach((mark, i) => {
-      mark.object.enabled = i < counts
-      place(mark.object, pointInPanelCm(box, TRACK_X + ((i + 0.5) * tw) / counts, MARKS_Y), Z_ITEM)
+      // A whole routine marks its sections instead of its counts: each label sits where its section starts.
+      mark.object.enabled = i < (sections || counts)
+      mark.text.text = String(i + 1)
+      const x = sections ? TRACK_X + (tw * i) / sections + LABEL_W / 2 : TRACK_X + LABEL_W / 2 + i * step
+      place(mark.object, pointInPanelCm(box, x, LABELS_Y), Z_ITEM)
     })
-    place(this.originalHeadLabel.object, pointInPanelCm(video, 0, -HEAD_UP), Z_ITEM)
-    place(this.takeHeadLabel.object, pointInPanelCm(take, 0, -HEAD_UP), Z_ITEM)
-    // The tag sits on the take's bottom-left corner.
-    const tagW = 120
-    const tagH = 22
-    setRectSize(this.tagRect, tagW, tagH, RADII.chip)
-    place(this.tagObject, pointInPanelCm(take, TAG_INSET + tagW / 2, take[3] - TAG_INSET - tagH / 2), Z_ITEM)
+    const eyebrowY = -EYEBROW_UP + TEXT.eyebrow.lineHeight / 2
+    place(this.originalHeadLabel.object, pointInPanelCm(video, 0, eyebrowY), Z_ITEM)
+    place(this.takeHeadLabel.object, pointInPanelCm(take, 0, eyebrowY), Z_ITEM)
+  }
+
+  /** The take pill, sized to its label and hung 16 in from the take's bottom-left corner. */
+  private renderTag(take: PxRect, label: string) {
+    this.tag.text.text = label
+    const w = Math.round(label.length * TEXT.chip.size * TAG_CHAR_EM) + 2 * TAG_PAD
+    setRectSize(this.tagRect, w, SIZE.chip, RADIUS.pill)
+    place(this.tagObject, pointInPanelCm(take, TAG_INSET + w / 2, take[3] - TAG_INSET - SIZE.chip / 2), Z_ITEM)
   }
 
   /** Where along the scrub bar the pinch is, from the ray's point on the bar's plane. */
@@ -193,8 +207,8 @@ export class SideBySideBar extends BaseScriptComponent {
     return object.createComponent(Interactable.getTypeName()) as Interactable
   }
 
-  private label(parent: SceneObject, sizePx: number, token: ColorToken, align: "left" | "center" | "right"): Label {
+  private label(parent: SceneObject, style: TextStyleName, token: ColorToken, align: "left" | "center" | "right"): Label {
     const object = childObject("Label", parent)
-    return { object, text: makeText(object, sizePx, token, 4, align) }
+    return { object, text: makeText(object, style, token, 5, align) }
   }
 }

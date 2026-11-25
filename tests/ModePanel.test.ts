@@ -23,7 +23,7 @@ describe("Mode panel rows", () => {
 
   it("is the track alone with no row 2", () => {
     expect(modeRow("D")).toEqual([])
-    expect(modePanelSize([])).toEqual({ w: 400, h: 72 })
+    expect(modePanelSize([])).toEqual({ w: 436, h: 72 })
     expect(SCREENS.D.controls).toBeUndefined()
   })
 
@@ -44,8 +44,8 @@ describe("Mode panel size", () => {
     expect(modePanelSize(modeRow("E"))).toEqual({ w: 496, h: 200 })
   })
 
-  it("is never narrower than 400", () => {
-    expect(modePanelSize(modeRow("L")).w).toBe(400)
+  it("is never narrower than the track plus padding (436)", () => {
+    expect(modePanelSize(modeRow("L")).w).toBe(436)
   })
 
   it("fills each screen's controls box exactly, so it right-aligns to the video", () => {

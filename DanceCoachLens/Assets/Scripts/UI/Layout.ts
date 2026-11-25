@@ -16,8 +16,15 @@ export type PanelId = "video" | "progress" | "segBar" | "sections" | "controls" 
 
 /** The video window's three sizes (BUILD_SPEC §6.1), all at x 792, y 40. */
 const VIDEO_FULL: PxRect = [792, 40, 340, 604]
+
 const VIDEO_BESIDE: PxRect = [792, 40, 300, 520]
-const VIDEO_TILES: PxRect = [792, 40, 300, 504]
+const LOOK_PANEL: PxRect = [468, 40, 300, 520]
+/**
+ * Pose (E) and Lookback (I, L) keep the section tiles above the mode panel, as Playthrough does: tiles 24 under the video,
+ * the panel 24 under them. The video stays full size, so the panel sits lower (Pose's ends at 864, past the 800 frame).
+ * The tiles' box is Clip ended's width, so Full's slot is left empty (SectionRow).
+ */
+const TILES_BESIDE: PxRect = [604, 584, 488, 56]
 
 /** The bars 16 below a full-height video: a progress bar is 8 tall; a section bar is 8 plus its labels (8 + 4 + 16). */
 const PROGRESS: PxRect = [792, 660, 340, 8]
@@ -42,26 +49,26 @@ export const SCREENS: Record<ScreenId, Partial<Record<PanelId, PxRect>>> = {
   // From the top: the section bar with its stop point, and no banner.
   F: { video: VIDEO_FULL, segBar: SEG_BAR },
   // Clip ended: tiles 24 under the video, the mode panel 24 under them. The toast sits left, 24 above the tiles.
-  C: { video: VIDEO_TILES, sections: [604, 568, 488, 56], controls: [488, 648, 604, 144], toast: [360, 496, 420, 48] },
+  C: { video: VIDEO_BESIDE, sections: TILES_BESIDE, controls: [488, 664, 604, 144], toast: [360, 496, 420, 48] },
   // Last section done: the panel widens for Finish routine.
-  C2: { video: VIDEO_TILES, sections: [604, 568, 488, 56], controls: [320, 648, 772, 144], toast: [360, 496, 420, 48] },
+  C2: { video: VIDEO_BESIDE, sections: TILES_BESIDE, controls: [320, 664, 772, 144], toast: [360, 496, 420, 48] },
   // Routine done: a dialog centred in the frame. It opens in front of you (POPUP), so on device only its size counts.
   G: { video: VIDEO_FULL, popup: [320, 220, 640, 360] },
   // Pose, collapsed: the thin scrub 24 under the video (B2PoseCollapsed). No panel: reaching for it opens E.
   D: { video: VIDEO_FULL, poseLine: [792, 668, 340, 8] },
   // Pose, open: the mode panel with the scrub between its rows, 24 under the video (B2PoseOpen).
-  E: { video: VIDEO_BESIDE, controls: [596, 584, 496, 200] },
+  E: { video: VIDEO_BESIDE, sections: TILES_BESIDE, controls: [596, 664, 496, 200] },
   // Lookback: the side panel 24 left of the video (I: one Record lookback button; L and L2: the take card and
   // the takes row), the mode panel 24 under the video, and the toast left of the side panel.
-  I: { video: VIDEO_BESIDE, lookPanel: [468, 40, 300, 520], controls: [692, 584, 400, 144], toast: [24, 512, 420, 48] },
-  L: { video: VIDEO_BESIDE, lookPanel: [468, 40, 300, 520], controls: [692, 584, 400, 144], toast: [24, 512, 420, 48] },
+  I: { video: VIDEO_BESIDE, lookPanel: LOOK_PANEL, sections: TILES_BESIDE, controls: [656, 664, 436, 144], toast: [24, 512, 420, 48] },
+  L: { video: VIDEO_BESIDE, lookPanel: LOOK_PANEL, sections: TILES_BESIDE, controls: [656, 664, 436, 144], toast: [24, 512, 420, 48] },
   // Record lookback?: a dialog centred over I or L, with no mode panel (the board is locked behind it).
-  J: { video: VIDEO_BESIDE, lookPanel: [468, 40, 300, 520], popup: [420, 216, 440, 368] },
+  J: { video: VIDEO_BESIDE, lookPanel: LOOK_PANEL, popup: [420, 216, 440, 368] },
   // Side by side: the same board as Lookback, so nothing seems to move (kept over B2's layout, Nov 23, 2026).
   // The original stays where it was, on the right, and the take takes the side panel's place on the left
   // (eyebrows 24 above each). The play bar is 16 under them and the mode panel 8 under that (as in B2's render),
   // right-aligned to the video.
-  M: { video: VIDEO_BESIDE, take: [468, 40, 300, 520], sbsBar: [468, 576, 624, 48], controls: [520, 632, 572, 144] },
+  M: { video: VIDEO_BESIDE, take: LOOK_PANEL, sbsBar: [468, 576, 624, 48], controls: [520, 632, 572, 144] },
   // Lookback countdown: the 152-wide column 32 left of the video, then the section records like Playthrough.
   K: { countdown: [608, 236, 152, 148], video: VIDEO_FULL, progress: PROGRESS },
 }
@@ -91,7 +98,7 @@ export const RECORD_POPUP = {
   scale: 0.5,
 }
 
-/** The dance picker opens in front of you like a pop-up, but farther out: its 3:4 card is 480×640 px (72×96 cm). */
+/** The dance picker opens in front of you like a pop-up, but farther out: its 3:4 panel is 576×768 px (86×115 cm). */
 export const PICKER = {
   distanceCm: 200,
   dropCm: 5,

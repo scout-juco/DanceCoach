@@ -6,7 +6,7 @@ import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interact
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { pxToCm } from "./Layout"
 import { ColorToken, TextStyle, TextStyleName } from "./Theme"
-import { childObject, makeSurface, makeText, themeColor } from "./Visuals"
+import { addHover, childObject, makeSurface, makeText, themeColor } from "./Visuals"
 
 const Z_ITEM = 0.1
 const Z_LABEL = 0.05
@@ -52,6 +52,7 @@ export function makeDialogButton(card: SceneObject, dialogW: number, dialogH: nu
   collider.shape = shape
   const interactable = object.createComponent(Interactable.getTypeName()) as Interactable
   interactable.onTriggerEnd.add(spec.onPress)
+  addHover(object, rect)
   return {
     object,
     rect,

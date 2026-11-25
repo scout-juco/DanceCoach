@@ -52,12 +52,23 @@ export const MODE_PANEL = {
   segmentGap: SPACE.control,
   rowPad: SPACE.control,
   gap: SPACE.between,
-  minWidth: 400,
+  minWidth: 436,
   /** The track: a 48 segment inside a 4 inset. */
   trackHeight: SIZE.segment + 2 * SPACE.control,
   /** Row 2: a 56 button inside a 4 inset. */
   rowHeight: SIZE.control + 2 * SPACE.control,
 } as const
+
+/**
+ * The mode track (§6.8): a fixed 420 wide (wider than the board's 384, for more padding round "Playthrough"), pinned to the panel's top-right, whatever the panel's width.
+ * Its three segments share what's inside its 4 inset and 4 gaps equally (flex 1 1 0): 134.67 each.
+ */
+export const MODE_TRACK_WIDTH = 420
+export const SEGMENT_WIDTH = (MODE_TRACK_WIDTH - 2 * MODE_PANEL.trackPad - 2 * MODE_PANEL.segmentGap) / 3
+
+/** Segment i's centre, measured left from the panel's right edge. */
+export const segmentFromRight = (i: number) =>
+  MODE_PANEL.pad + MODE_TRACK_WIDTH - MODE_PANEL.trackPad - i * (SEGMENT_WIDTH + MODE_PANEL.segmentGap) - SEGMENT_WIDTH / 2
 
 /**
  * Row 2 on each screen. C: Replay section · From the top · Speed · Mirror · Counts; C2 adds Finish routine.

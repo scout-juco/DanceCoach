@@ -13,7 +13,7 @@
     []
   ImporterSettings: !<AssetImporterSettings>
     {}
-  CompressionSettings: !<own> 57eb1d52-b392-4481-9b0b-a62b62e11fd5
+  CompressionSettings: !<own> 00000000-0000-0000-0000-000000000000
 - !<TypeScriptAssetData/33258f82-20a8-4111-93e3-0e773a897bad>
   SvgIcon: ""
   SetupScript:
@@ -23,14 +23,14 @@
   VersionMinor: 0
   VersionPatch: 0
   ComponentUid: 297e3c08-92a9-4d13-b44e-60253af02a7c
-  ExportUid: 57eb1d52-b392-4481-9b0b-a62b62e11fd5
+  ExportUid: 00000000-0000-0000-0000-000000000000
   PackagePolicy: CanBeUnpacked
   ScriptInputsHidden:
     {}
   ScriptTypesHidden:
     {}
-  ReadMe: !<reference> 57eb1d52-b392-4481-9b0b-a62b62e11fd5
-  DeclarationFile: !<reference> 57eb1d52-b392-4481-9b0b-a62b62e11fd5
+  ReadMe: !<reference> 00000000-0000-0000-0000-000000000000
+  DeclarationFile: !<reference> 00000000-0000-0000-0000-000000000000
   Tags:
     []
   Attachments:

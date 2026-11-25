@@ -2,25 +2,24 @@
  * DancePickerPanel: the "Pick a dance" panel (B2 screen A), shown before the count-in and again
  * from the "Dances" button.
  *
- * One 840-wide panel: "Pick a dance", the filter pills (All, Easy, Medium, Hard; the chosen one white)
- * and a 3-column grid of dance cards. A card has a thumbnail with "●●○ MEDIUM", the title,
- * "[LENGTH] · N sections" and a status pill: New, volt "n/N sections learned" (the card gets a 2 px white
- * border) or "N/N sections learned ✓". A line says what's going on while the list or a dance loads, the offline
+ * One 3:4 portrait panel (576×768 px): "Pick a dance", the filter pills under it (All, Easy, Medium, Hard; the chosen one white)
+ * and a 2-column grid of dance cards. A card has a thumbnail with "●●○ MEDIUM", the title,
+ * "[LENGTH] · N sections" and a status pill: New, volt "n/N sections learned" or "N/N sections learned ✓". A line says what's going on while the list or a dance loads, the offline
  * fallback, or could not load, and "Try again" / "Back to list" buttons appear where they apply.
  * Like the Routine done pop-up it isn't on the video board: it opens in front of your head
  * (Layout.PICKER) and glides back in front of you if you turn away (PopupFollow).
  * A shallow view: render() shows a PickerView (null hides it); the picker's rules are in Core/DancePicker and
  * what a card says is in Core/DanceCards. A pinch on a card calls onPick, on a button onRetry or onList.
- * The grid shows up to six dances (two rows), after the filter.
+ * The grid shows four dances a page (two rows of two a page, with page buttons), after the filter.
  */
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
-import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
+import { RoundedRectangle, TextureMode } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { danceStatus, detailsText, Filter, FILTERS, filterDances, levelLabel, levelOf, statusText } from "../Core/DanceCards"
 import { PickerView } from "../Core/DancePicker"
 import { PICKER, pxToCm } from "./Layout"
 import { PopupFollow } from "./PopupFollow"
 import { ColorToken, RADIUS, SIZE, SPACE } from "./Theme"
-import { childObject, makeIcon, makePill, makeSurface, makeText, setRectSize, setSurfaceBorder, themeColor, Icon } from "./Visuals"
+import { addHover, childObject, makeIcon, makePill, makeSurface, makeText, setRectSize, setSurfaceBorder, themeColor, Icon } from "./Visuals"
 
 // Layers in front of the panel, in cm, one step per nesting level.
 const Z_STEP = 0.05
@@ -29,12 +28,12 @@ const HIT_DEPTH = 1
 // Drawn after the video board, which sits behind it.
 const ORDER = 10
 
-// The panel, in prototype px (layout.json screen A).
-const W = 840
+// The panel, in prototype px: B2 screen A's cards and pills, in a 3:4 portrait panel rather than its 840-wide landscape one.
+const W = 576
 const PAD = SPACE.surface
 const HEAD_H = 48
 const HEAD_GAP = 20
-const COLUMNS = 3
+const COLUMNS = 2
 const ROWS = 2
 const MAX_DANCES = COLUMNS * ROWS
 const GAP = 16
@@ -45,8 +44,12 @@ const CARD_GAP = 8
 const TITLE_H = 24
 const DETAIL_H = 20
 const CARD_H = CARD_PAD + THUMB_H + CARD_GAP + TITLE_H + CARD_GAP + DETAIL_H + CARD_GAP + SIZE.chip + CARD_PAD
-const GRID_Y = PAD + HEAD_H + HEAD_GAP
-const H = GRID_Y + ROWS * CARD_H + (ROWS - 1) * GAP + PAD
+const FILTER_Y = PAD + HEAD_H + SPACE.between
+const GRID_Y = FILTER_Y + HEAD_H + HEAD_GAP
+// 3:4 portrait, so it fits the glasses' field of view: two rows of two cards, then the page buttons.
+const H = (W * 4) / 3
+// The page buttons under the grid: ‹ 1 / 2 ›.
+const PAGER_Y = H - PAD - 48
 // The loading bar, under the status line, which sits under the heading.
 const STATUS_Y = GRID_Y + 12
 const BAR_Y = GRID_Y + 72
@@ -56,7 +59,9 @@ const BUTTON_H = 48
 const DOT = 8
 const DOT_GAP = 4
 // Text widths aren't measured: this is a good-enough width per character of Sora's chip and button styles.
-const CHIP_CHAR = 10
+const CHIP_CHAR = 11.5
+// Sora 700 14px in mixed case (the status pill) is narrower than in capitals (the level pill).
+const STATUS_CHAR = 8.4
 const FILTER_CHAR = 10
 
 interface Button {
@@ -74,6 +79,7 @@ interface FilterPill {
 interface Card {
   object: SceneObject
   border: RoundedRectangle
+  thumb: RoundedRectangle
   title: Text
   details: Text
   level: SceneObject
@@ -84,6 +90,12 @@ interface Card {
   statusPill: RoundedRectangle
   statusText: Text
   statusTick: Icon
+  /** The pointer is over it. */
+  hovered: boolean
+  /** 1–3 dots filled on the level pill; 0 for none. */
+  level_: number
+  /** The dance is partly learned: its status pill is volt. */
+  inProgress: boolean
 }
 
 @component
@@ -94,6 +106,8 @@ export class DancePickerPanel extends BaseScriptComponent {
   onList: () => void = () => {}
   /** A dance's saved done sections, for its card's status. */
   progressFor: (id: string) => number[] = () => []
+  /** A dance's thumbnail still once it has arrived; null until then, or for a dance without stills. */
+  thumbnailFor: (id: string) => Texture | null = () => null
 
   private camera: SceneObject | null = null
   private card: SceneObject
@@ -107,6 +121,11 @@ export class DancePickerPanel extends BaseScriptComponent {
   private list: Button
   private ids: string[] = []
   private filter: Filter = "All"
+  private page = 0
+  private pager: SceneObject
+  private pageText: Text
+  private prevButton: SceneObject
+  private nextButton: SceneObject
   private lastView: PickerView | null = null
   private follow = new PopupFollow()
   // Where the panel is measured from: your head when it opened, gliding after you when it follows.
@@ -126,6 +145,7 @@ export class DancePickerPanel extends BaseScriptComponent {
     this.status = this.text("body", "textMuted", "left", PAD, STATUS_Y)
 
     this.makeBar()
+    this.makePager()
     for (let i = 0; i < MAX_DANCES; i++) this.cards.push(this.makeCard(i))
     const bw = (W - PAD * 2 - SPACE.between) / 2
     this.retry = this.makeButton("Retry", "volt", "onColor", bw)
@@ -150,12 +170,19 @@ export class DancePickerPanel extends BaseScriptComponent {
       this.key = ""
       return
     }
-    const listed = view.kind === "list" ? filterDances(view.dances, this.filter).slice(0, MAX_DANCES) : []
+    const filtered = view.kind === "list" ? filterDances(view.dances, this.filter) : []
+    const pages = Math.max(1, Math.ceil(filtered.length / MAX_DANCES))
+    this.page = Math.min(this.page, pages - 1)
+    const listed = filtered.slice(this.page * MAX_DANCES, (this.page + 1) * MAX_DANCES)
     const done = listed.map((d) => this.progressFor(d.id))
-    const key = JSON.stringify([view, this.filter, done])
+    const key = JSON.stringify([view, this.filter, this.page, done, listed.map((d) => !!this.thumbnailFor(d.id))])
     if (key === this.key) return
     this.key = key
 
+    this.pager.enabled = pages > 1
+    this.pageText.text = `${this.page + 1} / ${pages}`
+    this.prevButton.enabled = this.page > 0
+    this.nextButton.enabled = this.page < pages - 1
     this.ids = listed.map((d) => d.id)
     this.filterRow.forEach((p) => {
       const on = p.filter === this.filter
@@ -164,6 +191,9 @@ export class DancePickerPanel extends BaseScriptComponent {
       p.object.enabled = view.kind === "list"
     })
     this.status.text = this.statusLine(view, listed.length)
+    // Under the cards when there are some (the offline note), otherwise where the cards would start.
+    const statusY = listed.length > 0 ? H - PAD - BUTTON_H - 40 : STATUS_Y
+    this.status.getSceneObject().getParent().getTransform().setLocalPosition(this.point(PAD, statusY, Z_STEP))
     this.cards.forEach((card, i) => {
       const dance = listed[i]
       card.object.enabled = !!dance
@@ -173,10 +203,12 @@ export class DancePickerPanel extends BaseScriptComponent {
       card.object.getTransform().setLocalPosition(this.point(x + CARD_W / 2, y + CARD_H / 2, Z_STEP))
       card.title.text = dance.title
       card.details.text = detailsText(dance)
+      this.showThumbnail(card, this.thumbnailFor(dance.id))
       this.showLevel(card, dance.difficulty)
       const status = danceStatus(done[i], dance.sections ?? 0)
-      // The dance you're in the middle of has a white 2 px border.
-      setSurfaceBorder(card.border, status.kind === "inProgress" ? "text" : "border", status.kind === "inProgress" ? 2 : 1)
+      // Only a dance in progress has a volt status pill (see showBorder).
+      card.inProgress = status.kind === "inProgress"
+      this.showBorder(card)
       this.showStatus(card, status.kind, statusText(status))
     })
     // Buttons along the bottom edge, only where they apply (never with a full grid of cards).
@@ -220,30 +252,40 @@ export class DancePickerPanel extends BaseScriptComponent {
     const name = difficulty!.toUpperCase()
     const level = levelOf(difficulty)
     const dotsW = 3 * DOT + 2 * DOT_GAP
-    const w = 16 + dotsW + SPACE.group + name.length * CHIP_CHAR + 16
+    const w = 16 + dotsW + SPACE.group + Math.ceil(name.length * CHIP_CHAR) + 16
     setRectSize(card.levelPill, w, SIZE.chip, RADIUS.pill)
     // Pivot on the pill's left edge, so the pill grows right.
     card.level.getTransform().setLocalPosition(this.cardPoint(CARD_PAD + SPACE.group + w / 2, CARD_PAD + SPACE.group + SIZE.chip / 2))
     card.dots.forEach((dot, d) => {
       dot.object.getTransform().setLocalPosition(new vec3(pxToCm(-w / 2 + 16 + DOT / 2 + d * (DOT + DOT_GAP)), 0, Z_STEP))
-      dot.rect.backgroundColor = themeColor(d < level ? "text" : "tickOff")
     })
+    card.level_ = level
+    this.showBorder(card)
     card.levelText.getSceneObject().getParent().getTransform().setLocalPosition(new vec3(pxToCm(-w / 2 + 16 + dotsW + SPACE.group), 0, Z_STEP))
     card.levelText.text = name
+  }
+
+  /** Fills the thumbnail with a still, cropped to cover it; the grey block shows until there is one. */
+  private showThumbnail(card: Card, texture: Texture | null) {
+    card.thumb.useTexture = !!texture
+    if (!texture) return
+    card.thumb.texture = texture
+    card.thumb.textureMode = "Fill Width" as TextureMode
   }
 
   /** The status pill: volt while in progress, a scrim otherwise; a drawn tick after "learned" when done. */
   private showStatus(card: Card, kind: "new" | "inProgress" | "done", label: string) {
     const text = label.replace(" ✓", "")
     const tick = kind === "done"
-    const textW = text.length * CHIP_CHAR * 0.9
+    const textW = text.length * STATUS_CHAR
     const w = 16 + textW + (tick ? SPACE.group + 12 : 0) + 16
-    card.statusPill.backgroundColor = themeColor(kind === "inProgress" ? "volt" : "scrim")
     setRectSize(card.statusPill, w, SIZE.chip, RADIUS.pill)
-    card.statusText.textFill.color = themeColor(kind === "inProgress" ? "onColor" : "text")
+    this.showBorder(card)
     card.statusText.text = text
     card.status.getTransform().setLocalPosition(this.cardPoint(CARD_PAD + w / 2, CARD_H - CARD_PAD - SIZE.chip / 2))
-    card.statusText.getSceneObject().getParent().getTransform().setLocalPosition(new vec3(pxToCm(-w / 2 + 16), 0, Z_STEP))
+    // Centred in the pill, so a rough width only shifts the padding evenly; with a tick after it, the text starts at the left padding.
+    card.statusText.horizontalAlignment = tick ? HorizontalAlignment.Left : HorizontalAlignment.Center
+    card.statusText.getSceneObject().getParent().getTransform().setLocalPosition(new vec3(tick ? pxToCm(-w / 2 + 16) : 0, 0, Z_STEP))
     card.statusTick.object.enabled = tick
     card.statusTick.object.getTransform().setLocalPosition(new vec3(pxToCm(-w / 2 + 16 + textW + SPACE.group + 6), 0, Z_STEP))
   }
@@ -298,13 +340,13 @@ export class DancePickerPanel extends BaseScriptComponent {
   /** The four filter pills along the heading's right end: the chosen one white, the others outlined. */
   private makeFilters() {
     const widths = FILTERS.map((f) => 40 + f.length * FILTER_CHAR)
-    let right = W - PAD
-    for (let i = FILTERS.length - 1; i >= 0; i--) {
+    let left = PAD
+    for (let i = 0; i < FILTERS.length; i++) {
       const filter = FILTERS[i]
       const w = widths[i]
       const object = childObject(`Filter${filter}`, this.card)
-      object.getTransform().setLocalPosition(this.point(right - w / 2, PAD + HEAD_H / 2, Z_STEP))
-      right -= w + SPACE.group
+      object.getTransform().setLocalPosition(this.point(left + w / 2, FILTER_Y + HEAD_H / 2, Z_STEP))
+      left += w + SPACE.group
 
       const selected = childObject("Selected", object)
       makePill(selected, "text", ORDER + 1, w, HEAD_H)
@@ -316,11 +358,36 @@ export class DancePickerPanel extends BaseScriptComponent {
       this.makePinchable(object, w, HEAD_H, () => {
         if (this.filter === filter) return
         this.filter = filter
+        this.page = 0
         // Re-render with what's showing, now filtered.
         this.render(this.lastView)
       })
+      // Over the label too; the chosen (white) pill is already lit, so it shows little.
+      addHover(object, { wPx: w, hPx: HEAD_H, radiusPx: RADIUS.pill, order: ORDER + 3 })
       this.filterRow.push({ object, filter, selected, idle })
     }
+  }
+
+  /** ‹ 1 / 2 ›, centred under the grid; each arrow shows only where there is a page that way. */
+  private makePager() {
+    this.pager = childObject("Pager", this.card)
+    this.pager.getTransform().setLocalPosition(this.point(W / 2, PAGER_Y + 24, Z_STEP))
+    this.pageText = makeText(childObject("Page", this.pager), "buttonCount", "textMuted", ORDER + 2)
+    const arrow = (name: "Prev" | "Next", icon: "back" | "forward", dir: number) => {
+      const o = childObject(name, this.pager)
+      o.getTransform().setLocalPosition(new vec3(pxToCm(dir * 72), 0, 0))
+      const rect = makePill(o, "control", ORDER + 1, 48, 48)
+      makeIcon(o, icon, "text", ORDER + 2)
+      this.makePinchable(o, 48, 48, () => {
+        this.page += dir
+        this.render(this.lastView)
+      })
+      addHover(o, rect)
+      return o
+    }
+    this.prevButton = arrow("Prev", "back", -1)
+    this.nextButton = arrow("Next", "forward", 1)
+    this.pager.enabled = false
   }
 
   /** A dance card: a thumbnail block with the difficulty pill on it, the title, the details, the status pill. */
@@ -330,7 +397,7 @@ export class DancePickerPanel extends BaseScriptComponent {
 
     const thumb = childObject("Thumbnail", object)
     thumb.getTransform().setLocalPosition(new vec3(0, pxToCm(CARD_H / 2 - CARD_PAD - THUMB_H / 2), Z_STEP))
-    makeSurface(thumb, { fill: "control", radius: RADIUS.md }, ORDER + 2, CARD_W - CARD_PAD * 2, THUMB_H)
+    const thumbRect = makeSurface(thumb, { fill: "control", radius: RADIUS.md }, ORDER + 2, CARD_W - CARD_PAD * 2, THUMB_H)
 
     // The level pill sits in the thumbnail's top-left corner, 8 px in; showLevel() sizes and places it.
     const level = childObject("Level", object)
@@ -355,11 +422,21 @@ export class DancePickerPanel extends BaseScriptComponent {
     const statusText = makeText(childObject("Label", status), "chip", "text", ORDER + 4, "left")
     const statusTick = makeIcon(status, "check", "text", ORDER + 4, 12)
 
-    this.makePinchable(object, CARD_W, CARD_H, () => {
+    const made: Card = { object, border, thumb: thumbRect, title, details, level, levelPill, levelText, dots, status, statusPill, statusText, statusTick, hovered: false, level_: 0, inProgress: false }
+    const interactable = this.makePinchable(object, CARD_W, CARD_H, () => {
       if (this.ids[index]) this.onPick(this.ids[index])
     })
+    // Pointing at a card outlines it in white.
+    interactable.onHoverEnter.add(() => {
+      made.hovered = true
+      this.showBorder(made)
+    })
+    interactable.onHoverExit.add(() => {
+      made.hovered = false
+      this.showBorder(made)
+    })
     object.enabled = false
-    return { object, border, title, details, level, levelPill, levelText, dots, status, statusPill, statusText, statusTick }
+    return made
   }
 
   /** A button as wide as given; its place is set when it's shown. */
@@ -374,7 +451,7 @@ export class DancePickerPanel extends BaseScriptComponent {
     return { object, text }
   }
 
-  private makePinchable(object: SceneObject, wPx: number, hPx: number, onPress: () => void) {
+  private makePinchable(object: SceneObject, wPx: number, hPx: number, onPress: () => void): Interactable {
     const collider = object.createComponent("ColliderComponent") as ColliderComponent
     collider.fitVisual = false
     const shape = Shape.createBoxShape()
@@ -382,6 +459,26 @@ export class DancePickerPanel extends BaseScriptComponent {
     collider.shape = shape
     const interactable = object.createComponent(Interactable.getTypeName()) as Interactable
     interactable.onTriggerEnd.add(onPress)
+    return interactable
+  }
+
+  /**
+   * Pointing at a card outlines it white and 2 px, otherwise the 1 px outline. A dance in progress (and only that)
+   * has a volt status pill with dark text; the difficulty pill is never volt.
+   */
+  private showBorder(card: Card) {
+    setSurfaceBorder(card.border, card.hovered ? "text" : "border", card.hovered ? 2 : 1)
+    card.statusPill.backgroundColor = themeColor(card.inProgress ? "volt" : "control")
+    card.statusText.textFill.color = themeColor(card.inProgress ? "onColor" : "text")
+    card.statusTick.setColor("text")
+    card.levelPill.backgroundColor = themeColor("scrim")
+    card.levelText.textFill.color = themeColor("text")
+    card.dots.forEach((dot, d) => {
+      const on = d < card.level_
+      // Filled for the levels reached, an outline for the rest.
+      dot.rect.backgroundColor = on ? themeColor("text") : new vec4(0, 0, 0, 0)
+      setSurfaceBorder(dot.rect, on ? null : "text", 1)
+    })
   }
 
   /** A line of text anchored at (x, y) px from the panel's top-left. */
@@ -396,8 +493,8 @@ export class DancePickerPanel extends BaseScriptComponent {
     return new vec3(pxToCm(xPx - W / 2), -pxToCm(yPx), z)
   }
 
-  /** (x, y) px from a card's top-left → cm from its centre. */
+  /** (x, y) px from a card's top-left → cm from its centre, two steps in front of the card: the level and status pills overlap the thumbnail, which is one step in front, and surfaces at the same depth z-fight. */
   private cardPoint(xPx: number, yPx: number): vec3 {
-    return new vec3(pxToCm(xPx - CARD_W / 2), -pxToCm(yPx - CARD_H / 2), Z_STEP)
+    return new vec3(pxToCm(xPx - CARD_W / 2), -pxToCm(yPx - CARD_H / 2), 2 * Z_STEP)
   }
 }

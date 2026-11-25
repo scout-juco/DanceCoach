@@ -1,17 +1,31 @@
 /**
  * DancesButton: "‹ Dances" at the top-left of the board, to go back to the list and pick another dance.
  *
- * A pinch calls onPress. It sits left of the video on every screen, clear of the toast and the controls.
- * A shallow view: the main script enables it while a dance is playing.
+ * Not in the B2 handoff, so it's built from the kit's Button (kit/components/Button.md): a 56-tall secondary pill
+ * (control fill), a 24 ‹ icon and white Sora 16/24 600, padding 0 20, icon-to-label gap 8. Secondary, not volt:
+ * leaving isn't the main next step on any screen.
+ *
+ * It sits level with the top of the video, a surface gap (24) left of Lookback's side panel (x 468), so it's clear
+ * of the side panel, side by side's take, the toast, the dialogs and the count-in on every screen.
+ *
+ * A pinch calls onPress. A shallow view: the main script enables it while a dance is playing.
  */
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { PxRect, pointInPanelCm, pxToCm } from "./Layout"
-import { RADII, TYPE } from "./Theme"
-import { childObject, makeRect, makeText, place, setRectSize, themeColor } from "./Visuals"
+import { SIZE, SPACE } from "./Theme"
+import { addHover, childObject, makeIcon, makePill, makeText, place } from "./Visuals"
 
-// Prototype px on the board: left of the video (which starts at x 790) and of Lookback's look panel (x 470), above the toast.
-const BOX: PxRect = [340, 40, 120, 36]
+const LABEL = "Dances"
+// Side padding (space-5): the kit's Button.
+const PAD = 20
+// "Dances" in Sora 16 600, rounded up.
+const LABEL_W = 58
+const W = PAD + SIZE.icon + SPACE.group + LABEL_W + PAD
+// The side panel's left edge, less the gap between surfaces.
+const RIGHT = 468 - SPACE.surface
+const BOX: PxRect = [RIGHT - W, 40, W, SIZE.control]
 const Z = 0.2
+const Z_CONTENT = 0.05
 // Collider depth, in cm.
 const HIT_DEPTH = 1
 
@@ -23,14 +37,18 @@ export class DancesButton extends BaseScriptComponent {
   onAwake() {
     const [, , w, h] = BOX
     const button = childObject("Button", this.sceneObject)
-    const rect = makeRect(button, "panel", 2)
-    rect.border = true
-    rect.borderSize = pxToCm(1)
-    rect.borderColor = themeColor("stroke")
-    setRectSize(rect, w, h, RADII.button)
+    const rect = makePill(button, "control", 2, w, h)
+
+    // The icon and label are centred as a group: the label's centre sits half the icon and gap right of the
+    // button's, with centre-aligned text like every other button, so a wrong guess at its width can't push it off.
+    const shift = (SIZE.icon + SPACE.group) / 2
     const label = childObject("Label", button)
-    label.getTransform().setLocalPosition(new vec3(0, 0, 0.05))
-    makeText(label, TYPE.button, "ink", 3).text = "‹  Dances"
+    label.getTransform().setLocalPosition(new vec3(pxToCm(shift), 0, Z_CONTENT))
+    makeText(label, "button", "text", 3).text = LABEL
+
+    const icon = makeIcon(button, "back", "text", 3)
+    icon.object.getTransform().setLocalPosition(new vec3(pxToCm(shift - LABEL_W / 2 - SPACE.group - SIZE.icon / 2), 0, Z_CONTENT))
+
     place(button, pointInPanelCm(BOX, w / 2, h / 2), Z)
 
     const collider = button.createComponent("ColliderComponent") as ColliderComponent
@@ -40,5 +58,6 @@ export class DancesButton extends BaseScriptComponent {
     collider.shape = shape
     const interactable = button.createComponent(Interactable.getTypeName()) as Interactable
     interactable.onTriggerEnd.add(() => this.onPress())
+    addHover(button, rect)
   }
 }

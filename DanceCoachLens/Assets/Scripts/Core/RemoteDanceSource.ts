@@ -1,7 +1,7 @@
 /**
  * RemoteDanceSource: the dances the ingest server has ready (server/ingestServer.ts).
  *
- *   GET <base>/dances                 → [{ id, title, difficulty, sections, lengthSec }]
+ *   GET <base>/dances                 → [{ id, title, difficulty, sections, lengthSec, thumbnail }]
  *   GET <base>/dances/<id>/package    → the dance package
  *   GET <base>/dances/<id>/clips/<n>  → one clip, named <video>_<clip id>.mp4 (see ClipPlan)
  *   GET <base>/dances/<id>/stills/<n> → one still, a name from the package's stills (see StillPlan)
@@ -54,8 +54,13 @@ export class RemoteDanceSource<T> implements DanceSource<T> {
     return raw.map((d, i) => {
       if (!d || typeof d.id !== "string" || typeof d.title !== "string") throw new Error(`Dance ${i + 1} in the list is malformed`)
       const num = (v: unknown) => (typeof v === "number" && isFinite(v) && v > 0 ? v : undefined)
-      return { id: d.id, title: d.title, difficulty: typeof d.difficulty === "string" ? d.difficulty : undefined, sections: num(d.sections), lengthSec: num(d.lengthSec) }
+      return { id: d.id, title: d.title, difficulty: typeof d.difficulty === "string" ? d.difficulty : undefined, sections: num(d.sections), lengthSec: num(d.lengthSec), thumbnail: typeof d.thumbnail === "string" && d.thumbnail ? d.thumbnail : undefined }
     })
+  }
+
+  async thumbnail(listing: DanceListing): Promise<T | null> {
+    if (!listing.thumbnail) return null
+    return this.transport.loadStill(`${this.base}/dances/${encodeURIComponent(listing.id)}/stills/${encodeURIComponent(listing.thumbnail)}`)
   }
 
   async load(name: string, onProgress: (fraction: number) => void = () => {}): Promise<LoadedDance<T>> {

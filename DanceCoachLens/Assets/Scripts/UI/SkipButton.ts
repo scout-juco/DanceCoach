@@ -8,7 +8,7 @@
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { ViewState } from "../Core/PlaybackController"
 import { panelsFor, pointInPanelCm, pxToCm, SCREENS } from "./Layout"
-import { childObject, makePill, makeText, place } from "./Visuals"
+import { addHover, childObject, makePill, makeText, place } from "./Visuals"
 
 const Z = 0.2
 // Collider depth, in cm.
@@ -25,7 +25,7 @@ export class SkipButton extends BaseScriptComponent {
   onAwake() {
     const [, , w, h] = SCREENS.PV.skip!
     this.button = childObject("Button", this.sceneObject)
-    makePill(this.button, "control", 2, w, h)
+    const rect = makePill(this.button, "control", 2, w, h)
     const label = childObject("Label", this.button)
     label.getTransform().setLocalPosition(new vec3(0, 0, 0.05))
     makeText(label, "button", "text", 3).text = "Skip to Section 1 ›"
@@ -37,6 +37,7 @@ export class SkipButton extends BaseScriptComponent {
     collider.shape = shape
     const interactable = this.button.createComponent(Interactable.getTypeName()) as Interactable
     interactable.onTriggerEnd.add(() => this.onPress())
+    addHover(this.button, rect)
     this.sceneObject.enabled = false
   }
 

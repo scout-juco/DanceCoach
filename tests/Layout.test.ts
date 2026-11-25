@@ -23,7 +23,9 @@ describe("Layout on the B2 grid", () => {
     for (const [id, panels] of boards) {
       for (const [panel, rect] of Object.entries(panels) as [PanelId, PxRect][]) {
         rect.forEach((v) => expect(v % 4, `${id}.${panel} = [${rect}]`).toBe(0))
-        expect(rect[0] >= 0 && rect[1] >= 0 && right(rect) <= 1280 && bottom(rect) <= 800, `${id}.${panel} inside the frame`).toBe(true)
+        // Playthrough, Pose and Lookback all keep the section tiles, so their mode panel sits lower than the board's frame: there's no screen edge on device.
+        const lower = panel === "controls" && (id === "C" || id === "C2" || id === "E" || id === "I" || id === "L")
+        expect(rect[0] >= 0 && rect[1] >= 0 && right(rect) <= 1280 && (lower || bottom(rect) <= 800), `${id}.${panel} inside the frame`).toBe(true)
       }
     }
   })
@@ -41,7 +43,7 @@ describe("Layout on the B2 grid", () => {
   })
 
   it("keeps the video at x 792 in one of its three sizes", () => {
-    const sizes = ["340x604", "300x520", "300x504"]
+    const sizes = ["340x604", "300x520"]
     for (const [id, panels] of boards) {
       const v = panels.video!
       expect(v[0], id).toBe(792)
@@ -66,11 +68,14 @@ describe("Layout on the B2 grid", () => {
       ["C2", "video", "below", "sections"],
       ["C2", "sections", "below", "controls"],
       ["D", "video", "below", "poseLine"],
-      ["E", "video", "below", "controls"],
+      ["E", "video", "below", "sections"],
+      ["E", "sections", "below", "controls"],
       ["I", "lookPanel", "right", "video"],
-      ["I", "video", "below", "controls"],
+      ["I", "video", "below", "sections"],
+      ["I", "sections", "below", "controls"],
       ["L", "lookPanel", "right", "video"],
-      ["L", "video", "below", "controls"],
+      ["L", "video", "below", "sections"],
+      ["L", "sections", "below", "controls"],
       ["J", "lookPanel", "right", "video"],
       ["M", "take", "right", "video"],
       ["PV", "segBar", "below", "skip"],

@@ -2,21 +2,24 @@
  * LookPanel: Lookback's side panel (BUILD_SPEC §6.13), 300×520, 24 left of the video.
  *
  * I (no takes): one big "Record lookback" button filling the panel (an 80 pink + circle over the label).
- * L: the header ("LOOKBACK · SECTION n" / "n TAKES"), the selected take's card (2 px white border, NEW on the newest take
+ * L: the selected take's card (2 px white border, NEW on the newest take
  * just recorded, "TAKE n · 0.75×", an 80 play circle and "Play side by side") and the takes row under it: 1–3 numbered
  * buttons (the selected one white) and a pink +.
  * L2 (four or more takes): the row is ‹ · "n / total" · › · +, with ‹ and › greyed at the ends.
  * Pinching the card calls onPlay, a take button onSelect with its index, ‹ › onStep, and Record lookback or + onRecord.
  * A failed recording's message sits under the card's label (or the button's).
  * A shallow view: render() shows the Lookback view, placed by the screen's lookPanel in Layout.SCREENS; hidden elsewhere.
+ * Switching into Lookback, it fades in 450–750 ms after the tap from 24 px to the right; switching out, it fades out
+ * over the first 100 ms with the mode panel's old controls (BUILD_SPEC §6.8a). It ignores pinches while it fades.
  */
 import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { LookbackView, takeLabel } from "../Core/LookbackController"
 import { panelsFor, pointInPanelCm, pxToCm, PxRect } from "./Layout"
-import { ViewState } from "../Core/PlaybackController"
+import { Mode, ViewState } from "../Core/PlaybackController"
+import { MODE_SWITCH, progress } from "./ModeSwitch"
 import { ColorToken, RADIUS, SIZE, SPACE, TextStyleName } from "./Theme"
-import { childObject, Icon, makeIcon, makePill, makeSurface, makeText, place, setRectSize, setSurfaceBorder, themeColor } from "./Visuals"
+import { addHover, childObject, GroupFade, Icon, makeIcon, makePill, makeSurface, makeText, place, setRectSize, setSurfaceBorder, themeColor } from "./Visuals"
 
 // Layers in front of the window plane, in cm: the panel, the buttons and card, then what sits on them.
 const Z_PANEL = 0.1
@@ -25,7 +28,6 @@ const Z_LABEL = 0.05
 // Collider depth, in cm.
 const HIT_DEPTH = 1
 const PAD = SPACE.attached
-const HEADER_H = 16
 const BIG_CIRCLE = 80
 const CHIP_INSET = 12
 const CHIP_PAD = 16
@@ -76,11 +78,10 @@ export class LookPanel extends BaseScriptComponent {
   onPlay: () => void = () => {}
 
   private look: SceneObject
+  private lookRect: RoundedRectangle
+  private bigRect: RoundedRectangle
   private bigButton: SceneObject
   private bigNote: Label
-  private header: SceneObject
-  private head: Label
-  private count: Label
   private card: SceneObject
   private cardRect: RoundedRectangle
   private newPill: SceneObject
@@ -101,14 +102,20 @@ export class LookPanel extends BaseScriptComponent {
   private takeCount = 0
   private canBack = false
   private canForward = false
+  // The mode at the last render, and the fade in or out of a mode switch under way.
+  private lastMode: Mode | null = null
+  private fade: { start: number; entering: boolean; group: GroupFade } | null = null
 
   onAwake() {
     this.look = childObject("Look", this.sceneObject)
-    makeSurface(this.look, { fill: "panelSolid", border: "border", borderPx: 1, radius: RADIUS.xl }, 1, 300, 520)
+    this.lookRect = makeSurface(this.look, { fill: "panelSolid", border: "border", borderPx: 1, radius: RADIUS.xl }, 1, 300, 520)
 
     // I: one big button filling the panel.
     this.bigButton = this.pressable("Record", this.look, 300 - 2 * PAD, 520 - 2 * PAD, () => this.onRecord())
-    makeSurface(this.bigButton, { fill: "control", radius: RADIUS.lg }, 2, 300 - 2 * PAD, 520 - 2 * PAD)
+    this.bigRect = makeSurface(this.bigButton, { fill: "control", radius: RADIUS.lg }, 2, 300 - 2 * PAD, 520 - 2 * PAD)
+    addHover(this.bigButton, this.bigRect)
+    // In front of the panel behind it: two surfaces at the same depth z-fight.
+    this.bigButton.getTransform().setLocalPosition(new vec3(0, 0, Z_ITEM))
     const circle = childObject("Circle", this.bigButton)
     makePill(circle, "pink", 3, BIG_CIRCLE, BIG_CIRCLE)
     // The circle, 16 gap and the label (24) are centred as one group: 120 tall.
@@ -121,12 +128,10 @@ export class LookPanel extends BaseScriptComponent {
     this.bigNote = this.label(this.bigButton, "caption", "textMuted")
     place(this.bigNote.object, new vec2(0, -pxToCm(80)), Z_LABEL)
 
-    // L: header, card and takes row.
-    this.header = childObject("Header", this.look)
-    this.head = this.label(this.header, "eyebrow", "textMuted", "left")
-    this.count = this.label(this.header, "eyebrow", "textSubtle", "right")
+    // L: the card and the takes row (no header: the card starts at the panel's top).
     this.card = this.pressable("Card", this.look, 1, 1, () => this.onPlay())
     this.cardRect = makeSurface(this.card, { fill: "control", border: "text", borderPx: 2, radius: RADIUS.lg }, 2, 1, 1)
+    addHover(this.card, this.cardRect)
     this.newPill = childObject("New", this.card)
     this.newRect = makePill(this.newPill, "text", 3, 1, SIZE.chip)
     this.label(this.newPill, "chip", "onColor").text.text = "NEW"
@@ -153,14 +158,58 @@ export class LookPanel extends BaseScriptComponent {
     this.plus.rect.backgroundColor = themeColor("pink")
     this.plus.icon!.setColor("onColor")
     this.sceneObject.enabled = false
+    this.createEvent("UpdateEvent").bind(() => this.animate())
   }
 
   render(view: ViewState, look: LookbackView | null) {
     const { lookPanel } = panelsFor(view)
-    this.sceneObject.enabled = !!lookPanel && !!look
-    if (!lookPanel || !look) return
+    const show = !!lookPanel && !!look
+    const was = this.sceneObject.enabled && !(this.fade && !this.fade.entering)
+    const switched = this.lastMode !== null && this.lastMode !== view.mode
+    this.lastMode = view.mode
+    if (switched && was && !show) this.startFade(false)
+    else if (switched && !was && show) this.startFade(true)
+    else if (show && this.fade && !this.fade.entering) this.endFade()
+    if (!show) {
+      // Hidden, unless it's fading out.
+      if (!this.fade) this.sceneObject.enabled = false
+      return
+    }
+    this.sceneObject.enabled = true
+    this.renderView(lookPanel!, look!)
+    this.animate()
+  }
+
+  private startFade(entering: boolean) {
+    this.endFade()
+    this.fade = { start: getTime(), entering, group: new GroupFade([this.sceneObject]) }
+  }
+
+  /** One frame of the fade: entering, held clear until 450 ms then in from 24 px right; leaving, out over 100 ms. */
+  private animate() {
+    const f = this.fade
+    if (!f) return
+    const ms = (getTime() - f.start) * 1000
+    const k = f.entering ? progress(ms, MODE_SWITCH.takesIn) : 1 - progress(ms, MODE_SWITCH.out)
+    f.group.apply(k)
+    const shift = f.entering ? pxToCm(MODE_SWITCH.takesShift) * (1 - k) : 0
+    this.sceneObject.getTransform().setLocalPosition(new vec3(shift, 0, 0))
+    if (ms >= (f.entering ? MODE_SWITCH.takesIn.end : MODE_SWITCH.out.end)) {
+      this.endFade()
+      if (!f.entering) this.sceneObject.enabled = false
+    }
+  }
+
+  private endFade() {
+    if (!this.fade) return
+    this.fade.group.finish()
+    this.fade = null
+    this.sceneObject.getTransform().setLocalPosition(vec3.zero())
+  }
+
+  private renderView(lookPanel: PxRect, look: LookbackView) {
     const hasTakes = look.takes.length > 0
-    const layoutKey = `${hasTakes}|${look.stepper}|${hasTakes && !look.stepper ? look.takes.length : 0}`
+    const layoutKey = `${lookPanel[3]}|${hasTakes}|${look.stepper}|${hasTakes && !look.stepper ? look.takes.length : 0}`
     if (layoutKey !== this.layoutKey) {
       this.layoutKey = layoutKey
       // The layout moves the take pill, which the text pass places by its width.
@@ -177,8 +226,6 @@ export class LookPanel extends BaseScriptComponent {
     const note = look.message ? wrapLines(look.message, NOTE_CHARS) : ""
     this.bigNote.text.text = note
     this.cardNote.text.text = note
-    this.head.text.text = `LOOKBACK · SECTION ${look.section}`
-    this.count.text.text = `${n} TAKE${n === 1 ? "" : "S"}`
     const selected = look.selected >= 0 ? look.takes[look.selected] : null
     if (selected) {
       const isNew = selected.name === look.newTake && look.selected === n - 1
@@ -203,18 +250,18 @@ export class LookPanel extends BaseScriptComponent {
   private layout(box: PxRect, look: LookbackView, hasTakes: boolean) {
     const [, , w, h] = box
     place(this.look, pointInPanelCm(box, w / 2, h / 2), Z_PANEL)
+    // As tall as the video beside it, which is shorter now that the section tiles sit under both.
+    setRectSize(this.lookRect, w, h, RADIUS.xl)
+    setRectSize(this.bigRect, w - 2 * PAD, h - 2 * PAD, RADIUS.lg)
+    this.setHitBox(this.bigButton, w - 2 * PAD, h - 2 * PAD)
     this.bigButton.enabled = !hasTakes
-    this.header.enabled = hasTakes
     this.card.enabled = hasTakes
     this.row.enabled = hasTakes
     if (!hasTakes) return
-    const left = -w / 2 + PAD
     const top = h / 2 - PAD
-    this.head.object.getTransform().setLocalPosition(new vec3(pxToCm(left), pxToCm(top - HEADER_H / 2), Z_ITEM))
-    this.count.object.getTransform().setLocalPosition(new vec3(pxToCm(-left), pxToCm(top - HEADER_H / 2), Z_ITEM))
-    // The card fills what's between the header and the takes row.
+    // The card fills what's between the panel's top and the takes row.
     const cardW = w - 2 * PAD
-    const cardTop = top - HEADER_H - SPACE.between
+    const cardTop = top
     const rowTop = -h / 2 + PAD + SIZE.control
     const cardBottom = rowTop + SPACE.between
     const cardH = cardTop - cardBottom
@@ -266,6 +313,7 @@ export class LookPanel extends BaseScriptComponent {
   private roundButton(name: string, icon: "back" | "forward" | "plus" | null, onPress: () => void): RoundButton {
     const object = this.pressable(name, this.row, SIZE.control, SIZE.control, onPress)
     const rect = makePill(object, "control", 2, SIZE.control, SIZE.control)
+    addHover(object, rect)
     const label = this.label(object, "buttonCount", "text")
     let glyph: Icon | null = null
     if (icon) {
@@ -282,7 +330,8 @@ export class LookPanel extends BaseScriptComponent {
     collider.fitVisual = false
     this.setHitBox(so, wPx, hPx)
     const interactable = so.createComponent(Interactable.getTypeName()) as Interactable
-    interactable.onTriggerEnd.add(onPress)
+    // Not while it fades in or out with a mode switch.
+    interactable.onTriggerEnd.add(() => !this.fade && onPress())
     return so
   }
 

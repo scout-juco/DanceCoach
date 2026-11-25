@@ -132,7 +132,7 @@ export class RecordPopup extends BaseScriptComponent {
     this.lastKey = key
     const on = look.phoneConnected
     this.body.text = on ? BODY : NOT_CONNECTED
-    this.values[0].text = String(look.section)
+    this.values[0].text = look.section === 0 ? "Full" : String(look.section)
     this.values[1].text = speedMirrorLabel(record.speed, record.mirror)
     // "CONNECTED" and its tick; the tick sits at the right edge, so the word moves in by its width and a gap.
     this.values[2].text = on ? "CONNECTED" : "NOT CONNECTED"

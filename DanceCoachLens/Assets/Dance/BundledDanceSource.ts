@@ -28,6 +28,13 @@ export class BundledDanceSource implements DanceSource<Texture> {
     return this.dances.map(listingOf)
   }
 
+  /** The dance's thumbnail still, matched by name among the stills assigned in Lens Studio. */
+  async thumbnail(listing: DanceListing): Promise<Texture | null> {
+    if (!listing.thumbnail) return null
+    const base = listing.thumbnail.replace(/\.[^.]+$/, "")
+    return (this.assignedStills || []).find((t) => !!t && t.name.replace(/\.[^.]+$/, "") === base) ?? null
+  }
+
   async load(name: string): Promise<LoadedDance<Texture>> {
     const dance = this.dances.find((d) => d.id === name)
     if (!dance) throw new Error(`No dance named "${name}"`)

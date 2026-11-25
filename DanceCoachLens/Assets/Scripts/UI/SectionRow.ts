@@ -4,6 +4,8 @@
  * Sized to the dance's number of sections, right-aligned to the video, 8 apart (BUILD_SPEC §6.7): 56-tall pills,
  * the current one volt with dark text, done ones "n ✓" in muted text with a border, the rest white with a border.
  * A pinch on a tile calls onTap with the section number, or "full".
+ * In Pose and Lookback (a section is picked to look at, not run) there's no hold-for-range, and only Lookback has a Full tile (the routine's takes; Pose has none): the tiles keep
+ * Clip ended's width, right-aligned, and the current one is the mode's own section (render's second argument), volt, or pink in Lookback.
  * A shallow view: render() shows the view state, placed by the screen's sections panel
  * in Layout.SCREENS. It's hidden on screens without one, so it can't be pressed mid-run.
  */
@@ -12,7 +14,7 @@ import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedR
 import { SectionTap, ViewState } from "../Core/PlaybackController"
 import { panelsFor, pointInPanelCm, pxToCm } from "./Layout"
 import { ColorToken, RADIUS, SPACE } from "./Theme"
-import { childObject, Icon, makeIcon, makePill, makeText, place, setRectSize, setSurfaceBorder, themeColor } from "./Visuals"
+import { addHover, childObject, Icon, makeIcon, makePill, makeText, place, setRectSize, setSurfaceBorder, themeColor } from "./Visuals"
 
 const Z = 0.1
 // Collider depth, in cm.
@@ -42,6 +44,8 @@ export class SectionRow extends BaseScriptComponent {
   private tiles: Tile[] = []
   private lastKey = ""
   private lastView: ViewState | null = null
+  // Pose or Lookback's section while one of them is open, else null.
+  private inMode: number | null = null
   // The range being selected after a long press (0 when not selecting). Always contiguous.
   private selFirst = 0
   private selLast = 0
@@ -54,24 +58,31 @@ export class SectionRow extends BaseScriptComponent {
     this.createEvent("UpdateEvent").bind(() => this.updateHold())
   }
 
-  render(view: ViewState) {
+  render(view: ViewState, inMode: number | null = null) {
     this.lastView = view
+    this.inMode = inMode
     const box = panelsFor(view).sections
     this.sceneObject.enabled = !!box
     if (!box) {
       this.clearSelection()
       return
     }
+    const picking = this.inMode !== null
     if (this.tiles.length !== view.sectionCount + 1) this.build(view.sectionCount)
-    const key = `${view.screen}|${view.section}|${view.runStop}|${view.runKind}|${view.doneSections.join(",")}|${this.selFirst}-${this.selLast}`
+    const key = `${view.screen}|${this.inMode}|${view.section}|${view.runStop}|${view.runKind}|${view.doneSections.join(",")}|${this.selFirst}-${this.selLast}`
     if (key === this.lastKey) return
     this.lastKey = key
 
     const n = this.tiles.length
     const tw = (box[2] - SPACE.group * (n - 1)) / n
     const th = box[3]
+    // Pose has no Full tile: the others keep their width, right-aligned, and the left slot stays empty. Lookback has Full (its tile is the routine's takes).
+    const noFull = picking && view.mode === "Pose"
+    const first = noFull ? 1 : 0
+    const x0 = noFull ? tw + SPACE.group : 0
     this.tiles.forEach((tile, i) => {
-      place(tile.object, pointInPanelCm(box, i * (tw + SPACE.group) + tw / 2, th / 2), Z)
+      tile.object.enabled = i >= first
+      place(tile.object, pointInPanelCm(box, x0 + (i - first) * (tw + SPACE.group) + tw / 2, th / 2), Z)
       setRectSize(tile.rect, tw, th, RADIUS.pill)
       const shape = Shape.createBoxShape()
       shape.size = new vec3(pxToCm(tw), pxToCm(th), HIT_DEPTH)
@@ -80,11 +91,12 @@ export class SectionRow extends BaseScriptComponent {
       const selecting = this.selFirst > 0
       const inRange = (n: number) => selecting ? n >= this.selFirst && n <= this.selLast : view.runKind === "section" && n >= view.section && n <= view.runStop
       let current: boolean
-      if (tile.id === "full") current = !selecting && view.runKind === "full"
+      if (picking) current = tile.id === (this.inMode === 0 ? "full" : this.inMode)
+      else if (tile.id === "full") current = !selecting && view.runKind === "full"
       else if (selecting || view.runKind === "section") current = inRange(tile.id)
       else current = view.runKind === "top" && tile.id === view.section
       const done = typeof tile.id === "number" && !current && view.doneSections.indexOf(tile.id) >= 0
-      tile.rect.backgroundColor = themeColor(current ? "volt" : "panel")
+      tile.rect.backgroundColor = themeColor(current ? (view.mode === "Lookback" ? "pink" : "volt") : "panel")
       setSurfaceBorder(tile.rect, current ? null : "border", 1)
       const ink: ColorToken = current ? "onColor" : done ? "textMuted" : "text"
       tile.text.textFill.color = themeColor(ink)
@@ -111,6 +123,7 @@ export class SectionRow extends BaseScriptComponent {
       const collider = object.createComponent("ColliderComponent") as ColliderComponent
       collider.fitVisual = false
       const interactable = object.createComponent(Interactable.getTypeName()) as Interactable
+      addHover(object, rect)
       const tile: Tile = { id, object, rect, label: textObject, text, tick, collider }
       interactable.onTriggerStart.add(() => {
         this.holding = tile
@@ -133,7 +146,7 @@ export class SectionRow extends BaseScriptComponent {
   /** A held tile starts a range at that section. */
   private updateHold() {
     const tile = this.holding
-    if (!tile || typeof tile.id !== "number") return
+    if (!tile || typeof tile.id !== "number" || this.inMode !== null) return
     this.heldSec += getDeltaTime()
     if (this.heldSec < HOLD_SEC) return
     this.holding = null

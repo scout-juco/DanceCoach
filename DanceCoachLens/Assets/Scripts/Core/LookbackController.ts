@@ -91,6 +91,8 @@ export interface SideBySideSetup {
   start: number
   end: number
   beatSec: number
+  /** The whole routine's section count, when the takes are of the whole routine (section 0); leave out for one section. */
+  sections?: number
 }
 
 /** What one of the two videos should do. Seek only when seekId changes, as with VideoRequest. */
@@ -115,8 +117,10 @@ export interface SideBySideView {
   seeking: boolean
   /** The tempo both play at, as a share of the dance's real tempo: a take filmed at 0.75× opens at 0.75×. */
   speed: number
-  /** How many counts the section has, 1–8: fewer in a short last section. */
+  /** How many counts the section has, 1–8: fewer in a short last section. A whole routine has them all, one stop each. */
   counts: number
+  /** 0 for one section; the routine's section count when the take is of the whole routine (the bar then marks its sections). */
+  sections: number
   originalClip: ClipRequest
   takeClip: ClipRequest
 }
@@ -153,9 +157,9 @@ export const originalHead = (mirror: boolean) => `ORIGINAL${mirror ? " · MIRROR
 export const TAKE_HEAD = "YOU · LOOKBACK FROM PHONE"
 
 /** How many counts a section from `start` to `end` seconds has: 8, or fewer for a short last section. */
-export function sectionCounts(start: number, end: number, beatSec: number): number {
-  if (!(beatSec > 0)) return 8
-  return Math.min(Math.max(Math.ceil((end - start) / beatSec - 1e-3), 1), 8)
+export function sectionCounts(start: number, end: number, beatSec: number, max = 8): number {
+  if (!(beatSec > 0)) return Math.min(8, max)
+  return Math.min(Math.max(Math.ceil((end - start) / beatSec - 1e-3), 1), max)
 }
 
 /** The count at `fraction` (0–1) along M's scrub bar: the bar has equal stops, one per count (8, or fewer in a short section). */
@@ -166,7 +170,7 @@ export function scrubCount(fraction: number, counts = 8): number {
 
 /** A take's label, e.g. "TAKE 3 · 0.75×", or "TAKE 3 · 0.75× · NEW" for the take just recorded. */
 export function takeLabel(take: Take, isNew = false): string {
-  return `TAKE ${take.number} · ${take.speed}×${isNew ? " · NEW" : ""}`
+  return `${take.section === 0 ? "FULL " : ""}TAKE ${take.number} · ${take.speed}×${isNew ? " · NEW" : ""}`
 }
 
 export class LookbackController {
@@ -334,8 +338,9 @@ export class LookbackController {
   private seekView(take: Take, count: number, speed: number, playing: boolean): SideBySideView {
     this.seekId++
     this.seekCount = count
-    const counts = sectionCounts(this.setup.start, this.setup.end, this.setup.beatSec)
-    return this.sbsView({ take, speed } as SideBySideView, { count, counts, fraction: (count - 1) / counts, playing, seeking: true })
+    const sections = this.setup.sections ?? 0
+    const counts = sectionCounts(this.setup.start, this.setup.end, this.setup.beatSec, sections ? Infinity : 8)
+    return this.sbsView({ take, speed } as SideBySideView, { count, counts, sections, fraction: (count - 1) / counts, playing, seeking: true })
   }
 
   /** `v` with changes, and the clip requests that go with them. */

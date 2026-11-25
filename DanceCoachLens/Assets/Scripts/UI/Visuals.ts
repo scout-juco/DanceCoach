@@ -2,6 +2,7 @@
  * Visuals: small builders the view components share, so each one only says what it shows.
  * Everything is sized in prototype pixels and coloured by Theme tokens.
  */
+import { Interactable } from "SpectaclesInteractionKit.lspkg/Components/Interaction/Interactable/Interactable"
 import { RoundedRectangle } from "SpectaclesUIKit.lspkg/Scripts/Visuals/RoundedRectangle/RoundedRectangle"
 import { ViewState } from "../Core/PlaybackController"
 import { pxToCm } from "./Layout"
@@ -10,8 +11,8 @@ import { COLORS, ColorToken, fontFile, RADIUS, rgba, SIZE, TEXT, TextStyle, Text
 // Text em-square height in cm = size / this (Lens Studio 5.16+, as in UI Kit's TextStylePresets).
 const TEXT_SIZE_PER_CM = 43.88571429
 
-// Text.letterSpacing for 1 em of tracking. Only the eyebrow is tracked (0.14 em); check it against the render in Preview.
-const LETTER_SPACING_PER_EM = 10
+// Text.letterSpacing for 1 em of tracking. Only the eyebrow is tracked (0.14 em). Was 10, which spread "SECTION n IN" far wider than B2; check on device.
+const LETTER_SPACING_PER_EM = 1
 
 // The B2 fonts in Assets/Fonts (the "-tab" cuts have tabular digits, for counts). requireAsset needs literal paths.
 const FONTS: Record<string, () => Asset> = {
@@ -190,7 +191,7 @@ export function makeOutline(so: SceneObject, token: ColorToken, renderOrder: num
   return makeSurface(so, { fill: null, border: token, borderPx: SIZE.outline, radius: RADIUS.xl }, renderOrder, wPx, hPx)
 }
 
-export type IconName = "padlock" | "mirror" | "counts" | "play" | "back" | "forward" | "plus" | "replay" | "check"
+export type IconName = "padlock" | "mirror" | "counts" | "play" | "pause" | "back" | "forward" | "plus" | "replay" | "check"
 
 /** An icon: its object (centred on its parent's origin) and a way to recolour it. */
 export interface Icon {
@@ -275,6 +276,10 @@ export function makeIcon(so: SceneObject, name: IconName, token: ColorToken, ren
     case "play":
       triangle(1.5, 0, 15, 18, 1)
       break
+    case "pause":
+      part(-4.5, 0, 5, 17, 1)
+      part(4.5, 0, 5, 17, 1)
+      break
     case "back":
     case "forward": {
       const d = name === "back" ? -1 : 1
@@ -322,6 +327,56 @@ export function makeIcon(so: SceneObject, name: IconName, token: ColorToken, ren
   }
 }
 
+// A button's hover tint: white over dark fills, black over light ones.
+const HOVER_LIGHT = new vec4(1, 1, 1, 0.16)
+const HOVER_DARK = new vec4(0, 0, 0, 0.14)
+
+/** Where a hover tint goes when the button has no single surface to copy: its size and corner radius in px, and render order. */
+export interface HoverBox {
+  wPx: number
+  hPx: number
+  radiusPx: number
+  order: number
+  /** The white tint's opacity; the default suits a button, a big surface wants less. */
+  alpha?: number
+}
+
+/**
+ * Tints a button while it's hovered. Call it after the button's Interactable exists. The tint copies the button's
+ * surface when it's hovered (so a size or colour set later is picked up), or uses a fixed box where there's no surface.
+ * It sits on its own object, so it doesn't fight whatever colour the button's state sets.
+ */
+export function addHover(button: SceneObject, source: RoundedRectangle | HoverBox) {
+  const interactable = button.getComponent(Interactable.getTypeName()) as Interactable
+  if (!interactable) return
+  const holder = childObject("Hover", button)
+  holder.getTransform().setLocalPosition(new vec3(0, 0, 0.02))
+  const tintObject = childObject("Tint", holder)
+  const isBox = "wPx" in source
+  const tint = makeRect(tintObject, "text", isBox ? source.order : (source as RoundedRectangle).renderOrder + 2)
+  tintObject.enabled = false
+
+  interactable.onHoverEnter.add(() => {
+    if (isBox) {
+      const box = source as HoverBox
+      setRectSize(tint, box.wPx, box.hPx, box.radiusPx)
+      tint.backgroundColor = box.alpha === undefined ? HOVER_LIGHT : new vec4(1, 1, 1, box.alpha)
+    } else {
+      const rect = source as RoundedRectangle
+      tint.size = rect.size
+      tint.cornerRadius = rect.cornerRadius
+      const c = rect.backgroundColor
+      const light = c.w > 0.5 && 0.299 * c.x + 0.587 * c.y + 0.114 * c.z > 0.7
+      tint.backgroundColor = light ? HOVER_DARK : HOVER_LIGHT
+    }
+    tintObject.enabled = true
+  })
+  interactable.onHoverExit.add(() => (tintObject.enabled = false))
+  // A hidden button sends no hover-exit.
+  const script = holder.createComponent("Component.ScriptComponent") as ScriptComponent
+  script.createEvent("OnDisableEvent").bind(() => (tintObject.enabled = false))
+}
+
 /** An icon button: a 56 circle (control fill, white icon); on = white fill with a dark icon (BUILD_SPEC §6.9, option A). */
 export interface IconButton {
   object: SceneObject
@@ -344,3 +399,59 @@ export function makeIconButton(so: SceneObject, icon: IconName, renderOrder: num
     },
   }
 }
+
+/**
+ * Fades a group of objects (BUILD_SPEC §6.8a): every rounded rectangle's fill and border and every text's colour
+ * under the roots, at `opacity` times its own alpha. Scaling or a material fade would need every builder to opt in;
+ * this works on whatever the group holds. A colour changed while the group is faded (a toggle, a rebuilt row) is
+ * taken as the new full colour. finish() puts every colour back at full and forgets them.
+ */
+export class GroupFade {
+  private rects = new Map<RoundedRectangle, { fill: vec4; fillSet: vec4; border: vec4; borderSet: vec4 }>()
+  private texts = new Map<Text, { color: vec4; set: vec4 }>()
+
+  constructor(private roots: SceneObject[]) {}
+
+  apply(opacity: number) {
+    for (const root of this.roots) this.walk(root, opacity)
+  }
+
+  finish() {
+    this.apply(1)
+    this.rects.clear()
+    this.texts.clear()
+  }
+
+  private walk(so: SceneObject, a: number) {
+    for (const rect of so.getComponents(RoundedRectangle.getTypeName()) as RoundedRectangle[]) {
+      let s = this.rects.get(rect)
+      if (!s) {
+        s = { fill: rect.backgroundColor, fillSet: rect.backgroundColor, border: rect.borderColor, borderSet: rect.borderColor }
+        this.rects.set(rect, s)
+      }
+      if (!sameColor(rect.backgroundColor, s.fillSet)) s.fill = rect.backgroundColor
+      if (!sameColor(rect.borderColor, s.borderSet)) s.border = rect.borderColor
+      s.fillSet = withAlpha(s.fill, a)
+      s.borderSet = withAlpha(s.border, a)
+      rect.backgroundColor = s.fillSet
+      if (rect.border) rect.borderColor = s.borderSet
+    }
+    for (const text of so.getComponents("Component.Text") as Text[]) {
+      let s = this.texts.get(text)
+      if (!s) {
+        s = { color: text.textFill.color, set: text.textFill.color }
+        this.texts.set(text, s)
+      }
+      if (!sameColor(text.textFill.color, s.set)) s.color = text.textFill.color
+      s.set = withAlpha(s.color, a)
+      text.textFill.color = s.set
+    }
+    for (let i = 0; i < so.getChildrenCount(); i++) this.walk(so.getChild(i), a)
+  }
+}
+
+const withAlpha = (c: vec4, a: number) => new vec4(c.x, c.y, c.z, c.w * a)
+const sameColor = (a: vec4, b: vec4) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) + Math.abs(a.z - b.z) + Math.abs(a.w - b.w) < 1e-4
+
+/** Mixes two colours, k from 0 (a) to 1 (b). */
+export const mixColor = (a: vec4, b: vec4, k: number) => new vec4(a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k, a.z + (b.z - a.z) * k, a.w + (b.w - a.w) * k)
