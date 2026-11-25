@@ -26,7 +26,7 @@
  *   Once a phone is paired, DELETE/PUT /dances/<id> and DELETE /dances/<id>/takes/<name> need its token (401 without).
  *   GET /dances/<id>/takes?section=n          the takes (all, or one section's): [{ name, section, speed, mirror, created, offset, number }]
  *   GET /dances/<id>/takes/<name>.mp4         one take;  DELETE /dances/<id>/takes/<name> removes it
- *   GET /                     the adjust page; GET /app.js is its script, bundled from server/page
+ *   GET /                     the phone app (phone.html, /phone.js, /theme.css, manifest, icons, fonts); the adjust page moved to GET /adjust, with GET /app.js its script, bundled from server/page
  *   GET /record               the phone recorder page; GET /record.js is its script
  *     4xx { error }                 a readable reason
  *
@@ -252,14 +252,29 @@ async function listReady(storageDir: string) {
 }
 
 const pageDir = fileURLToPath(new URL("./page/", import.meta.url))
+const fontDir = fileURLToPath(new URL("../design/phone-handoff/fonts/", import.meta.url))
+/** The phone app's static files, by URL path: where they live and their type. */
+const PHONE_STATIC: Record<string, [string, string]> = {
+  "/theme.css": [join(pageDir, "phone/theme.css"), "text/css; charset=utf-8"],
+  "/manifest.webmanifest": [join(pageDir, "phone/manifest.webmanifest"), "application/manifest+json"],
+}
+function phoneStaticFile(pathname: string): [string, string] | null {
+  const fixed = PHONE_STATIC[pathname]
+  if (fixed) return fixed
+  const icon = /^\/icons\/([a-z0-9-]+\.png)$/.exec(pathname)
+  if (icon) return [join(pageDir, "phone/icons", icon[1]), "image/png"]
+  const font = /^\/fonts\/((?:Sora|Inter)-\d{3}\.woff2)$/.exec(pathname)
+  if (font) return [join(fontDir, font[1]), "font/woff2"]
+  return null
+}
 const VIDEO_TYPES: Record<string, string> = { ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".m4v": "video/mp4" }
 
 const bundles = new Map<string, Promise<string>>()
 /** A page's script: server/page/<entry>.ts with whatever it imports (the adjust page, the lens's count logic), bundled once. */
-function pageScript(entry: "adjust" | "record"): Promise<string> {
+function pageScript(entry: "adjust" | "record" | "phone"): Promise<string> {
   let bundle = bundles.get(entry)
   if (!bundle) {
-    bundle = build({ entryPoints: [join(pageDir, `${entry}.ts`)], bundle: true, write: false, format: "esm", target: "es2020" })
+    bundle = build({ entryPoints: [join(pageDir, entry === "phone" ? "phone/main.ts" : `${entry}.ts`)], bundle: true, write: false, format: "esm", target: "es2020" })
       .then((r) => r.outputFiles[0].text)
       .catch((err) => {
         bundles.delete(entry)
@@ -391,6 +406,21 @@ export function createIngestServer(options: IngestOptions): Server {
         return send(res, 201, await draftFromLink(await readBody(req), options))
       }
       if (req.method === "GET" && url.pathname === "/") {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+        return void res.end(await readFile(join(pageDir, "phone.html")))
+      }
+      if (req.method === "GET" && url.pathname === "/phone.js") {
+        res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" })
+        return void res.end(await pageScript("phone"))
+      }
+      const phoneFile = req.method === "GET" ? phoneStaticFile(url.pathname) : null
+      if (phoneFile) {
+        const bytes = await readFile(phoneFile[0]).catch(() => null)
+        if (!bytes) return send(res, 404, { error: "Not found." })
+        res.writeHead(200, { "Content-Type": phoneFile[1] })
+        return void res.end(bytes)
+      }
+      if (req.method === "GET" && url.pathname === "/adjust") {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
         return void res.end(await readFile(join(pageDir, "adjust.html")))
       }

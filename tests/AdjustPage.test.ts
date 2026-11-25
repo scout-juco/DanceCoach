@@ -58,7 +58,7 @@ describe("the adjust page", () => {
   })
 
   it("serves the page and a script bundled with the lens's count logic", async () => {
-    const page = await fetch(`${base}/`)
+    const page = await fetch(`${base}/adjust`)
     expect(page.headers.get("content-type")).toMatch(/text\/html/)
     expect(await page.text()).toContain('src="/app.js"')
     const js = await fetch(`${base}/app.js`)
