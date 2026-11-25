@@ -8,6 +8,8 @@
  *   POST /dances/link         body = { url } (JSON): fetches the video with yt-dlp, then as an upload
  *     201 { package, confidence }   the same draft; its source is the link
  *   DELETE /dances/<id>       removes the dance and its files (200 { deleted: true })
+ *   GET /dances/<id>          { status: draft | processing {done,total} | failed {error} | ready }, for the phone's processing screen
+ *   GET /trending             the ready dances named in <storageDir>/trending.json (a list of ids), in that order, as GET /dances lists them
  *   GET /dances               the ready dances: [{ id, title, difficulty, sections, lengthSec, thumbnail, saved?, learned, added }]
  *                             (learned: the section numbers the paired Specs last said are learned; saved: "Save for later", set by PUT)
  *   GET /dances/<id>/package  a ready dance's package
@@ -188,7 +190,7 @@ async function cutIsCurrent(folder: string): Promise<boolean> {
 }
 
 /** Validates the adjusted package, cuts its clips and marks the dance ready. */
-async function saveDance(id: string, body: string, storageDir: string): Promise<DancePackage> {
+async function saveDance(id: string, body: string, storageDir: string, onProgress: (done: number, total: number) => void = () => {}): Promise<DancePackage> {
   const original = await findOriginal(storageDir, id)
   if (!original) throw new NotFoundError("There's no dance to save. Upload the video again.")
   let raw: any
@@ -218,10 +220,14 @@ async function saveDance(id: string, body: string, storageDir: string): Promise<
   const stagingOf = (name: string) => join(dir, `${name}.tmp`)
   const clearStaging = () => Promise.all(cut.map((c) => rm(stagingOf(c.name), { recursive: true, force: true })))
   await clearStaging()
+  // One step per cut and a last one for the swap, so the phone's processing screen has something to fill.
+  const steps = cut.length + 1
+  onProgress(0, steps)
   try {
-    for (const c of cut) {
+    for (const [i, c] of cut.entries()) {
       c.run(pkg, original, stagingOf(c.name))
       await writeFile(join(stagingOf(c.name), CUT_MARKER), CUT_VERSION)
+      onProgress(i + 1, steps)
     }
   } catch (err) {
     await clearStaging()
@@ -234,7 +240,24 @@ async function saveDance(id: string, body: string, storageDir: string): Promise<
     await rename(stagingOf(c.name), join(dir, c.name))
   }
   await rename(join(dir, "package.json.tmp"), join(dir, "package.json"))
+  onProgress(steps, steps)
   return pkg
+}
+
+/** A dance's state while the phone waits on it: a draft (uploaded, not saved), being cut, failed, or ready. */
+export type DanceStatus = { status: "draft" } | { status: "processing"; done: number; total: number } | { status: "failed"; error: string } | { status: "ready" }
+
+/** The ids in storageDir/trending.json that are ready, in the file's order. A missing or broken file is an empty list. */
+async function trending(storageDir: string, progress: Record<string, number[]>) {
+  let ids: unknown
+  try {
+    ids = JSON.parse(await readFile(join(storageDir, "trending.json"), "utf8"))
+  } catch {
+    return []
+  }
+  if (!Array.isArray(ids)) return []
+  const ready = new Map((await listReady(storageDir, progress)).map((d) => [d.id, d]))
+  return ids.flatMap((id) => (typeof id === "string" && ready.has(id) ? [ready.get(id)!] : []))
 }
 
 async function readReady(storageDir: string, id: string): Promise<DancePackage | null> {
@@ -317,6 +340,8 @@ async function sendFile(req: IncomingMessage, res: ServerResponse, file: string,
 export function createIngestServer(options: IngestOptions): Server {
   const recorder = new Recorder(options)
   const link = new Link({ now: options.now })
+  /** Dances being saved or that failed to save; a ready or untouched dance has no entry. */
+  const saving = new Map<string, DanceStatus>()
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost")
     const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1]
@@ -445,6 +470,9 @@ export function createIngestServer(options: IngestOptions): Server {
         res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" })
         return void res.end(await pageScript("record"))
       }
+      if (req.method === "GET" && url.pathname === "/trending") {
+        return send(res, 200, await trending(options.storageDir, link.progress()))
+      }
       if (req.method === "GET" && url.pathname === "/dances") {
         return send(res, 200, await listReady(options.storageDir, link.progress()))
       }
@@ -452,8 +480,22 @@ export function createIngestServer(options: IngestOptions): Server {
       if (route) {
         const [, id, what, clipFile, stillFile] = route
         if (req.method === "PUT" && !what) {
-          const pkg = await saveDance(id, await readBody(req), options.storageDir)
-          return send(res, 200, { package: pkg })
+          saving.set(id, { status: "processing", done: 0, total: 1 })
+          try {
+            const pkg = await saveDance(id, await readBody(req), options.storageDir, (done, total) => saving.set(id, { status: "processing", done, total }))
+            saving.delete(id)
+            return send(res, 200, { package: pkg })
+          } catch (err) {
+            saving.set(id, { status: "failed", error: err instanceof UploadError || err instanceof NotFoundError ? err.message : "Something went wrong on the server." })
+            throw err
+          }
+        }
+        if (req.method === "GET" && !what) {
+          const known = saving.get(id)
+          if (known) return send(res, 200, known)
+          if (await readReady(options.storageDir, id)) return send(res, 200, { status: "ready" })
+          if (await findOriginal(options.storageDir, id)) return send(res, 200, { status: "draft" })
+          throw new NotFoundError("There's no such dance.")
         }
         if (req.method === "DELETE" && !what) {
           if (!ID_PATTERN.test(id) || !(await exists(join(options.storageDir, id)))) throw new NotFoundError("There's no such dance.")
