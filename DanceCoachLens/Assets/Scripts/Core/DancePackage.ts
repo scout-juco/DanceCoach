@@ -42,6 +42,8 @@ export interface DancePackage {
   stills?: string[][]
   /** Where the tutorial came from (for credit; not shown in Milestone 1). */
   source: string
+  /** "Save for later" on the phone: the dance sits in the Library's Saved tab until it is practised. */
+  saved?: boolean
 }
 
 /** 8 counts, each with its "&". */
@@ -73,6 +75,7 @@ export function loadDancePackage(raw: unknown): DancePackage {
       if (i > 0 && s.start <= p.sections[i - 1].start) fail("sections must be in order")
     })
   }
+  if (p.saved !== undefined && typeof p.saved !== "boolean") fail("saved must be true or false")
   if (p.focus !== undefined) {
     const f = p.focus
     if (![f.x, f.y, f.w, f.h].every(isNum)) fail("focus needs numeric x, y, w, h")

@@ -173,6 +173,11 @@ export class Link {
     return { specs: alive ? "connected" : "not-connected", state: this.states.get(specsId), serverTime: t }
   }
 
+  /** Learned section numbers per dance, from the paired Specs' last state (empty before it has said). */
+  progress(): Record<string, number[]> {
+    return (this.pairing && this.states.get(this.pairing.specsId)?.progress) || {}
+  }
+
   /** A phone that doesn't say who it is (the old recorder page) still counts as a phone for the Specs. */
   phoneSeen() {
     this.lastPhoneBeat = this.now()

@@ -1,7 +1,8 @@
 /** The phone app's entry: token, link poller, hash router. Served at / as phone.js. */
 import { LinkPoller, TOKEN_KEY, type PollerDeps } from "./linkState"
 import { resolveRoute } from "./router"
-import { homeScreen, kitScreen, pairScreen, showNotConnected, type Ctx, type Screen } from "./screens"
+import { comingScreen, libraryScreen } from "./libraryScreen"
+import { kitScreen, pairScreen, showNotConnected, type Ctx, type Screen } from "./screens"
 
 function readToken(): string | null {
   try {
@@ -36,6 +37,7 @@ const deps: PollerDeps = {
 const link = new LinkPoller(deps)
 const ctx: Ctx = {
   link,
+  getToken: readToken,
   setToken: writeToken,
   go: (hash) => {
     location.hash = hash
@@ -50,7 +52,9 @@ function render() {
   const { route, hash } = resolveRoute(location.hash, readToken() !== null)
   if (location.hash !== hash) history.replaceState(null, "", hash)
   current?.dispose()
-  current = route === "pair" ? pairScreen(ctx) : route === "kit" ? kitScreen(ctx) : homeScreen(ctx)
+  // P2, P4 and P5 are other tickets: stand-ins until they land.
+  const screens = { pair: () => pairScreen(ctx), kit: () => kitScreen(ctx), add: () => comingScreen(ctx, "Add a dance"), dance: () => comingScreen(ctx, "Ready to learn"), practice: () => comingScreen(ctx, "While you practice"), home: () => libraryScreen(ctx) }
+  current = screens[route]()
   app.replaceChildren(current.root)
   window.scrollTo(0, 0)
 }
@@ -62,7 +66,7 @@ link.subscribe((s) => {
   const was = last
   last = s.status
   if (s.status === "unpaired" && was !== "unpaired" && resolveRoute(location.hash, readToken() !== null).route === "pair") render()
-  else if (was === "connected" && s.status === "not-connected" && resolveRoute(location.hash, true).route === "home") showNotConnected(ctx)
+  else if (was === "connected" && s.status === "not-connected" && ["home", "practice"].includes(resolveRoute(location.hash, true).route)) showNotConnected(ctx)
 })
 
 window.addEventListener("hashchange", render)

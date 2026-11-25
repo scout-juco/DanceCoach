@@ -20,6 +20,10 @@ export interface DanceListing {
   sections?: number
   /** The routine's length in seconds, when the source knows. */
   lengthSec?: number
+  /** The name of a still that stands for the dance on its card (one of the package's stills), when it has stills. */
+  thumbnail?: string
+  /** Set aside with "Save for later" on the phone. */
+  saved?: boolean
 }
 
 /** A dance's clips, ready to play: players[i] and textures[i] are the same clip. */
@@ -43,4 +47,6 @@ export interface DanceSource<T> {
   list(): Promise<DanceListing[]>
   /** Rejects if there is no dance with this name, or it can't be loaded. onProgress is told how much is in, 0 to 1. */
   load(name: string, onProgress?: (fraction: number) => void): Promise<LoadedDance<T>>
+  /** The listing's thumbnail still as a texture, or null when it has none. Optional: a source without it shows no thumbnails. */
+  thumbnail?(listing: DanceListing): Promise<T | null>
 }

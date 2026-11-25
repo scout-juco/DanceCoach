@@ -1,5 +1,5 @@
-/** The screens built in this ticket: pair, a home that waits for the library, the not-connected sheet and the kit page. */
-import { backHeader, button, chip, el, icon, iconButton, input, sectionsBar, sectionsLearnedText, segmented, setStatusChip, sheet, statusChip, thumbnail } from "./kit"
+/** Pair, the not-connected sheet and the kit page; the Library is in libraryScreen. */
+import { backHeader, button, chip, el, icon, iconButton, input, sectionsBar, sectionsLearnedText, segmented, sheet, statusChip, thumbnail } from "./kit"
 import { ICON_PATHS, type IconName } from "./icons"
 import { cleanCode, pair } from "./pairing"
 import type { LinkPoller } from "./linkState"
@@ -12,6 +12,7 @@ export interface Screen {
 
 export interface Ctx {
   link: LinkPoller
+  getToken: () => string | null
   setToken: (t: string | null) => void
   go: (hash: string) => void
 }
@@ -56,15 +57,6 @@ export function pairScreen(ctx: Ctx): Screen {
     if (e.key === "Enter") void submit()
   })
   return { root, dispose: () => {} }
-}
-
-/** Home until the library ticket lands: the header with the live status chip, so the link is visible end to end. */
-export function homeScreen(ctx: Ctx): Screen {
-  const root = el("main", "screen")
-  const chipEl = statusChip(false, () => ctx.link.snapshot.status !== "connected" && showNotConnected(ctx))
-  root.append(el("div", "header-row", {}, el("h1", "display", {}, "Your dances"), chipEl), el("p", "body-text", {}, "Your library appears here."))
-  const off = ctx.link.subscribe((s) => setStatusChip(chipEl, s.status === "connected"))
-  return { root, dispose: off }
 }
 
 let openSheet: { close: () => void } | null = null

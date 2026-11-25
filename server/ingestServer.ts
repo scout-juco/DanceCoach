@@ -8,7 +8,8 @@
  *   POST /dances/link         body = { url } (JSON): fetches the video with yt-dlp, then as an upload
  *     201 { package, confidence }   the same draft; its source is the link
  *   DELETE /dances/<id>       removes the dance and its files (200 { deleted: true })
- *   GET /dances               the ready dances: [{ id, title, difficulty, sections, lengthSec, thumbnail }]
+ *   GET /dances               the ready dances: [{ id, title, difficulty, sections, lengthSec, thumbnail, saved?, learned, added }]
+ *                             (learned: the section numbers the paired Specs last said are learned; saved: "Save for later", set by PUT)
  *   GET /dances/<id>/package  a ready dance's package
  *   GET /dances/<id>/clips/<name>  one of its clips, named <video>_<clip id>.mp4
  *   GET /dances/<id>/stills/<name> one of its stills (a JPEG per half-count), as listed in the package's stills
@@ -245,10 +246,18 @@ async function readReady(storageDir: string, id: string): Promise<DancePackage |
   }
 }
 
-async function listReady(storageDir: string) {
+/** The ready dances, each with the sections learned (from the Specs' last state) and when it was added (ms), for the phone's Library. */
+async function listReady(storageDir: string, progress: Record<string, number[]> = {}) {
   const ids = await readdir(storageDir).catch(() => [] as string[])
-  const ready = await Promise.all(ids.map((id) => readReady(storageDir, id)))
-  return ready.flatMap((p) => (p ? [listingOf(p)] : []))
+  const ready = await Promise.all(
+    ids.map(async (id) => {
+      const pkg = await readReady(storageDir, id)
+      if (!pkg) return []
+      const added = (await stat(join(storageDir, id)).catch(() => null))?.birthtimeMs ?? 0
+      return [{ ...listingOf(pkg), learned: progress[id] ?? [], added: Math.round(added) }]
+    }),
+  )
+  return ready.flat()
 }
 
 const pageDir = fileURLToPath(new URL("./page/", import.meta.url))
@@ -437,7 +446,7 @@ export function createIngestServer(options: IngestOptions): Server {
         return void res.end(await pageScript("record"))
       }
       if (req.method === "GET" && url.pathname === "/dances") {
-        return send(res, 200, await listReady(options.storageDir))
+        return send(res, 200, await listReady(options.storageDir, link.progress()))
       }
       const route = url.pathname.match(/^\/dances\/([^/]+)(?:\/(package|original|clips\/([^/]+)|stills\/([^/]+)))?$/)
       if (route) {

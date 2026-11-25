@@ -65,7 +65,13 @@ export function levelLabel(difficulty?: string): string {
   return `${"●".repeat(n)}${"○".repeat(3 - n)} ${difficulty.toUpperCase()}`.trim()
 }
 
+/** The still on a dance's card: Section 1 on count 5, a moment into the dance (its first still if that one's missing); undefined without stills. */
+export function thumbnailOf(pkg: DancePackage): string | undefined {
+  const first = pkg.stills && pkg.stills[0]
+  return first ? first[8] ?? first[0] : undefined
+}
+
 /** A dance package's entry in the list: its title and difficulty, how many sections it has and how long the routine is. */
 export function listingOf(pkg: DancePackage): DanceListing {
-  return { id: pkg.id, title: pkg.title, difficulty: pkg.difficulty, sections: new CountClock(pkg).sectionCount, lengthSec: Math.max(0, pkg.trim.end - pkg.trim.start) }
+  return { id: pkg.id, title: pkg.title, difficulty: pkg.difficulty, sections: new CountClock(pkg).sectionCount, lengthSec: Math.max(0, pkg.trim.end - pkg.trim.start), thumbnail: thumbnailOf(pkg), ...(pkg.saved ? { saved: true } : {}) }
 }
