@@ -166,6 +166,9 @@ export class PlaybackController {
    * hasStills is false for a dance with no stills (made Ready before M3): Pose can't open on it.
    * canLookback is false for a dance from the bundled source, which has no server to record against.
    */
+  // Lookback is on the whole routine (its Full tile), not a section.
+  private lookWhole = false
+
   constructor(readonly pkg: DancePackage, progress?: Partial<Progress>, private readonly hasStills = true, private readonly canLookback = true) {
     this.clock = new CountClock(pkg)
     const settings = { ...DEFAULT_SETTINGS, ...(progress && progress.settings) }
@@ -202,8 +205,14 @@ export class PlaybackController {
    * Opens the dance: the first look the first time, otherwise straight into Section 1's count-in.
    * The first look plays from where the top clip starts (Section 1's lead-in, when there's footage
    * for it) through the end of the routine, at 1×, with no count-in.
+   * `start` opens on that section instead (0 for the whole routine), as when the phone picks a dance.
    */
-  open(): ViewState {
+  open(start?: number): ViewState {
+    // The phone asked for a section (0 is the whole routine): straight to its count-in, the first look skipped (and so seen).
+    if (start !== undefined) {
+      this.state = { ...this.state, firstLookSeen: true }
+      return this.tapSection(start === 0 ? "full" : Math.min(Math.max(start, 1), this.clock.sectionCount))
+    }
     if (this.state.firstLookSeen) return this.tapSection(1)
     const s = this.state
     const lead = this.clock.leadIn(1)
@@ -372,9 +381,23 @@ export class PlaybackController {
     return this.toLanded(n, null)
   }
 
-  /** Opens Pose or Lookback on section n, the video paused on its start. */
-  private enter(mode: Mode, screen: ScreenId, n: number, toast: string | null = null): ViewState {
+  /**
+   * A section tile in Pose or Lookback: stays in the mode and moves to that section, the video paused on its start
+   * (Pose on D, Lookback on I). Anywhere else it is tapSection. Ignored while the controls are locked.
+   */
+  selectSection(n: number): ViewState {
     const s = this.state
+    if (s.controlsLocked) return s
+    if (s.mode === "Pose") return this.enter("Pose", "D", n)
+    // Section 0 is Lookback's Full tile: the whole routine, from section 1's start to the last section's end.
+    if (s.mode === "Lookback") return n === 0 ? this.enter("Lookback", "I", 1, null, true) : this.enter("Lookback", "I", n)
+    return this.tapSection(n)
+  }
+
+  /** Opens Pose or Lookback on section n, the video paused on its start. */
+  private enter(mode: Mode, screen: ScreenId, n: number, toast: string | null = null, whole = false): ViewState {
+    const s = this.state
+    this.lookWhole = mode === "Lookback" && whole
     if (toast) this.toastLeft = TOAST_SEC
     this.state = {
       ...s,
@@ -384,7 +407,7 @@ export class PlaybackController {
       count: 0,
       and: false,
       toast,
-      video: { ...s.video, seekTo: this.clock.sectionStart(n), seekId: s.video.seekId + 1, runEnd: this.clock.sectionEnd(n), playing: false, holdFrame: false, dim: false },
+      video: { ...s.video, seekTo: this.clock.sectionStart(n), seekId: s.video.seekId + 1, runEnd: this.clock.sectionEnd(whole ? this.clock.sectionCount : n), playing: false, holdFrame: false, dim: false },
     }
     return this.state
   }
@@ -392,7 +415,7 @@ export class PlaybackController {
   /** Lookback's recording has played the section out: the video goes back, paused, to its start. Ignored outside Lookback. */
   restartLookback(): ViewState {
     const s = this.state
-    return s.mode === "Lookback" ? this.enter("Lookback", s.screen, s.section) : s
+    return s.mode === "Lookback" ? this.enter("Lookback", s.screen, s.section, null, this.lookWhole) : s
   }
 
   /** Back to Playthrough on Clip ended for section n. */

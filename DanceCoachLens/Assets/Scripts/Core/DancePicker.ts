@@ -22,16 +22,21 @@ export const LIST_TIMEOUT_SEC = 8
 export const LOAD_TIMEOUT_SEC = 30
 
 export class DancePicker<T> {
-  /** Called with the dance once it has loaded; the picker is then closed. */
-  onLoaded: (loaded: LoadedDance<T>) => void = () => {}
+  /** Called with the dance once it has loaded (and the section the phone asked for, if it did); the picker is then closed. */
+  onLoaded: (loaded: LoadedDance<T>, section?: number) => void = () => {}
 
   private state: PickerView | null = null
   private dances: DanceListing[] = []
   private offline = false
   private picked: DanceListing | null = null
+  // A dance the phone asked for, waiting for the list to arrive.
+  private requested: { id: string; section?: number } | null = null
+  // The section the dance being loaded was asked to open at.
+  private pickedSection: number | undefined = undefined
   // Bumped whenever an answer in flight stops mattering.
   private generation = 0
   private waited = 0
+  private thumbnails = new Map<string, T>()
 
   /**
    * @param remote the server's dances
@@ -66,6 +71,29 @@ export class DancePicker<T> {
     if (listing) this.load(listing)
   }
 
+  /** The dances last listed (empty before a list has arrived). */
+  get listed(): DanceListing[] {
+    return this.dances
+  }
+
+  /**
+   * Opens a dance the phone asked for, by the same path as a pinch on its card: from the list it loads at once; otherwise the
+   * list is fetched (again, if a load was under way) and the dance loads when it arrives. A dance the list doesn't have is dropped.
+   * `section` goes to onLoaded.
+   */
+  request(id: string, section?: number) {
+    this.requested = { id, section }
+    if (this.state?.kind === "list") return this.resolveRequest()
+    if (this.state?.kind !== "loadingList") this.open()
+  }
+
+  private resolveRequest() {
+    const want = this.requested
+    this.requested = null
+    const listing = want && this.dances.find((d) => d.id === want.id)
+    if (want && listing) this.load(listing, want.section)
+  }
+
   /** From a could-not-load message, tries the same dance again; from the offline list, tries the server again. */
   retry() {
     if (this.state?.kind === "failed" && this.picked) this.load(this.picked)
@@ -87,8 +115,9 @@ export class DancePicker<T> {
     if (s.kind === "loadingDance" && this.waited >= LOAD_TIMEOUT_SEC) this.fail(this.generation)
   }
 
-  private load(listing: DanceListing) {
+  private load(listing: DanceListing, section?: number) {
     this.picked = listing
+    this.pickedSection = section
     const gen = this.begin({ kind: "loadingDance", title: listing.title, progress: 0 })
     const source = this.offline ? this.fallback : this.remote
     // Waiting for a dance is for it to stall, not for it to be big: progress starts the wait again.
@@ -101,7 +130,7 @@ export class DancePicker<T> {
       (loaded) => {
         if (gen !== this.generation) return
         this.state = null
-        this.onLoaded(loaded)
+        this.onLoaded(loaded, this.pickedSection)
       },
       () => this.fail(gen),
     )
@@ -124,6 +153,28 @@ export class DancePicker<T> {
     this.dances = dances
     this.offline = offline
     this.state = { kind: "list", dances, offline }
+    this.loadThumbnails(dances, offline ? this.fallback : this.remote)
+    if (this.requested) this.resolveRequest()
+  }
+
+  /** The thumbnail of a listed dance, once it has arrived. */
+  thumbnail(id: string): T | undefined {
+    return this.thumbnails.get(id)
+  }
+
+  /** Fetches each dance's thumbnail in the background; one that can't be had is just left out. */
+  private loadThumbnails(dances: DanceListing[], source: DanceSource<T>) {
+    if (!source.thumbnail) return
+    for (const dance of dances) {
+      if (this.thumbnails.has(dance.id)) continue
+      source.thumbnail(dance).then(
+        (texture) => {
+          // Kept by dance id, so it's still right if the list has been shown again since.
+          if (texture) this.thumbnails.set(dance.id, texture)
+        },
+        () => {},
+      )
+    }
   }
 
   private fail(gen: number) {

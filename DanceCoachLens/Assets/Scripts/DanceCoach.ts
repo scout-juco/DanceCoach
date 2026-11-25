@@ -11,13 +11,15 @@ import { CountClock } from "./Core/CountClock"
 import { DancePackage } from "./Core/DancePackage"
 import { DancePicker } from "./Core/DancePicker"
 import { DanceSource, LoadedDance } from "./Core/DanceSource"
+import { LinkClient, LinkCommand } from "./Core/LinkClient"
+import { buildSpecsState, SpecsState } from "./Core/LinkState"
 import { ClipRequest, LookbackController, LookbackView, SideBySideView } from "./Core/LookbackController"
 import { RemoteClip, RemoteDanceSource } from "./Core/RemoteDanceSource"
 import { TakesClient } from "./Core/TakesClient"
 import { AND_CALL, CountCaller } from "./Core/CountCaller"
 import { PlaybackController, RoutineDoneChoice, SectionTap, Settings, VideoRequest, ViewState } from "./Core/PlaybackController"
 import { PoseController, PoseView } from "./Core/PoseController"
-import { decodeDoneSections, decodeSettings, doneSectionsKey, encodeDoneSections, encodeSettings, finishReadyKey, firstLookKey, SETTINGS_KEY } from "./Core/SettingsStore"
+import { decodeDoneSections, decodeSettings, doneSectionsKey, encodeDoneSections, decodeLink, encodeLink, encodeSettings, finishReadyKey, firstLookKey, LINK_KEY, SETTINGS_KEY } from "./Core/SettingsStore"
 import { ClipPlayer, VideoDriver } from "./Core/VideoDriver"
 import { decodePlacement, encodePlacement, Placement, PLACEMENT_KEY } from "./Core/WindowPlacement"
 import { ModePanel } from "./UI/ModePanel"
@@ -27,6 +29,7 @@ import { DancePickerPanel } from "./UI/DancePickerPanel"
 import { DancesButton } from "./UI/DancesButton"
 import { panelsFor, PanelId, PLACEMENT, PxRect, SCREENS } from "./UI/Layout"
 import { LookPanel } from "./UI/LookPanel"
+import { PairingCard } from "./UI/PairingCard"
 import { PopupCard } from "./UI/PopupCard"
 import { RecordCountdown } from "./UI/RecordCountdown"
 import { RecordPopup } from "./UI/RecordPopup"
@@ -129,6 +132,9 @@ export class DanceCoach extends BaseScriptComponent {
   // The server's takes API; null without a server.
   private takesClient: TakesClient | null = null
   private pollingStatus = false
+  // The link to the phone: beats the state to the server and carries out the phone's commands; null without a server.
+  private link: LinkClient | null = null
+  private pairing: PairingCard
   // True while screen K is up: when it ends, the video goes back to the section's start.
   private recordingShown = false
   // Side by side (M): the take's window beside the original, its driver, and the takes downloaded so far (by dance and name).
@@ -163,6 +169,7 @@ export class DanceCoach extends BaseScriptComponent {
   private panels: Partial<Record<PanelId, PxRect>> | null = null
   private placeLeft = PLACE_SETTLE_SEC
   private resize: WindowResize
+  private grab: WindowGrab
   // Where the window goes on start: the saved placement, or the default on first launch.
   private placement: Placement = PLACEMENT
   // Where you stood and faced (flat) when the window was placed; placements are saved relative to it.
@@ -179,7 +186,7 @@ export class DanceCoach extends BaseScriptComponent {
     const onClipReady = () => this.videoWindow.fitVideo()
     const bundled = new BundledDanceSource(this.videoClips, onClipReady, this.poseStills)
     this.picker = new DancePicker(this.remoteSource(onClipReady), bundled)
-    this.picker.onLoaded = (loaded) => this.beginDance(loaded)
+    this.picker.onLoaded = (loaded, section) => this.beginDance(loaded, section)
     const saved = decodePlacement(global.persistentStorageSystem.store.getString(PLACEMENT_KEY))
     if (saved) this.placement = saved
     this.createEvent("OnStartEvent").bind(() => this.start())
@@ -192,6 +199,10 @@ export class DanceCoach extends BaseScriptComponent {
       const transport = new LensTransport(this.internetModule, this.remoteMediaModule, onClipReady)
       const remote = new RemoteDanceSource(this.serverUrl, transport)
       this.takesClient = new TakesClient(this.serverUrl, transport)
+      const store = global.persistentStorageSystem.store
+      this.link = new LinkClient(this.serverUrl, transport, decodeLink(store.getString(LINK_KEY)), () => `specs-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`)
+      this.link.onSave = (saved) => store.putString(LINK_KEY, encodeLink(saved))
+      this.link.onCommand = (command) => this.runCommand(command)
       // Failures show in the picker only as "offline" or "couldn't load", so log why.
       const logged = <T>(what: string, p: Promise<T>) =>
         p.catch((err) => {
@@ -201,6 +212,7 @@ export class DanceCoach extends BaseScriptComponent {
       return {
         list: () => logged(`listing dances from ${this.serverUrl}`, remote.list()),
         load: (name, onProgress) => logged(`loading ${name}`, remote.load(name, onProgress)),
+        thumbnail: (listing) => remote.thumbnail(listing),
       }
     }
     print("DanceCoach: Internet Module, Remote Media Module or Server Url isn't set; offering the bundled test dance")
@@ -209,7 +221,7 @@ export class DanceCoach extends BaseScriptComponent {
   }
 
   /** A dance has loaded: set up its playback and show the window. */
-  private beginDance(loaded: LoadedDance<Texture>) {
+  private beginDance(loaded: LoadedDance<Texture>, section?: number) {
     this.loaded = loaded
     this.dance = loaded.dance
     print(`DanceCoach: playing ${this.dance.title}${loaded.clips ? "" : " (no clips; stand-in clock)"}`)
@@ -244,11 +256,18 @@ export class DanceCoach extends BaseScriptComponent {
       this.placeLeft = PLACE_SETTLE_SEC
       this.originSet = false
     }
-    this.render(this.controller.open())
+    // The phone may have asked for a section: it counts in at once, without the first look.
+    this.render(this.controller.open(section))
   }
 
   /** Back to the list of dances: stops this dance, hides its panels and window, and lists again. */
   private leaveDance() {
+    this.stopDance()
+    this.picker.open()
+  }
+
+  /** Stops the open dance and hides its panels and window, leaving the picker to be opened. */
+  private stopDance() {
     print("DanceCoach: back to the dance list")
     if (this.driver) this.driver.stop()
     this.driver = null
@@ -259,7 +278,39 @@ export class DanceCoach extends BaseScriptComponent {
     this.render({ ...this.controller.view, countIn: null, popup: null })
     this.picking = true
     this.showWindow(false)
-    this.picker.open()
+  }
+
+  /** A command from the phone: open a dance (at a section) through the picker, or go back to Pick a dance. */
+  private runCommand(command: LinkCommand) {
+    print(`DanceCoach: phone command: ${command.type}`)
+    if (command.type === "end-session") {
+      if (!this.picking) this.leaveDance()
+      return
+    }
+    if (!this.picking) this.stopDance()
+    this.picker.request(command.danceId, command.section)
+  }
+
+  /** What the phone is told: the dance, section, mode and settings now, and the saved progress of every dance the Lens knows. */
+  private specsState(): SpecsState {
+    const playing = !this.picking && !!this.controller
+    const view = playing ? this.controller.view : null
+    const store = global.persistentStorageSystem.store
+    const ids = this.picker.listed.map((d) => d.id)
+    if (playing && !ids.includes(this.dance.id)) ids.push(this.dance.id)
+    return buildSpecsState({
+      danceId: playing ? this.dance.id : undefined,
+      mode: view ? view.mode : "Playthrough",
+      section: view ? view.section : 0,
+      wholeRoutine: !!view && view.runKind === "full",
+      modeSection: this.poseView ? this.poseView.section : this.lookbackView ? this.lookbackView.section : undefined,
+      speed: view ? view.settings.speed : 1,
+      mirror: view ? view.settings.mirror : false,
+      running: !!view && view.mode === "Playthrough" && (view.countIn !== null || view.video.playing),
+      lookbackRecording: !!this.lookbackView && !!this.lookbackView.record && this.lookbackView.record.phase === "recording",
+      danceIds: ids,
+      savedProgress: (id) => store.getString(doneSectionsKey(id)),
+    })
   }
 
   /**
@@ -348,9 +399,12 @@ export class DanceCoach extends BaseScriptComponent {
     this.popup = childObject("Popup", this.getSceneObject()).createComponent(PopupCard.getTypeName()) as PopupCard
     this.popup.setup(this.camera)
     this.popup.onChoose = (choice) => this.chooseRoutineDone(choice)
+    this.pairing = childObject("PairingCard", this.getSceneObject()).createComponent(PairingCard.getTypeName()) as PairingCard
+    this.pairing.setup(this.camera)
     // Drag the video to move the window. The video's smallest rect (Clip ended) is inside
     // it on every screen, so the grab area never covers a button.
     const grab = childObject("Grab", plane).createComponent(WindowGrab.getTypeName()) as WindowGrab
+    this.grab = grab
     grab.setup(this.windowRoot, SCREENS.C.video)
     grab.onMoving = () => {
       this.userMoved = true
@@ -376,6 +430,7 @@ export class DanceCoach extends BaseScriptComponent {
     this.pickerPanel.setup(this.camera)
     // Each card's status comes from what was saved, without loading the dance.
     this.pickerPanel.progressFor = (id) => decodeDoneSections(global.persistentStorageSystem.store.getString(doneSectionsKey(id)))
+    this.pickerPanel.thumbnailFor = (id) => this.picker.thumbnail(id) ?? null
     this.pickerPanel.onPick = (id) => this.picker.pick(id)
     this.pickerPanel.onRetry = () => this.picker.retry()
     this.pickerPanel.onList = () => this.picker.back()
@@ -414,12 +469,33 @@ export class DanceCoach extends BaseScriptComponent {
   }
 
   private tapSection(id: SectionTap) {
+    // In Pose and Lookback a tile moves to that section and stays in the mode (the tiles have no Full there).
+    if (this.poseView && typeof id === "number") return this.selectSection(id)
+    // Lookback's Full tile is the whole routine's takes: section 0.
+    if (this.lookbackView) return this.selectSection(id === "full" ? 0 : id)
     this.render(this.controller.tapSection(id))
+  }
+
+  /** A section tile in Pose or Lookback: reopens the mode on that section, the video paused on its start. */
+  private selectSection(n: number) {
+    const view = this.controller.selectSection(n)
+    if (this.poseView) {
+      this.pose.enter(n, view.sectionCount, view.settings.halfCounts)
+      this.poseView = this.pose.aim()
+    } else if (this.lookbackView) {
+      print(`DanceCoach: Lookback on Section ${n}`)
+      this.lookbackView = this.lookback.enter(n)
+      this.listTakes(n)
+    }
+    this.render(view)
   }
 
   private chooseRoutineDone(choice: RoutineDoneChoice) {
     print(`DanceCoach: Routine done: ${choice}`)
-    this.render(this.controller.routineDone(choice))
+    const view = this.controller.routineDone(choice)
+    // Back to dances closes the pop-up, then leaves for the list like the "‹ Dances" button.
+    if (choice === "back") return this.leaveDance()
+    this.render(view)
   }
 
   private press(command: ModeControl) {
@@ -475,7 +551,9 @@ export class DanceCoach extends BaseScriptComponent {
   private switchMode(view: ViewState) {
     if (view.mode === "Pose" && !this.poseView) {
       print(`DanceCoach: Pose on Section ${view.section}`)
-      this.poseView = this.pose.enter(view.section, view.sectionCount, view.settings.halfCounts)
+      this.pose.enter(view.section, view.sectionCount, view.settings.halfCounts)
+      // Picked on the mode panel, so the hand is on it: Pose opens on its bar (E), which the switch grows the panel into (§6.8a).
+      this.poseView = this.pose.aim()
     } else if (view.mode !== "Pose" && this.poseView) {
       print(`DanceCoach: back to Playthrough on Section ${view.section}`)
       this.poseView = null
@@ -533,9 +611,15 @@ export class DanceCoach extends BaseScriptComponent {
     if (!this.lookbackView) return
     const c = this.controller
     const v = c.view
-    const range = { start: c.clock.sectionStart(v.section), end: c.clock.sectionEnd(v.section) }
+    const range = this.lookRange(this.lookbackView.section)
     this.lookbackView = again ? this.lookback.recordAgain(v.settings.speed, v.settings.mirror, range) : this.lookback.tapRecord(v.settings.speed, v.settings.mirror, range)
     this.render(v)
+  }
+
+  /** Where a Lookback section sits in the original video: section 0 is the whole routine, section 1's start to the last section's end. */
+  private lookRange(section: number): { start: number; end: number } {
+    const clock = this.controller.clock
+    return section === 0 ? { start: clock.sectionStart(1), end: clock.sectionEnd(clock.sectionCount) } : { start: clock.sectionStart(section), end: clock.sectionEnd(section) }
   }
 
   /** Play side by side: the take's video is fetched if it hasn't been, then M opens. */
@@ -543,7 +627,8 @@ export class DanceCoach extends BaseScriptComponent {
     if (!this.lookbackView) return
     const c = this.controller
     const v = c.view
-    this.lookbackView = this.lookback.playSideBySide({ start: c.clock.sectionStart(v.section), end: c.clock.sectionEnd(v.section), beatSec: c.clock.beatSec })
+    const { start, end } = this.lookRange(this.lookbackView.section)
+    this.lookbackView = this.lookback.playSideBySide({ start, end, beatSec: c.clock.beatSec, sections: this.lookbackView.section === 0 ? c.clock.sectionCount : undefined })
     this.carryOutRequests()
     this.render(v)
   }
@@ -620,11 +705,11 @@ export class DanceCoach extends BaseScriptComponent {
   private videoRequest(): VideoRequest {
     const video = this.controller.view.video
     const sbs = this.sideBySide()
-    if (sbs) return this.clipRequest(sbs.originalClip, this.controller.clock.sectionEnd(this.lookbackView!.section), SBS_SEEK_BASE)
+    if (sbs) return this.clipRequest(sbs.originalClip, this.lookRange(this.lookbackView!.section).end, SBS_SEEK_BASE)
     const record = this.lookbackView ? this.lookbackView.record : null
     if (record && record.phase !== "confirm") {
       // The clip starts at the section's lead-in (the last 4 counts before it), which the server counts on to find count 1 in the take.
-      const lead = this.controller.clock.leadIn(this.lookbackView!.section)
+      const lead = this.controller.clock.leadIn(Math.max(1, this.lookbackView!.section))
       return { ...video, seekTo: lead ? lead.start : video.seekTo, seekId: RECORD_SEEK_BASE + video.seekId, playing: record.phase === "recording", rate: record.speed, holdFrame: false, dim: false }
     }
     return video
@@ -687,7 +772,8 @@ export class DanceCoach extends BaseScriptComponent {
   /** The playback view with Lookback's screen over it: I or L, J dimmed, or K with the recording's progress. */
   private lookbackOver(playView: ViewState, look: LookbackView): ViewState {
     if (look.screen === "J") return { ...playView, screen: "J", video: { ...playView.video, dim: true } }
-    if (look.screen === "M" && look.sideBySide) return { ...playView, screen: "M", countIn: null, count: look.sideBySide.count, and: false, video: { ...playView.video, dim: false } }
+    // A whole routine's count runs past 8: the overlay shows it within its section.
+    if (look.screen === "M" && look.sideBySide) return { ...playView, screen: "M", countIn: null, count: ((look.sideBySide.count - 1) % 8) + 1, and: false, video: { ...playView.video, dim: false } }
     if (look.screen === "K" && look.record) return { ...playView, screen: "K", countIn: null, runProgress: look.record.progress, video: { ...playView.video, dim: false } }
     return { ...playView, screen: look.screen }
   }
@@ -718,6 +804,12 @@ export class DanceCoach extends BaseScriptComponent {
       this.placeLeft -= dt
       this.placeWindow()
       if (this.placeLeft <= 0) this.stopPlacing()
+    }
+    if (this.link) {
+      this.link.tick(dt, () => this.specsState())
+      // The card is up while unpaired; once paired it closes and stays closed.
+      const link = this.link.view
+      this.pairing.render(link.paired === false ? link.pairCode : null)
     }
     if (this.picking) {
       this.picker.tick(dt)
@@ -816,10 +908,11 @@ export class DanceCoach extends BaseScriptComponent {
     this.recordCountdown.render(view, this.lookbackView)
     this.recordPopup.render(this.lookbackView)
     this.resize.render(view, this.poseView, this.lookbackView)
+    this.grab.render(view, this.poseView, this.lookbackView)
     this.countIn.render(view)
     this.progress.render(view)
     this.segBar.render(view)
-    this.sections.render(view)
+    this.sections.render(view, this.poseView ? this.poseView.section : this.lookbackView ? this.lookbackView.section : null)
     this.controls.render(view, this.lookbackView, this.poseView)
     this.toast.render(view)
     this.skip.render(view)

@@ -17,3 +17,10 @@ export function routineDoneEyebrow(view: Pick<ViewState, "runKind" | "section" |
 
 /** Record lookback?'s Speed · mirror row: "0.75× · ON". */
 export const speedMirrorLabel = (speed: number, mirror: boolean) => `${speedLabel(speed)} · ${mirror ? "ON" : "OFF"}`
+
+export const PAIR_TITLE = "Pair your phone"
+export const PAIR_BODY = "Open Dance Coach on your phone\nand type this number."
+export const PAIR_WAITING = "Waiting for your phone"
+
+/** The pairing code spaced out so each digit reads on its own: "4729" → "4 7 2 9". */
+export const pairCodeText = (code: string) => code.split("").join(" ")

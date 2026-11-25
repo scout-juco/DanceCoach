@@ -106,3 +106,15 @@ describe("First look", () => {
     expect(pc.view).toMatchObject({ screen: "C", section: 1, doneSections: [1], controlsLocked: false })
   })
 })
+
+describe("Opening at a section (the phone picked it)", () => {
+  it("skips the first look, marks it seen and counts in the section", () => {
+    const pc = new PlaybackController(makeDance())
+    expect(pc.open(2)).toMatchObject({ screen: "B0", runKind: "section", section: 2, runSection: 2, countIn: { number: 5 }, firstLookSeen: true })
+  })
+
+  it("0 is the whole routine, and a section out of range is brought in range", () => {
+    expect(new PlaybackController(makeDance()).open(0)).toMatchObject({ runKind: "full", runStop: 3 })
+    expect(new PlaybackController(makeDance()).open(9)).toMatchObject({ section: 3 })
+  })
+})

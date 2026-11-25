@@ -192,3 +192,54 @@ describe("DancePicker", () => {
     expect((picker.view as { dances: unknown[] }).dances).toHaveLength(2)
   })
 })
+
+describe("DancePicker request (the phone opens a dance)", () => {
+  it("from the list, loads the dance by the pick path and passes the section on", async () => {
+    const { remote, picker } = await listed(["a", "b"])
+    const sections: (number | undefined)[] = []
+    picker.onLoaded = (_l, section) => sections.push(section)
+    picker.request("b", 3)
+    expect(picker.view).toMatchObject({ kind: "loadingDance", title: "Dance B" })
+    remote.loads[0].resolve(loaded("b"))
+    await flush()
+    expect(sections).toEqual([3])
+    expect(picker.view).toBeNull()
+  })
+
+  it("with no picker open, lists afresh then loads when the list arrives", async () => {
+    const { remote, picker } = setup()
+    const sections: (number | undefined)[] = []
+    picker.onLoaded = (_l, s) => sections.push(s)
+    picker.request("a", 0)
+    expect(picker.view).toEqual({ kind: "loadingList" })
+    remote.lists[0].resolve([listing("a")])
+    await flush()
+    expect(remote.loads[0].id).toBe("a")
+    remote.loads[0].resolve(loaded("a"))
+    await flush()
+    expect(sections).toEqual([0])
+  })
+
+  it("a dance the list doesn't have is dropped, leaving the list", async () => {
+    const { picker } = await listed(["a"])
+    picker.request("zzz")
+    expect(picker.view).toMatchObject({ kind: "list" })
+  })
+
+  it("a later pinch on a card opens at no section", async () => {
+    const { remote, picker } = await listed(["a"])
+    const sections: (number | undefined)[] = []
+    picker.onLoaded = (_l, s) => sections.push(s)
+    picker.request("a", 2)
+    picker.back()
+    picker.pick("a")
+    remote.loads[1].resolve(loaded("a"))
+    await flush()
+    expect(sections).toEqual([undefined])
+  })
+
+  it("lists the dances it has", async () => {
+    const { picker } = await listed(["a", "b"])
+    expect(picker.listed.map((d) => d.id)).toEqual(["a", "b"])
+  })
+})

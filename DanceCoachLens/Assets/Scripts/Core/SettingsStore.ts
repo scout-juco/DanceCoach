@@ -59,3 +59,22 @@ export function decodeDoneSections(raw: string | null | undefined, sectionCount:
   const ok = data.filter((n: any) => typeof n === "number" && Math.floor(n) === n && n >= 1 && n <= sectionCount)
   return ok.filter((n: number, i: number) => ok.indexOf(n) === i).sort((a: number, b: number) => a - b)
 }
+
+/** The persistent storage key for the link: this Lens's Specs id and whether a phone is paired (see encodeLink). */
+export const LINK_KEY = "danceCoach.link"
+
+export function encodeLink(link: { specsId: string; paired: boolean }): string {
+  return JSON.stringify({ specsId: link.specsId, paired: link.paired })
+}
+
+/** Reads the saved link; null when there is none or it is damaged. */
+export function decodeLink(raw: string | null | undefined): { specsId: string; paired: boolean } | null {
+  let data: any = null
+  try {
+    data = raw ? JSON.parse(raw) : null
+  } catch (e) {
+    data = null
+  }
+  if (!data || typeof data.specsId !== "string" || !data.specsId) return null
+  return { specsId: data.specsId, paired: data.paired === true }
+}
